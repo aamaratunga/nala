@@ -29,19 +29,48 @@ struct SessionRowView: View {
 
             Spacer()
 
-            // Right-side indicators
-            VStack(alignment: .trailing, spacing: 2) {
-                agentBadge
-
-                if session.changedFileCount > 0 {
-                    Label("\(session.changedFileCount)", systemImage: "doc.badge.plus")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-            }
+            agentBadge
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, 8)
+        .padding(.horizontal, 5)
+        .background(rowBackground)
+        .overlay(alignment: .leading) {
+            accentBar
+        }
     }
+
+    // MARK: - Row Highlight
+
+    @ViewBuilder
+    private var rowBackground: some View {
+        if let color = rowHighlightColor {
+            RoundedRectangle(cornerRadius: 6)
+                .fill(color.opacity(0.12))
+        }
+    }
+
+    @ViewBuilder
+    private var accentBar: some View {
+        if let color = rowHighlightColor {
+            color
+                .frame(width: 3)
+                .clipShape(UnevenRoundedRectangle(
+                    topLeadingRadius: 6,
+                    bottomLeadingRadius: 6,
+                    bottomTrailingRadius: 0,
+                    topTrailingRadius: 0
+                ))
+        }
+    }
+
+    private var rowHighlightColor: Color? {
+        if session.waitingForInput { return .orange }
+        if session.stuck { return .red }
+        if session.done { return .green }
+        return nil
+    }
+
+    // MARK: - Agent Badge
 
     private var agentBadge: some View {
         Text(session.agentType.capitalized)
@@ -54,11 +83,5 @@ struct SessionRowView: View {
             .clipShape(Capsule())
     }
 
-    private var agentColor: Color {
-        switch session.agentType {
-        case "claude": .orange
-        case "gemini": .blue
-        default: .gray
-        }
-    }
+    private var agentColor: Color { .secondary }
 }

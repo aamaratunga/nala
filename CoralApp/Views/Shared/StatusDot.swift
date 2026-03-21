@@ -8,19 +8,18 @@ struct StatusDot: View {
             .fill(color)
             .frame(width: 8, height: 8)
             .overlay {
-                if session.working {
+                if session.working && !session.done && !session.stuck && !session.waitingForInput {
                     Circle()
-                        .stroke(color.opacity(0.5), lineWidth: 2)
+                        .stroke(color.opacity(0.4), lineWidth: 1.5)
                         .frame(width: 14, height: 14)
                         .scaleEffect(pulseScale)
                         .opacity(pulseOpacity)
                         .animation(
-                            .easeInOut(duration: 1.0).repeatForever(autoreverses: true),
+                            .easeInOut(duration: 1.5).repeatForever(autoreverses: true),
                             value: session.working
                         )
                 }
             }
-
     }
 
     private var color: Color {

@@ -12,10 +12,6 @@ private enum SidebarItem: Identifiable, Equatable {
         case .session(let session, _): return session.id
         }
     }
-
-    static func == (lhs: SidebarItem, rhs: SidebarItem) -> Bool {
-        lhs.id == rhs.id
-    }
 }
 
 struct SessionListView: View {
@@ -104,6 +100,14 @@ struct SessionListView: View {
                 .lineLimit(1)
 
             Spacer()
+
+            let totalChanged = group.sessions.reduce(0) { $0 + $1.changedFileCount }
+
+            if totalChanged > 0 {
+                Label("\(totalChanged)", systemImage: "doc.badge.plus")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
 
             Text("\(group.sessions.count)")
                 .font(.caption2)
