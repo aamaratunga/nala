@@ -36,6 +36,7 @@ final class SessionStore {
         didSet { if !isSuppressingPersistence { saveFolderExpansion() } }
     }
 
+
     private(set) var apiClient = APIClient()
     private var webSocket: CoralWebSocket?
     private let logger = Logger(subsystem: "com.coral.app", category: "SessionStore")
@@ -194,10 +195,14 @@ final class SessionStore {
             }
         }
 
-        // Apply changes — match by sessionId first, then fall back to name
+        // Apply changes — match by composite key (sessionId if present, else name)
+        // to mirror the JavaScript diff logic: `(s.session_id || s.name) === key`
         for change in changed {
-            let idx = sessions.firstIndex(where: { $0.sessionId == change.sessionId && !change.sessionId.isEmpty })
-                   ?? sessions.firstIndex(where: { $0.name == change.name })
+            let changeKey = change.sessionId.isEmpty ? change.name : change.sessionId
+            let idx = sessions.firstIndex(where: {
+                let key = $0.sessionId.isEmpty ? $0.name : $0.sessionId
+                return key == changeKey
+            })
 
             if let idx {
                 var updated = change
