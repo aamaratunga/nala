@@ -8,41 +8,60 @@
 
 /* Begin PBXBuildFile section */
 		03476408E6824AB5CAFE4D24 /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = 0B5FBB6194B2A0BD5B1BE44E /* SwiftTerm */; };
+		05917A8C56508A78542A856B /* LaunchRequestTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47659228382542AB0B7B44E5 /* LaunchRequestTests.swift */; };
 		07BC9699EE306F772D3D98A2 /* SessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0EE5E6D2027EC2B823450F49 /* SessionStore.swift */; };
 		11A49F79CAB93FED75F13EDA /* SessionListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1864DB002A542409908ECBD3 /* SessionListView.swift */; };
 		17E2C8899DF06AE371788C16 /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = D79A1485035DE4D05047F604 /* APIClient.swift */; };
 		19DAE3E0EBBBFFF78EDCC03D /* ServerManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8065D02284CB252911E724B0 /* ServerManager.swift */; };
 		1C1481D08BD0D900047CF487 /* LaunchAgentSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEDE795CD7EB1F749FD20818 /* LaunchAgentSheet.swift */; };
 		2B918E92798AC7B98F897565 /* CommandInputView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBF58A276EFBCDED88FBFE4A /* CommandInputView.swift */; };
-
 		4E7EDCC9A5FAB5E95E8CDE04 /* SessionRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7CAB080FA8DB71565FFA7DD /* SessionRowView.swift */; };
+		59228F6413F6A8EE3B40BFBD /* TestHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10926C8ADD6242F9497396DE /* TestHelpers.swift */; };
 		6B9287A51A0915CBFBAD10CE /* TerminalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1EFD4CEDFBCC8C1978C8A43 /* TerminalView.swift */; };
 		7C623E75E7BE38323532980A /* Session.swift in Sources */ = {isa = PBXBuildFile; fileRef = E158502CB4D1ECBBB16A18DF /* Session.swift */; };
 		95A0A85A9FCE22CCF11FA75B /* CoralApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC357D9F795A7AB0C43066C3 /* CoralApp.swift */; };
 		97C10100BD2253767B09024D /* LaunchRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2624FB63A4C17E2E10C76016 /* LaunchRequest.swift */; };
+		9A183AC5B573AC1799933BEC /* SessionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36AAE19C5549F55E9AEC39A3 /* SessionTests.swift */; };
 		9DE88FFBC496B5797F95BEBD /* TerminalWebSocket.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C10D0761FAF424E8E791CB2 /* TerminalWebSocket.swift */; };
 		A71FC1E4865D34638FDB1D1C /* SessionDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CC658695A521A00A426C842 /* SessionDetailView.swift */; };
+		B702A9B02F6793C221AB19C2 /* WSEnvelopeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C81C9C0758A1D0458CDCF70A /* WSEnvelopeTests.swift */; };
 		C25D7A900B9CCD6A8D096B4D /* LoadingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E264D0341BAFD453D0E785C /* LoadingView.swift */; };
+		CA15AA19EC673F63236200F0 /* SessionStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7823D1C8C48B265CCCE1B113 /* SessionStoreTests.swift */; };
 		D308B9600E14E598E09446EA /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C151889272ED744F29772385 /* ContentView.swift */; };
 		EAF55BFBA30FF6858891F835 /* StatusDot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32DE040A2413C63DC90B0FD0 /* StatusDot.swift */; };
 		F6A1181753693D8D454B94B8 /* CoralWebSocket.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53E64546468C05F7E4BF2D28 /* CoralWebSocket.swift */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		11DC7B42BC89F8D3AFC9604D /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 628F220A3D74C5C5BEC10CBD /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 336EA1A04B625AB8DAC7DEB8;
+			remoteInfo = CoralApp;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
 		0EE5E6D2027EC2B823450F49 /* SessionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionStore.swift; sourceTree = "<group>"; };
+		10926C8ADD6242F9497396DE /* TestHelpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestHelpers.swift; sourceTree = "<group>"; };
 		1864DB002A542409908ECBD3 /* SessionListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionListView.swift; sourceTree = "<group>"; };
 		1C10D0761FAF424E8E791CB2 /* TerminalWebSocket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalWebSocket.swift; sourceTree = "<group>"; };
 		2624FB63A4C17E2E10C76016 /* LaunchRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchRequest.swift; sourceTree = "<group>"; };
 		32085BEFAF7A53294BA4BEE0 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		32DE040A2413C63DC90B0FD0 /* StatusDot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusDot.swift; sourceTree = "<group>"; };
+		36AAE19C5549F55E9AEC39A3 /* SessionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionTests.swift; sourceTree = "<group>"; };
 		3EA24C8BAC52EF9240D88653 /* CoralApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = CoralApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		47659228382542AB0B7B44E5 /* LaunchRequestTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchRequestTests.swift; sourceTree = "<group>"; };
 		4CC658695A521A00A426C842 /* SessionDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionDetailView.swift; sourceTree = "<group>"; };
 		53E64546468C05F7E4BF2D28 /* CoralWebSocket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoralWebSocket.swift; sourceTree = "<group>"; };
 		6E264D0341BAFD453D0E785C /* LoadingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoadingView.swift; sourceTree = "<group>"; };
+		7823D1C8C48B265CCCE1B113 /* SessionStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionStoreTests.swift; sourceTree = "<group>"; };
 		8065D02284CB252911E724B0 /* ServerManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerManager.swift; sourceTree = "<group>"; };
-
 		A1EFD4CEDFBCC8C1978C8A43 /* TerminalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalView.swift; sourceTree = "<group>"; };
+		A575A756179C98F028B6DA79 /* CoralAppTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CoralAppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		C151889272ED744F29772385 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		C81C9C0758A1D0458CDCF70A /* WSEnvelopeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WSEnvelopeTests.swift; sourceTree = "<group>"; };
 		CBF58A276EFBCDED88FBFE4A /* CommandInputView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandInputView.swift; sourceTree = "<group>"; };
 		CC357D9F795A7AB0C43066C3 /* CoralApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoralApp.swift; sourceTree = "<group>"; };
 		D79A1485035DE4D05047F604 /* APIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIClient.swift; sourceTree = "<group>"; };
@@ -78,6 +97,7 @@
 			isa = PBXGroup;
 			children = (
 				EAC833D634A5143346F0FA15 /* CoralApp */,
+				BC1797FDFB8815AB7EF81E4A /* CoralAppTests */,
 				C03C2C2BC5BC26CA8832B6DA /* Products */,
 			);
 			sourceTree = "<group>";
@@ -111,10 +131,23 @@
 			path = Detail;
 			sourceTree = "<group>";
 		};
+		BC1797FDFB8815AB7EF81E4A /* CoralAppTests */ = {
+			isa = PBXGroup;
+			children = (
+				47659228382542AB0B7B44E5 /* LaunchRequestTests.swift */,
+				7823D1C8C48B265CCCE1B113 /* SessionStoreTests.swift */,
+				36AAE19C5549F55E9AEC39A3 /* SessionTests.swift */,
+				10926C8ADD6242F9497396DE /* TestHelpers.swift */,
+				C81C9C0758A1D0458CDCF70A /* WSEnvelopeTests.swift */,
+			);
+			path = CoralAppTests;
+			sourceTree = "<group>";
+		};
 		C03C2C2BC5BC26CA8832B6DA /* Products */ = {
 			isa = PBXGroup;
 			children = (
 				3EA24C8BAC52EF9240D88653 /* CoralApp.app */,
+				A575A756179C98F028B6DA79 /* CoralAppTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -135,17 +168,9 @@
 				F3F46F80D722F65780143A5A /* Models */,
 				FFB2F82903B0C316CF7A7D4F /* Services */,
 				EA56AB1129E2475B4191EC69 /* Stores */,
-				EF6F865381DC5CA3BC48C2BC /* Utilities */,
 				099A1066EFE637F882822AD2 /* Views */,
 			);
 			path = CoralApp;
-			sourceTree = "<group>";
-		};
-		EF6F865381DC5CA3BC48C2BC /* Utilities */ = {
-			isa = PBXGroup;
-			children = (
-			);
-			path = Utilities;
 			sourceTree = "<group>";
 		};
 		F3F46F80D722F65780143A5A /* Models */ = {
@@ -171,6 +196,24 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		2A915E85FC6DCCE16245AF78 /* CoralAppTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = D2388E9028B83B78FE957DD7 /* Build configuration list for PBXNativeTarget "CoralAppTests" */;
+			buildPhases = (
+				396CA988C6A3B78056FBA729 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				5F2D71D296DB23218AA3DB4A /* PBXTargetDependency */,
+			);
+			name = CoralAppTests;
+			packageProductDependencies = (
+			);
+			productName = CoralAppTests;
+			productReference = A575A756179C98F028B6DA79 /* CoralAppTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 		336EA1A04B625AB8DAC7DEB8 /* CoralApp */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = AC0302DAAA3CBAD180F5AEE6 /* Build configuration list for PBXNativeTarget "CoralApp" */;
@@ -219,11 +262,24 @@
 			projectRoot = "";
 			targets = (
 				336EA1A04B625AB8DAC7DEB8 /* CoralApp */,
+				2A915E85FC6DCCE16245AF78 /* CoralAppTests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXSourcesBuildPhase section */
+		396CA988C6A3B78056FBA729 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				05917A8C56508A78542A856B /* LaunchRequestTests.swift in Sources */,
+				CA15AA19EC673F63236200F0 /* SessionStoreTests.swift in Sources */,
+				9A183AC5B573AC1799933BEC /* SessionTests.swift in Sources */,
+				59228F6413F6A8EE3B40BFBD /* TestHelpers.swift in Sources */,
+				B702A9B02F6793C221AB19C2 /* WSEnvelopeTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		7F07A51FC5DD842ED76CB317 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -250,7 +306,34 @@
 		};
 /* End PBXSourcesBuildPhase section */
 
+/* Begin PBXTargetDependency section */
+		5F2D71D296DB23218AA3DB4A /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 336EA1A04B625AB8DAC7DEB8 /* CoralApp */;
+			targetProxy = 11DC7B42BC89F8D3AFC9604D /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
 /* Begin XCBuildConfiguration section */
+		253DF1AC6785B26DD4CA1EAC /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.coral.CoralAppTests;
+				SDKROOT = macosx;
+				SWIFT_VERSION = 5.10;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Coral.app/Contents/MacOS/Coral";
+			};
+			name = Release;
+		};
 		4FCF279941894F16CB5CB5F8 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -311,6 +394,25 @@
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		86F6D0E990D5FF02EBFD7F41 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.coral.CoralAppTests;
+				SDKROOT = macosx;
+				SWIFT_VERSION = 5.10;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Coral.app/Contents/MacOS/Coral";
 			};
 			name = Debug;
 		};
@@ -431,6 +533,15 @@
 			buildConfigurations = (
 				EC8CF1462A66C849D300B37D /* Debug */,
 				D66A50505B511CFE1FB19E92 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		D2388E9028B83B78FE957DD7 /* Build configuration list for PBXNativeTarget "CoralAppTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				86F6D0E990D5FF02EBFD7F41 /* Debug */,
+				253DF1AC6785B26DD4CA1EAC /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;

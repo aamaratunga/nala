@@ -115,7 +115,7 @@ final class CoralWebSocket {
 
 // MARK: - Wire Types
 
-private struct WSEnvelope: Decodable {
+struct WSEnvelope: Decodable {
     let type: String
     var sessions: [Session]?
     var changed: [Session]?

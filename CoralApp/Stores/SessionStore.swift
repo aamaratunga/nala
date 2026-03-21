@@ -156,7 +156,7 @@ final class SessionStore {
 
     // MARK: - Diff Merge (mirrors websocket.js logic)
 
-    private func handleFullUpdate(_ newSessions: [Session]) {
+    func handleFullUpdate(_ newSessions: [Session]) {
         // Preserve commands from existing sessions (WS doesn't send them)
         let commandMap = Dictionary(
             sessions.map { ($0.id, $0.commands) },
@@ -182,7 +182,7 @@ final class SessionStore {
         Task { await fetchCommands() }
     }
 
-    private func handleDiff(changed: [Session], removed: [String]) {
+    func handleDiff(changed: [Session], removed: [String]) {
         // Apply removals
         if !removed.isEmpty {
             sessions.removeAll { session in
@@ -225,7 +225,7 @@ final class SessionStore {
     // MARK: - Order Reconciliation
 
     /// Prunes stale entries and appends newly discovered folders/sessions.
-    private func reconcileOrder() {
+    func reconcileOrder() {
         isSuppressingPersistence = true
         defer {
             isSuppressingPersistence = false

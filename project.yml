@@ -38,3 +38,28 @@ targets:
         CFBundleVersion: "1"
         LSMinimumSystemVersion: "15.0"
         NSMainStoryboardFile: ""
+
+  CoralAppTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - CoralAppTests
+    dependencies:
+      - target: CoralApp
+    settings:
+      base:
+        SWIFT_VERSION: "5.10"
+        MACOSX_DEPLOYMENT_TARGET: "15.0"
+        GENERATE_INFOPLIST_FILE: "YES"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Coral.app/Contents/MacOS/Coral"
+
+schemes:
+  CoralApp:
+    build:
+      targets:
+        CoralApp: all
+        CoralAppTests: [test]
+    test:
+      targets:
+        - CoralAppTests
