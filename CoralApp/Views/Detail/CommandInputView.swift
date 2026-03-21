@@ -7,7 +7,12 @@ private struct CommandTextView: NSViewRepresentable {
     @Binding var text: String
     let placeholder: String
     let isDisabled: Bool
+    let isBashMode: Bool
     let onSubmit: () -> Void
+    let onShiftTab: () -> Void
+    let onEnterBashMode: () -> Void
+    let onEmptyBackspace: () -> Void
+    let onEmptyEscape: () -> Void
     let onHeightChange: (CGFloat) -> Void
 
     func makeNSView(context: Context) -> NSScrollView {
@@ -47,26 +52,51 @@ private struct CommandTextView: NSViewRepresentable {
         }
         textView.isEditable = !isDisabled
         context.coordinator.onSubmit = onSubmit
+        context.coordinator.onShiftTab = onShiftTab
+        context.coordinator.isBashMode = isBashMode
+        context.coordinator.onEnterBashMode = onEnterBashMode
+        context.coordinator.onEmptyBackspace = onEmptyBackspace
+        context.coordinator.onEmptyEscape = onEmptyEscape
         context.coordinator.onHeightChange = onHeightChange
     }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(text: $text, onSubmit: onSubmit, onHeightChange: onHeightChange)
+        Coordinator(text: $text, isBashMode: isBashMode, onSubmit: onSubmit, onShiftTab: onShiftTab, onEnterBashMode: onEnterBashMode, onEmptyBackspace: onEmptyBackspace, onEmptyEscape: onEmptyEscape, onHeightChange: onHeightChange)
     }
 
     final class Coordinator: NSObject, NSTextViewDelegate {
         @Binding var text: String
+        var isBashMode: Bool
         var onSubmit: () -> Void
+        var onShiftTab: () -> Void
+        var onEnterBashMode: () -> Void
+        var onEmptyBackspace: () -> Void
+        var onEmptyEscape: () -> Void
         var onHeightChange: (CGFloat) -> Void
 
-        init(text: Binding<String>, onSubmit: @escaping () -> Void, onHeightChange: @escaping (CGFloat) -> Void) {
+        init(text: Binding<String>, isBashMode: Bool, onSubmit: @escaping () -> Void, onShiftTab: @escaping () -> Void, onEnterBashMode: @escaping () -> Void, onEmptyBackspace: @escaping () -> Void, onEmptyEscape: @escaping () -> Void, onHeightChange: @escaping (CGFloat) -> Void) {
             _text = text
+            self.isBashMode = isBashMode
             self.onSubmit = onSubmit
+            self.onShiftTab = onShiftTab
+            self.onEnterBashMode = onEnterBashMode
+            self.onEmptyBackspace = onEmptyBackspace
+            self.onEmptyEscape = onEmptyEscape
             self.onHeightChange = onHeightChange
         }
 
         func textDidChange(_ notification: Notification) {
             guard let tv = notification.object as? NSTextView else { return }
+
+            // Typing "!" on an empty input enters Claude's bash mode
+            if tv.string == "!" && !isBashMode {
+                tv.string = ""
+                text = ""
+                onEnterBashMode()
+                reportHeight(for: tv)
+                return
+            }
+
             text = tv.string
             reportHeight(for: tv)
         }
@@ -89,6 +119,21 @@ private struct CommandTextView: NSViewRepresentable {
                 }
                 // Shift+Enter → insert newline (default behavior)
             }
+            if selector == #selector(NSResponder.insertBacktab(_:)) {
+                // Shift+Tab → cycle Claude mode (Default → Plan → Accept Edits)
+                onShiftTab()
+                return true
+            }
+            // Backspace on empty → forward to Claude's terminal
+            if selector == #selector(NSResponder.deleteBackward(_:)) && textView.string.isEmpty {
+                onEmptyBackspace()
+                return true
+            }
+            // Escape on empty → forward to Claude's terminal
+            if selector == #selector(NSResponder.cancelOperation(_:)) && textView.string.isEmpty {
+                onEmptyEscape()
+                return true
+            }
             return false
         }
     }
@@ -101,6 +146,7 @@ struct CommandInputView: View {
     @Environment(SessionStore.self) private var store
     @State private var command = ""
     @State private var isSending = false
+    @State private var isBashMode = false
     @AppStorage("commandInputHeight") private var inputHeight: Double = 80
     @GestureState private var dragOffset: CGFloat = 0
 
@@ -119,16 +165,26 @@ struct CommandInputView: View {
             resizeHandle
 
             HStack(alignment: .bottom, spacing: 8) {
-            Image(systemName: "chevron.right")
-                .font(.callout)
-                .fontWeight(.semibold)
-                .foregroundStyle(.secondary)
-                .padding(.bottom, 2)
+            if isBashMode {
+                Text("$")
+                    .font(.system(.callout, design: .monospaced))
+                    .fontWeight(.bold)
+                    .foregroundStyle(.orange)
+                    .padding(.bottom, 2)
+            } else {
+                Image(systemName: "chevron.right")
+                    .font(.callout)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(.secondary)
+                    .padding(.bottom, 2)
+            }
 
             ZStack(alignment: .topLeading) {
                 // Placeholder
                 if command.isEmpty {
-                    Text("Send command to \(session.displayLabel)…")
+                    Text(isBashMode
+                         ? "Run shell command… (⌫ or ⎋ to exit)"
+                         : "Send command to \(session.displayLabel)…")
                         .font(.system(.body, design: .monospaced))
                         .foregroundStyle(.tertiary)
                         .padding(.top, 2)
@@ -139,7 +195,12 @@ struct CommandInputView: View {
                     text: $command,
                     placeholder: "Send command…",
                     isDisabled: isSending,
+                    isBashMode: isBashMode,
                     onSubmit: { sendCommand() },
+                    onShiftTab: { toggleMode() },
+                    onEnterBashMode: { enterBashMode() },
+                    onEmptyBackspace: { sendKeyToTerminal("BSpace"); isBashMode = false },
+                    onEmptyEscape: { sendKeyToTerminal("Escape"); isBashMode = false },
                     onHeightChange: { _ in }
                 )
                 .frame(height: effectiveHeight)
@@ -157,7 +218,7 @@ struct CommandInputView: View {
                         .font(.callout)
                 }
                 .buttonStyle(.borderless)
-                .foregroundStyle(hasText ? Color.accentColor : Color.secondary.opacity(0.4))
+                .foregroundStyle(hasText ? (isBashMode ? .orange : Color.accentColor) : Color.secondary.opacity(0.4))
                 .disabled(!hasText)
                 .padding(.bottom, 2)
             }
@@ -171,7 +232,7 @@ struct CommandInputView: View {
         )
         .overlay(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .strokeBorder(.quaternary, lineWidth: 0.5)
+                .strokeBorder(isBashMode ? AnyShapeStyle(.orange.opacity(0.4)) : AnyShapeStyle(.quaternary), lineWidth: 0.5)
         )
         .padding(.horizontal, 10)
         .padding(.vertical, 10)
@@ -203,12 +264,34 @@ struct CommandInputView: View {
             )
     }
 
+    private func sendKeyToTerminal(_ key: String) {
+        Task {
+            try? await store.apiClient.sendKeys(
+                sessionName: session.name,
+                keys: [key],
+                agentType: session.agentType,
+                sessionId: session.sessionId
+            )
+        }
+    }
+
+    private func toggleMode() {
+        sendKeyToTerminal("BTab")
+    }
+
+    private func enterBashMode() {
+        isBashMode = true
+        // Send "!" to Claude's terminal to activate its native bash mode
+        sendKeyToTerminal("!")
+    }
+
     private func sendCommand() {
         guard hasText else { return }
 
         isSending = true
         let cmd = command
         command = ""
+        isBashMode = false
 
         Task {
             defer { isSending = false }
