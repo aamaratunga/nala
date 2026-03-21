@@ -1,6 +1,15 @@
 import Foundation
 import os
 
+// MARK: - SessionGroup
+
+struct SessionGroup: Identifiable, Equatable {
+    let id: String
+    let label: String
+    let path: String
+    let sessions: [Session]
+}
+
 /// Central observable store for live session state. Owns the WebSocket
 /// connection and merges diffs into a flat session list.
 @Observable
@@ -10,9 +19,31 @@ final class SessionStore {
     var showingLaunchSheet = false
     var isConnected = false
 
+    // MARK: - Ordering State (persisted via UserDefaults)
+
+    /// Ordered array of workingDirectory paths.
+    var folderOrder: [String] = [] {
+        didSet { if !isSuppressingPersistence { saveFolderOrder() } }
+    }
+
+    /// Per-folder ordered arrays of session IDs.
+    var sessionOrder: [String: [String]] = [:] {
+        didSet { if !isSuppressingPersistence { saveSessionOrder() } }
+    }
+
+    /// Disclosure group expansion state per folder.
+    var folderExpansion: [String: Bool] = [:] {
+        didSet { if !isSuppressingPersistence { saveFolderExpansion() } }
+    }
+
     private(set) var apiClient = APIClient()
     private var webSocket: CoralWebSocket?
     private let logger = Logger(subsystem: "com.coral.app", category: "SessionStore")
+    private var isSuppressingPersistence = false
+
+    private static let folderOrderKey = "coral.folderOrder"
+    private static let sessionOrderKey = "coral.sessionOrder"
+    private static let folderExpansionKey = "coral.folderExpansion"
 
     /// The currently selected session, if any.
     var selectedSession: Session? {
@@ -20,10 +51,45 @@ final class SessionStore {
         return sessions.first { $0.id == id }
     }
 
+    // MARK: - Ordered Groups
+
+    /// Groups sessions by workingDirectory, ordered by folderOrder,
+    /// with sessions within each group ordered by sessionOrder.
+    var orderedGroups: [SessionGroup] {
+        let grouped = Dictionary(grouping: sessions) { $0.workingDirectory }
+
+        // Build groups for every folder in folderOrder that has sessions
+        var result: [SessionGroup] = []
+        for path in folderOrder {
+            guard let folderSessions = grouped[path] else { continue }
+            let label = path.isEmpty
+                ? "Other"
+                : URL(fileURLWithPath: path).lastPathComponent
+            let orderedIds = sessionOrder[path] ?? []
+            let sorted = folderSessions.sorted { a, b in
+                let idxA = orderedIds.firstIndex(of: a.id) ?? Int.max
+                let idxB = orderedIds.firstIndex(of: b.id) ?? Int.max
+                return idxA < idxB
+            }
+            result.append(SessionGroup(id: path, label: label, path: path, sessions: sorted))
+        }
+
+        // Append any folders not yet in folderOrder (shouldn't happen after reconcile, but safety net)
+        for (path, folderSessions) in grouped where !folderOrder.contains(path) {
+            let label = path.isEmpty
+                ? "Other"
+                : URL(fileURLWithPath: path).lastPathComponent
+            result.append(SessionGroup(id: path, label: label, path: path, sessions: folderSessions))
+        }
+
+        return result
+    }
+
     // MARK: - Connection
 
     func connect(port: Int) {
         apiClient = APIClient(port: port)
+        loadSavedOrder()
 
         let ws = CoralWebSocket(port: port)
         webSocket = ws
@@ -49,6 +115,44 @@ final class SessionStore {
         isConnected = false
     }
 
+    // MARK: - Move Handlers
+
+    func moveFolders(from source: IndexSet, to destination: Int) {
+        folderOrder.move(fromOffsets: source, toOffset: destination)
+    }
+
+    func moveSessions(in folderPath: String, from source: IndexSet, to destination: Int) {
+        guard var ids = sessionOrder[folderPath] else { return }
+        ids.move(fromOffsets: source, toOffset: destination)
+        sessionOrder[folderPath] = ids
+    }
+
+    /// Move a session to the position of another session within the same folder.
+    /// Used by the drag-and-drop `isTargeted` handler for fluid reordering.
+    func moveSessionToPosition(_ sessionId: String, targetId: String, in folderPath: String) {
+        guard var ids = sessionOrder[folderPath],
+              let fromIndex = ids.firstIndex(of: sessionId),
+              let toIndex = ids.firstIndex(of: targetId),
+              fromIndex != toIndex
+        else { return }
+
+        let offset = fromIndex < toIndex ? toIndex + 1 : toIndex
+        ids.move(fromOffsets: IndexSet(integer: fromIndex), toOffset: offset)
+        sessionOrder[folderPath] = ids
+    }
+
+    /// Move a folder to the position of another folder.
+    /// Used by the drag-and-drop `isTargeted` handler for fluid reordering.
+    func moveFolderToPosition(_ path: String, targetPath: String) {
+        guard let fromIndex = folderOrder.firstIndex(of: path),
+              let toIndex = folderOrder.firstIndex(of: targetPath),
+              fromIndex != toIndex
+        else { return }
+
+        let offset = fromIndex < toIndex ? toIndex + 1 : toIndex
+        folderOrder.move(fromOffsets: IndexSet(integer: fromIndex), toOffset: offset)
+    }
+
     // MARK: - Diff Merge (mirrors websocket.js logic)
 
     private func handleFullUpdate(_ newSessions: [Session]) {
@@ -69,6 +173,7 @@ final class SessionStore {
             return s
         }
 
+        reconcileOrder()
         isConnected = true
         logger.info("Full update: \(self.sessions.count) sessions")
 
@@ -108,7 +213,88 @@ final class SessionStore {
             }
         }
 
+        reconcileOrder()
         isConnected = true
+    }
+
+    // MARK: - Order Reconciliation
+
+    /// Prunes stale entries and appends newly discovered folders/sessions.
+    private func reconcileOrder() {
+        isSuppressingPersistence = true
+        defer {
+            isSuppressingPersistence = false
+            saveFolderOrder()
+            saveSessionOrder()
+        }
+
+        let currentFolders = Set(sessions.map(\.workingDirectory))
+        let currentSessionsByFolder = Dictionary(grouping: sessions) { $0.workingDirectory }
+
+        // Prune folders that no longer exist
+        folderOrder.removeAll { !currentFolders.contains($0) }
+
+        // Append new folders to the end
+        for folder in currentFolders where !folderOrder.contains(folder) {
+            folderOrder.append(folder)
+        }
+
+        // Prune stale session ordering keys
+        for key in sessionOrder.keys where !currentFolders.contains(key) {
+            sessionOrder.removeValue(forKey: key)
+        }
+
+        // Reconcile per-folder session ordering
+        for (folder, folderSessions) in currentSessionsByFolder {
+            let currentIds = Set(folderSessions.map(\.id))
+            var orderedIds = sessionOrder[folder] ?? []
+
+            // Prune sessions that no longer exist in this folder
+            orderedIds.removeAll { !currentIds.contains($0) }
+
+            // Append new sessions to the end
+            for id in folderSessions.map(\.id) where !orderedIds.contains(id) {
+                orderedIds.append(id)
+            }
+
+            sessionOrder[folder] = orderedIds
+        }
+    }
+
+    // MARK: - Persistence
+
+    private func loadSavedOrder() {
+        isSuppressingPersistence = true
+        defer { isSuppressingPersistence = false }
+
+        let defaults = UserDefaults.standard
+        folderOrder = defaults.stringArray(forKey: Self.folderOrderKey) ?? []
+
+        if let data = defaults.data(forKey: Self.sessionOrderKey),
+           let decoded = try? JSONDecoder().decode([String: [String]].self, from: data) {
+            sessionOrder = decoded
+        }
+
+        if let data = defaults.data(forKey: Self.folderExpansionKey),
+           let decoded = try? JSONDecoder().decode([String: Bool].self, from: data) {
+            folderExpansion = decoded
+        }
+    }
+
+    private func saveFolderOrder() {
+        UserDefaults.standard.set(folderOrder, forKey: Self.folderOrderKey)
+    }
+
+    private func saveSessionOrder() {
+        if let data = try? JSONEncoder().encode(sessionOrder) {
+            UserDefaults.standard.set(data, forKey: Self.sessionOrderKey)
+        }
+    }
+
+    private func saveFolderExpansion() {
+        if let data = try? JSONEncoder().encode(folderExpansion) {
+            UserDefaults.standard.set(data, forKey: Self.folderExpansionKey)
+        }
     }
 
     // MARK: - REST Fallback
