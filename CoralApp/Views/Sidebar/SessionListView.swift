@@ -54,6 +54,18 @@ struct SessionListView: View {
             }
         }
         .animation(.spring(response: 0.3, dampingFraction: 0.75), value: flatItems.map(\.id))
+        .onChange(of: store.selectedSessionId) { _, newId in
+            if let id = newId,
+               let session = store.sessions.first(where: { $0.id == id }),
+               session.done {
+                Task {
+                    try? await store.apiClient.acknowledgeSession(
+                        sessionName: session.name,
+                        sessionId: session.sessionId
+                    )
+                }
+            }
+        }
         .navigationTitle("Coral")
         .listStyle(.sidebar)
         .toolbar {

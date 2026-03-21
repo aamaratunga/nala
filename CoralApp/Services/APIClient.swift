@@ -93,6 +93,22 @@ struct APIClient {
         }
     }
 
+    func acknowledgeSession(sessionName: String, sessionId: String? = nil) async throws {
+        let encodedName = sessionName.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? sessionName
+        var components = URLComponents(url: baseURL.appendingPathComponent("/api/sessions/live/\(encodedName)/acknowledge"), resolvingAgainstBaseURL: false)!
+        if let sessionId {
+            components.queryItems = [URLQueryItem(name: "session_id", value: sessionId)]
+        }
+
+        var request = URLRequest(url: components.url!)
+        request.httpMethod = "POST"
+
+        let (_, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+            throw APIError.requestFailed
+        }
+    }
+
     func sendKeys(sessionName: String, keys: [String], agentType: String? = nil, sessionId: String? = nil) async throws {
         let encodedName = sessionName.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? sessionName
         let url = baseURL.appendingPathComponent("/api/sessions/live/\(encodedName)/keys")
