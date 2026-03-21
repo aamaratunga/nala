@@ -20,7 +20,7 @@ struct CoralApp: App {
             }
             .frame(minWidth: 900, minHeight: 600)
         }
-        .windowStyle(.titleBar)
+        .windowToolbarStyle(.unifiedCompact)
         .commands {
             CommandGroup(replacing: .newItem) {
                 Button("New Agent…") {

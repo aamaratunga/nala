@@ -3,6 +3,28 @@ import SwiftUI
 struct SessionListView: View {
     @Environment(SessionStore.self) private var store
 
+    private struct SessionGroup: Identifiable {
+        let id: String
+        let label: String
+        let path: String
+        let sessions: [Session]
+    }
+
+    private var groupedSessions: [SessionGroup] {
+        let grouped = Dictionary(grouping: store.sessions) { $0.workingDirectory }
+        return grouped.map { (path, sessions) in
+            let label = path.isEmpty
+                ? "Other"
+                : URL(fileURLWithPath: path).lastPathComponent
+            return SessionGroup(id: path, label: label, path: path, sessions: sessions)
+        }
+        .sorted { a, b in
+            if a.path.isEmpty { return false }
+            if b.path.isEmpty { return true }
+            return a.label.localizedCaseInsensitiveCompare(b.label) == .orderedAscending
+        }
+    }
+
     var body: some View {
         @Bindable var store = store
 
@@ -15,15 +37,23 @@ struct SessionListView: View {
                 }
                 .listRowSeparator(.hidden)
             } else {
-                ForEach(store.sessions) { session in
-                    SessionRowView(session: session)
-                        .tag(session.id)
-                        .contextMenu {
-                            sessionContextMenu(for: session)
+                ForEach(groupedSessions) { group in
+                    Section {
+                        ForEach(group.sessions) { session in
+                            SessionRowView(session: session)
+                                .tag(session.id)
+                                .contextMenu {
+                                    sessionContextMenu(for: session)
+                                }
                         }
+                    } header: {
+                        Label(group.label, systemImage: "folder")
+                            .help(group.path.isEmpty ? "Ungrouped sessions" : group.path)
+                    }
                 }
             }
         }
+        .navigationTitle("Coral")
         .listStyle(.sidebar)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {

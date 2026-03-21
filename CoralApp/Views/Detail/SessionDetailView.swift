@@ -11,17 +11,31 @@ struct SessionDetailView: View {
             // Header bar
             sessionHeader
 
-            Divider()
+            // Accent gradient line
+            LinearGradient(
+                colors: [.accentColor.opacity(0.6), .accentColor.opacity(0)],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+            .frame(height: 1)
 
             // Terminal area
             ZStack {
                 TerminalDisplayView(webSocket: terminalWS)
+                    .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .strokeBorder(.white.opacity(0.06), lineWidth: 0.5)
+                    )
+                    .shadow(color: .black.opacity(0.3), radius: 8, y: 2)
+                    .padding(6)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                 if isClosed {
                     closedOverlay
                 }
             }
+            .background(Color(red: 0.031, green: 0.043, blue: 0.063))
 
             Divider()
 
@@ -92,6 +106,8 @@ struct SessionDetailView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(.ultraThinMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+        .padding(6)
     }
 
     private func connectTerminal() {

@@ -27,10 +27,11 @@ struct Session: Identifiable, Equatable {
 
     var id: String { sessionId.isEmpty ? name : sessionId }
 
-    /// The label to show in the sidebar.
+    /// The label to show in the sidebar (matches web app fallback chain).
     var displayLabel: String {
         if let dn = displayName, !dn.isEmpty { return dn }
-        return name
+        if let job = boardJobTitle, !job.isEmpty { return job }
+        return agentType == "terminal" ? "Terminal" : "Agent"
     }
 }
 

@@ -20,7 +20,6 @@ struct ContentView: View {
                 }
             }
         }
-        .navigationTitle("")
         .sheet(isPresented: $store.showingLaunchSheet) {
             LaunchAgentSheet()
         }
