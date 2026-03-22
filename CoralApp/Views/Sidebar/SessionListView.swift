@@ -73,23 +73,32 @@ struct SessionListView: View {
             HStack(spacing: 12) {
                 Spacer()
 
-                Button {
-                    toggleAllSections()
-                } label: {
-                    Image(systemName: anySectionExpanded ? "rectangle.stack.fill" : "rectangle.stack")
-                        .foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
-                .help(anySectionExpanded ? "Collapse All Sections" : "Expand All Sections")
+                Menu {
+                    Button {
+                        toggleAllSections()
+                    } label: {
+                        Label(
+                            anySectionExpanded ? "Collapse Sections" : "Expand Sections",
+                            systemImage: anySectionExpanded ? "rectangle.compress.vertical" : "rectangle.expand.vertical"
+                        )
+                    }
 
-                Button {
-                    toggleAllFolders()
+                    Button {
+                        toggleAllFolders()
+                    } label: {
+                        Label(
+                            anyFolderExpanded ? "Collapse Folders" : "Expand Folders",
+                            systemImage: anyFolderExpanded ? "folder.badge.minus" : "folder.badge.plus"
+                        )
+                    }
                 } label: {
-                    Image(systemName: anyFolderExpanded ? "folder.fill" : "folder")
+                    Image(systemName: "line.3.horizontal.decrease")
                         .foregroundStyle(.secondary)
                 }
-                .buttonStyle(.plain)
-                .help(anyFolderExpanded ? "Collapse All Folders" : "Expand All Folders")
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .help("Expand/Collapse options")
 
                 Button {
                     store.showingLaunchSheet = true
