@@ -31,7 +31,7 @@ struct SessionRowView: View {
 
             agentBadge
         }
-        .padding(.vertical, 1)
+        .padding(.vertical, 3)
         .padding(.horizontal, 5)
         .background(rowBackground)
         .overlay(alignment: .leading) {

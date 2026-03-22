@@ -22,6 +22,32 @@ struct SessionListView: View {
     @State private var draggingSessionId: String?
     @State private var dragCleanupTask: Task<Void, Never>?
 
+    private var anyFolderExpanded: Bool {
+        store.folderOrder.contains { store.folderExpansion[$0] ?? true }
+    }
+
+    private var anySectionExpanded: Bool {
+        FolderStatus.allCases.contains { store.sectionExpansion[$0] ?? true }
+    }
+
+    private func toggleAllFolders() {
+        withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) {
+            let collapse = anyFolderExpanded
+            for p in store.folderOrder {
+                store.folderExpansion[p] = !collapse
+            }
+        }
+    }
+
+    private func toggleAllSections() {
+        withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) {
+            let collapse = anySectionExpanded
+            for status in FolderStatus.allCases {
+                store.sectionExpansion[status] = !collapse
+            }
+        }
+    }
+
     private var flatItems: [SidebarItem] {
         store.orderedSections.flatMap { section in
             var items: [SidebarItem] = [.sectionHeader(section.status)]
@@ -40,28 +66,67 @@ struct SessionListView: View {
     }
 
     var body: some View {
-        List {
-            if store.sessions.isEmpty {
-                ContentUnavailableView {
-                    Label("No Active Sessions", systemImage: "bolt.slash")
-                } description: {
-                    Text("Launch an agent to get started.")
+        VStack(spacing: 0) {
+            // Sidebar header with toggle and add buttons
+            HStack(spacing: 12) {
+                Spacer()
+
+                Button {
+                    toggleAllSections()
+                } label: {
+                    Image(systemName: anySectionExpanded ? "rectangle.stack.fill" : "rectangle.stack")
+                        .foregroundStyle(.secondary)
                 }
-                .listRowSeparator(.hidden)
-            } else {
-                ForEach(flatItems) { item in
-                    switch item {
-                    case .sectionHeader(let status):
-                        sectionHeaderRow(for: status)
-                    case .folder(let group):
-                        folderRow(for: group)
-                    case .session(let session, let folderPath):
-                        sessionRow(for: session, in: folderPath)
+                .buttonStyle(.plain)
+                .help(anySectionExpanded ? "Collapse All Sections" : "Expand All Sections")
+
+                Button {
+                    toggleAllFolders()
+                } label: {
+                    Image(systemName: anyFolderExpanded ? "folder.fill" : "folder")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help(anyFolderExpanded ? "Collapse All Folders" : "Expand All Folders")
+
+                Button {
+                    store.showingLaunchSheet = true
+                } label: {
+                    Image(systemName: "plus")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Launch new agent")
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+
+            Divider()
+
+            List {
+                if store.sessions.isEmpty {
+                    ContentUnavailableView {
+                        Label("No Active Sessions", systemImage: "bolt.slash")
+                    } description: {
+                        Text("Launch an agent to get started.")
+                    }
+                    .listRowSeparator(.hidden)
+                } else {
+                    ForEach(flatItems) { item in
+                        switch item {
+                        case .sectionHeader(let status):
+                            sectionHeaderRow(for: status)
+                        case .folder(let group):
+                            folderRow(for: group)
+                        case .session(let session, let folderPath):
+                            sessionRow(for: session, in: folderPath)
+                        }
                     }
                 }
             }
+            .animation(.spring(response: 0.3, dampingFraction: 0.75), value: flatItems.map(\.id))
+            .listStyle(.sidebar)
         }
-        .animation(.spring(response: 0.3, dampingFraction: 0.75), value: flatItems.map(\.id))
         .onChange(of: store.selectedSessionId) { _, newId in
             if let id = newId,
                let session = store.sessions.first(where: { $0.id == id }),
@@ -75,17 +140,7 @@ struct SessionListView: View {
             }
         }
         .navigationTitle("Coral")
-        .listStyle(.sidebar)
         .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    store.showingLaunchSheet = true
-                } label: {
-                    Image(systemName: "plus")
-                }
-                .help("Launch new agent")
-            }
-
             ToolbarItem(placement: .status) {
                 HStack(spacing: 4) {
                     Circle()
@@ -216,6 +271,8 @@ struct SessionListView: View {
             )
             .opacity(draggingSessionId == session.id ? 0.35 : 1)
             .contentShape(Rectangle())
+            .listRowInsets(EdgeInsets(top: -1, leading: 0, bottom: -1, trailing: 8))
+            .listRowSeparator(.hidden)
             .onTapGesture {
                 store.selectedSessionId = session.id
             }
@@ -316,24 +373,6 @@ struct SessionListView: View {
                         from: IndexSet(integer: index),
                         to: index + 2
                     )
-                }
-            }
-        }
-
-        Divider()
-
-        Button("Collapse All Folders") {
-            withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) {
-                for p in store.folderOrder {
-                    store.folderExpansion[p] = false
-                }
-            }
-        }
-
-        Button("Expand All Folders") {
-            withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) {
-                for p in store.folderOrder {
-                    store.folderExpansion[p] = true
                 }
             }
         }
