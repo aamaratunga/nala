@@ -10,6 +10,15 @@ struct SessionGroup: Identifiable, Equatable {
     let sessions: [Session]
 }
 
+// MARK: - StatusSection
+
+struct StatusSection: Identifiable, Equatable {
+    let status: FolderStatus
+    let groups: [SessionGroup]
+
+    var id: String { status.rawValue }
+}
+
 /// Central observable store for live session state. Owns the WebSocket
 /// connection and merges diffs into a flat session list.
 @Observable
@@ -36,6 +45,15 @@ final class SessionStore {
         didSet { if !isSuppressingPersistence { saveFolderExpansion() } }
     }
 
+    /// Status assignment per folder path. Defaults to `.inProgress`.
+    var folderStatus: [String: FolderStatus] = [:] {
+        didSet { if !isSuppressingPersistence { saveFolderStatus() } }
+    }
+
+    /// Section collapse state per status. Defaults to expanded (`true`).
+    var sectionExpansion: [FolderStatus: Bool] = [:] {
+        didSet { if !isSuppressingPersistence { saveSectionExpansion() } }
+    }
 
     private(set) var apiClient = APIClient()
     private var webSocket: CoralWebSocket?
@@ -45,6 +63,8 @@ final class SessionStore {
     private static let folderOrderKey = "coral.folderOrder"
     private static let sessionOrderKey = "coral.sessionOrder"
     private static let folderExpansionKey = "coral.folderExpansion"
+    private static let folderStatusKey = "coral.folderStatus"
+    private static let sectionExpansionKey = "coral.sectionExpansion"
 
     /// The currently selected session, if any.
     var selectedSession: Session? {
@@ -84,6 +104,29 @@ final class SessionStore {
         }
 
         return result
+    }
+
+    // MARK: - Status Sections
+
+    /// Groups orderedGroups by folder status, always including all statuses
+    /// in display order. Folders without an explicit status default to `.inProgress`.
+    var orderedSections: [StatusSection] {
+        let groups = orderedGroups
+        let groupedByStatus = Dictionary(grouping: groups) { group in
+            folderStatus[group.path] ?? .inProgress
+        }
+
+        return FolderStatus.displayOrder.map { status in
+            StatusSection(
+                status: status,
+                groups: groupedByStatus[status] ?? []
+            )
+        }
+    }
+
+    /// Assign a folder to a new status section.
+    func setFolderStatus(_ path: String, to status: FolderStatus) {
+        folderStatus[path] = status
     }
 
     // MARK: - Connection
@@ -231,6 +274,7 @@ final class SessionStore {
             isSuppressingPersistence = false
             saveFolderOrder()
             saveSessionOrder()
+            saveFolderStatus()
         }
 
         let currentFolders = Set(sessions.map(\.workingDirectory))
@@ -264,6 +308,11 @@ final class SessionStore {
 
             sessionOrder[folder] = orderedIds
         }
+
+        // Prune stale folder status entries
+        for key in folderStatus.keys where !currentFolders.contains(key) {
+            folderStatus.removeValue(forKey: key)
+        }
     }
 
     // MARK: - Persistence
@@ -284,6 +333,21 @@ final class SessionStore {
            let decoded = try? JSONDecoder().decode([String: Bool].self, from: data) {
             folderExpansion = decoded
         }
+
+        if let data = defaults.data(forKey: Self.folderStatusKey),
+           let decoded = try? JSONDecoder().decode([String: FolderStatus].self, from: data) {
+            folderStatus = decoded
+        }
+
+        if let data = defaults.data(forKey: Self.sectionExpansionKey),
+           let decoded = try? JSONDecoder().decode([String: Bool].self, from: data) {
+            // Convert String keys back to FolderStatus
+            sectionExpansion = decoded.reduce(into: [:]) { result, pair in
+                if let status = FolderStatus(rawValue: pair.key) {
+                    result[status] = pair.value
+                }
+            }
+        }
     }
 
     private func saveFolderOrder() {
@@ -299,6 +363,22 @@ final class SessionStore {
     private func saveFolderExpansion() {
         if let data = try? JSONEncoder().encode(folderExpansion) {
             UserDefaults.standard.set(data, forKey: Self.folderExpansionKey)
+        }
+    }
+
+    private func saveFolderStatus() {
+        if let data = try? JSONEncoder().encode(folderStatus) {
+            UserDefaults.standard.set(data, forKey: Self.folderStatusKey)
+        }
+    }
+
+    private func saveSectionExpansion() {
+        // Convert FolderStatus keys to String for JSONEncoder
+        let stringKeyed = sectionExpansion.reduce(into: [String: Bool]()) { result, pair in
+            result[pair.key.rawValue] = pair.value
+        }
+        if let data = try? JSONEncoder().encode(stringKeyed) {
+            UserDefaults.standard.set(data, forKey: Self.sectionExpansionKey)
         }
     }
 

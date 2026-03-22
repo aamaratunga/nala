@@ -3,11 +3,13 @@ import SwiftUI
 // MARK: - SidebarItem
 
 private enum SidebarItem: Identifiable, Equatable {
+    case sectionHeader(FolderStatus)
     case folder(SessionGroup)
     case session(Session, folderPath: String)
 
     var id: String {
         switch self {
+        case .sectionHeader(let status): return "section:\(status.rawValue)"
         case .folder(let group): return "folder:\(group.path)"
         case .session(let session, _): return session.id
         }
@@ -21,20 +23,24 @@ struct SessionListView: View {
     @State private var dragCleanupTask: Task<Void, Never>?
 
     private var flatItems: [SidebarItem] {
-        store.orderedGroups.flatMap { group in
-            var items: [SidebarItem] = [.folder(group)]
-            let isExpanded = store.folderExpansion[group.path] ?? true
-            if isExpanded {
-                items += group.sessions.map { .session($0, folderPath: group.path) }
+        store.orderedSections.flatMap { section in
+            var items: [SidebarItem] = [.sectionHeader(section.status)]
+            let sectionExpanded = store.sectionExpansion[section.status] ?? true
+            if sectionExpanded {
+                for group in section.groups {
+                    items.append(.folder(group))
+                    let folderExpanded = store.folderExpansion[group.path] ?? true
+                    if folderExpanded {
+                        items += group.sessions.map { .session($0, folderPath: group.path) }
+                    }
+                }
             }
             return items
         }
     }
 
     var body: some View {
-        @Bindable var store = store
-
-        List(selection: $store.selectedSessionId) {
+        List {
             if store.sessions.isEmpty {
                 ContentUnavailableView {
                     Label("No Active Sessions", systemImage: "bolt.slash")
@@ -45,6 +51,8 @@ struct SessionListView: View {
             } else {
                 ForEach(flatItems) { item in
                     switch item {
+                    case .sectionHeader(let status):
+                        sectionHeaderRow(for: status)
                     case .folder(let group):
                         folderRow(for: group)
                     case .session(let session, let folderPath):
@@ -94,6 +102,61 @@ struct SessionListView: View {
     // MARK: - Row Builders
 
     @ViewBuilder
+    private func sectionHeaderRow(for status: FolderStatus) -> some View {
+        let isExpanded = store.sectionExpansion[status] ?? true
+        let folderCount = store.orderedSections
+            .first { $0.status == status }?.groups.count ?? 0
+        let isFirst = FolderStatus.displayOrder.first == status
+
+        VStack(spacing: 0) {
+            if !isFirst {
+                Divider()
+                    .padding(.horizontal, -8)
+                    .padding(.bottom, 6)
+            }
+
+            HStack(spacing: 7) {
+                Image(systemName: "chevron.right")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                    .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                    .animation(.easeInOut(duration: 0.2), value: isExpanded)
+                    .frame(width: 14)
+
+                Image(systemName: status.icon)
+                    .font(.title3)
+                    .foregroundStyle(.secondary)
+
+                Text(status.displayName)
+                    .font(.title3)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(.secondary)
+
+                Spacer()
+
+                if !isExpanded {
+                    Text("\(folderCount)")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 1)
+                        .background(.quaternary.opacity(0.5), in: Capsule())
+                }
+            }
+        }
+        .padding(.top, isFirst ? 4 : 10)
+        .padding(.bottom, 4)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) {
+                store.sectionExpansion[status] = !isExpanded
+            }
+        }
+        .listRowSeparator(.hidden)
+        .listRowInsets(EdgeInsets(top: 0, leading: 4, bottom: 0, trailing: 8))
+    }
+
+    @ViewBuilder
     private func folderRow(for group: SessionGroup) -> some View {
         let isExpanded = store.folderExpansion[group.path] ?? true
 
@@ -128,6 +191,7 @@ struct SessionListView: View {
                 .padding(.vertical, 1)
                 .background(.quaternary.opacity(0.5), in: Capsule())
         }
+        .padding(.vertical, 10)
         .contentShape(Rectangle())
         .onTapGesture {
             withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) {
@@ -135,6 +199,7 @@ struct SessionListView: View {
             }
         }
         .help(group.path.isEmpty ? "Ungrouped sessions" : group.path)
+        .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 8))
         .contextMenu {
             folderContextMenu(for: group.path)
         }
@@ -142,10 +207,18 @@ struct SessionListView: View {
 
     @ViewBuilder
     private func sessionRow(for session: Session, in folderPath: String) -> some View {
+        let isSelected = store.selectedSessionId == session.id
         SessionRowView(session: session)
-            .tag(session.id)
-            .padding(.leading, 18)
+            .padding(.leading, 36)
+            .background(
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(isSelected ? Color.primary.opacity(0.08) : Color.clear)
+            )
             .opacity(draggingSessionId == session.id ? 0.35 : 1)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                store.selectedSessionId = session.id
+            }
             .contextMenu {
                 sessionContextMenu(for: session)
             }
@@ -262,6 +335,24 @@ struct SessionListView: View {
                 for p in store.folderOrder {
                     store.folderExpansion[p] = true
                 }
+            }
+        }
+
+        Divider()
+
+        let currentStatus = store.folderStatus[path] ?? .inProgress
+        Menu("Set Status") {
+            ForEach(FolderStatus.displayOrder, id: \.self) { status in
+                Toggle(status.displayName, isOn: Binding(
+                    get: { currentStatus == status },
+                    set: { isOn in
+                        if isOn {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
+                                store.setFolderStatus(path, to: status)
+                            }
+                        }
+                    }
+                ))
             }
         }
     }

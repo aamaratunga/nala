@@ -351,4 +351,86 @@ final class SessionStoreTests: XCTestCase {
 
         XCTAssertNil(store.selectedSession)
     }
+
+    // MARK: - Status Sections
+
+    func testNewFoldersDefaultToInProgress() {
+        let store = makeStore()
+        store.sessions = [
+            makeSession(name: "a", sessionId: "s1", workingDirectory: "/proj/alpha"),
+            makeSession(name: "b", sessionId: "s2", workingDirectory: "/proj/beta"),
+        ]
+        store.reconcileOrder()
+
+        let sections = store.orderedSections
+        let inProgressSection = sections.first { $0.status == .inProgress }!
+
+        // Both folders should appear in In Progress (default)
+        XCTAssertEqual(inProgressSection.groups.count, 2)
+    }
+
+    func testSetFolderStatusMovesFolderToNewSection() {
+        let store = makeStore()
+        store.sessions = [
+            makeSession(name: "a", sessionId: "s1", workingDirectory: "/proj/alpha"),
+            makeSession(name: "b", sessionId: "s2", workingDirectory: "/proj/beta"),
+        ]
+        store.reconcileOrder()
+
+        store.setFolderStatus("/proj/alpha", to: .done)
+
+        let sections = store.orderedSections
+        let doneSection = sections.first { $0.status == .done }!
+        let inProgressSection = sections.first { $0.status == .inProgress }!
+
+        XCTAssertEqual(doneSection.groups.count, 1)
+        XCTAssertEqual(doneSection.groups[0].path, "/proj/alpha")
+        XCTAssertEqual(inProgressSection.groups.count, 1)
+        XCTAssertEqual(inProgressSection.groups[0].path, "/proj/beta")
+    }
+
+    func testEmptySectionsAreIncluded() {
+        let store = makeStore()
+        store.sessions = [
+            makeSession(name: "a", sessionId: "s1", workingDirectory: "/proj/alpha"),
+        ]
+        store.reconcileOrder()
+
+        let sections = store.orderedSections
+
+        // All 5 status sections should always be present
+        XCTAssertEqual(sections.count, 5)
+
+        // Only In Progress should have folders
+        let nonEmpty = sections.filter { !$0.groups.isEmpty }
+        XCTAssertEqual(nonEmpty.count, 1)
+        XCTAssertEqual(nonEmpty[0].status, .inProgress)
+    }
+
+    func testSectionDisplayOrder() {
+        let store = makeStore()
+        store.sessions = [
+            makeSession(name: "a", sessionId: "s1", workingDirectory: "/proj/alpha"),
+        ]
+        store.reconcileOrder()
+
+        let sections = store.orderedSections
+        let statuses = sections.map(\.status)
+
+        XCTAssertEqual(statuses, [.done, .inReview, .inProgress, .backlog, .canceled])
+    }
+
+    func testReconcilePrunesStaleFolderStatus() {
+        let store = makeStore()
+        store.folderStatus = ["/old": .done, "/proj/alpha": .inReview]
+        store.sessions = [
+            makeSession(name: "a", sessionId: "s1", workingDirectory: "/proj/alpha"),
+        ]
+
+        store.reconcileOrder()
+
+        // /old should be pruned, /proj/alpha should remain
+        XCTAssertNil(store.folderStatus["/old"])
+        XCTAssertEqual(store.folderStatus["/proj/alpha"], .inReview)
+    }
 }

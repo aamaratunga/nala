@@ -1,4 +1,48 @@
 import Foundation
+import SwiftUI
+
+// MARK: - FolderStatus
+
+enum FolderStatus: String, CaseIterable, Codable, Equatable {
+    case done       = "done"
+    case inReview   = "in_review"
+    case inProgress = "in_progress"
+    case backlog    = "backlog"
+    case canceled   = "canceled"
+
+    var displayName: String {
+        switch self {
+        case .done:       return "Done"
+        case .inReview:   return "In Review"
+        case .inProgress: return "In Progress"
+        case .backlog:    return "Backlog"
+        case .canceled:   return "Canceled"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .done:       return "checkmark.circle.fill"
+        case .inReview:   return "eye.circle.fill"
+        case .inProgress: return "play.circle.fill"
+        case .backlog:    return "tray.circle.fill"
+        case .canceled:   return "xmark.circle.fill"
+        }
+    }
+
+    var color: Color {
+        switch self {
+        case .done:       return .green
+        case .inReview:   return .purple
+        case .inProgress: return .blue
+        case .backlog:    return .gray
+        case .canceled:   return .gray
+        }
+    }
+
+    /// Display order from top to bottom in the sidebar.
+    static var displayOrder: [FolderStatus] { allCases }
+}
 
 struct Session: Identifiable, Equatable {
     let name: String
