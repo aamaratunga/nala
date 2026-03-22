@@ -56,6 +56,22 @@ struct CoralApp: App {
                 }
                 .keyboardShortcut("t", modifiers: [.command, .shift])
                 .disabled(sessionStore.selectedSession == nil)
+
+                Divider()
+
+                Button("Kill Session") {
+                    if let session = sessionStore.selectedSession {
+                        Task {
+                            try? await sessionStore.apiClient.killSession(
+                                sessionName: session.name,
+                                agentType: session.agentType,
+                                sessionId: session.sessionId
+                            )
+                        }
+                    }
+                }
+                .keyboardShortcut("w")
+                .disabled(sessionStore.selectedSession == nil)
             }
         }
 
