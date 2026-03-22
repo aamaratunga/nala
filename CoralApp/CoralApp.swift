@@ -13,6 +13,7 @@ struct CoralApp: App {
                         .environment(sessionStore)
                         .onAppear {
                             sessionStore.connect(port: serverManager.port)
+                            NotificationManager.shared.requestPermission()
                         }
                         .onReceive(NotificationCenter.default.publisher(
                             for: NSApplication.didBecomeActiveNotification

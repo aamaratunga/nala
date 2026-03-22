@@ -294,6 +294,11 @@ final class SessionStore {
     func handleDiff(changed: [Session], removed: [String]) {
         // Apply removals
         if !removed.isEmpty {
+            // Clear notification tracking for removed sessions
+            for id in removed {
+                NotificationManager.shared.clearSession(id)
+            }
+
             sessions.removeAll { session in
                 removed.contains(session.sessionId) || removed.contains(session.name)
             }
@@ -314,15 +319,18 @@ final class SessionStore {
             })
 
             if let idx {
+                let oldSession = sessions[idx]
                 var updated = change
                 if updated.commands.isEmpty {
-                    updated.commands = sessions[idx].commands
+                    updated.commands = oldSession.commands
                 }
                 sessions[idx] = updated
+                NotificationManager.shared.evaluateTransition(old: oldSession, new: updated)
             } else {
                 // Only append if not already present (guard against duplicates)
                 if !sessions.contains(where: { $0.id == change.id }) {
                     sessions.append(change)
+                    NotificationManager.shared.evaluateTransition(old: nil, new: change)
                 }
             }
         }

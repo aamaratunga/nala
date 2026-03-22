@@ -32,6 +32,7 @@
 		EAF55BFBA30FF6858891F835 /* StatusDot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32DE040A2413C63DC90B0FD0 /* StatusDot.swift */; };
 		F6A1181753693D8D454B94B8 /* CoralWebSocket.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53E64546468C05F7E4BF2D28 /* CoralWebSocket.swift */; };
 		A2B3C4D5E6F70819AABB1234 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1E2F3A4B5C60718CCDD5678 /* SettingsView.swift */; };
+		E7A2B3C4D5F60829AABB5678 /* NotificationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2A3B4C5D6E70930BBCC6789 /* NotificationManager.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -72,6 +73,7 @@
 		E158502CB4D1ECBBB16A18DF /* Session.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Session.swift; sourceTree = "<group>"; };
 		FEDE795CD7EB1F749FD20818 /* LaunchDropdown.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchDropdown.swift; sourceTree = "<group>"; };
 		D1E2F3A4B5C60718CCDD5678 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		F2A3B4C5D6E70930BBCC6789 /* NotificationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationManager.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -201,6 +203,7 @@
 			children = (
 				D79A1485035DE4D05047F604 /* APIClient.swift */,
 				53E64546468C05F7E4BF2D28 /* CoralWebSocket.swift */,
+				F2A3B4C5D6E70930BBCC6789 /* NotificationManager.swift */,
 				8065D02284CB252911E724B0 /* ServerManager.swift */,
 				1C10D0761FAF424E8E791CB2 /* TerminalWebSocket.swift */,
 			);
@@ -307,6 +310,7 @@
 				97C10100BD2253767B09024D /* LaunchRequest.swift in Sources */,
 				B3A7C1D2E4F56A89012DE3F7 /* LocalTerminalView.swift in Sources */,
 				C25D7A900B9CCD6A8D096B4D /* LoadingView.swift in Sources */,
+				E7A2B3C4D5F60829AABB5678 /* NotificationManager.swift in Sources */,
 				19DAE3E0EBBBFFF78EDCC03D /* ServerManager.swift in Sources */,
 				7C623E75E7BE38323532980A /* Session.swift in Sources */,
 				A71FC1E4865D34638FDB1D1C /* SessionDetailView.swift in Sources */,
