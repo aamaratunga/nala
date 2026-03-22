@@ -1,6 +1,13 @@
 import SwiftUI
 
 struct LaunchDropdown: View {
+    enum LaunchMode {
+        case agent
+        case terminal
+    }
+
+    let mode: LaunchMode
+
     @Environment(SessionStore.self) private var store
     @FocusState private var isFocused: Bool
 
@@ -25,40 +32,42 @@ struct LaunchDropdown: View {
         }
     }
 
-    private var claudeItems: [LaunchItem] {
-        var items: [LaunchItem] = store.folderOrder.enumerated().map { index, path in
+    private var items: [LaunchItem] {
+        var result: [LaunchItem] = store.folderOrder.enumerated().map { index, path in
             let label = URL(fileURLWithPath: path).lastPathComponent
             return LaunchItem(number: index + 1, label: label, path: path)
         }
-        items.append(LaunchItem(number: items.count + 1))
-        return items
+        result.append(LaunchItem(number: result.count + 1))
+        return result
     }
 
-    private var terminalItems: [LaunchItem] {
-        let offset = store.folderOrder.count + 1
-        var items: [LaunchItem] = store.folderOrder.enumerated().map { index, path in
-            let label = URL(fileURLWithPath: path).lastPathComponent
-            return LaunchItem(number: offset + index + 1, label: label, path: path)
+    private var agentType: String {
+        switch mode {
+        case .agent: return "claude"
+        case .terminal: return "terminal"
         }
-        items.append(LaunchItem(number: offset + items.count + 1))
-        return items
     }
 
-    private var allItems: [LaunchItem] {
-        claudeItems + terminalItems
+    private var sectionTitle: String {
+        switch mode {
+        case .agent: return "Claude Agent"
+        case .terminal: return "Terminal"
+        }
+    }
+
+    private var sectionIcon: String {
+        switch mode {
+        case .agent: return "bubble.left.fill"
+        case .terminal: return "terminal.fill"
+        }
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            sectionView(title: "Claude Agent", icon: "bubble.left.fill", items: claudeItems, agentType: "claude")
-
-            Divider()
-                .padding(.vertical, 4)
-
-            sectionView(title: "Terminal", icon: "terminal.fill", items: terminalItems, agentType: "terminal")
+            sectionView(title: sectionTitle, icon: sectionIcon, items: items, agentType: agentType)
         }
         .padding(.vertical, 8)
-        .frame(width: 240)
+        .frame(width: 300)
         .focusable()
         .focusEffectDisabled()
         .focused($isFocused)
@@ -66,8 +75,7 @@ struct LaunchDropdown: View {
         .onKeyPress(characters: .decimalDigits) { press in
             guard let digit = Int(press.characters) else { return .ignored }
             let number = digit == 0 ? 10 : digit
-            guard let item = allItems.first(where: { $0.id == number }) else { return .ignored }
-            let agentType = claudeItems.contains(where: { $0.id == number }) ? "claude" : "terminal"
+            guard let item = items.first(where: { $0.id == number }) else { return .ignored }
             if item.isOther {
                 browseAndLaunch(agentType: agentType)
             } else {
@@ -121,13 +129,22 @@ struct LaunchDropdown: View {
         }
     }
 
+    private func dismiss() {
+        switch mode {
+        case .agent:
+            store.showingLaunchSheet = false
+        case .terminal:
+            store.showingTerminalLaunchSheet = false
+        }
+    }
+
     private func launch(agentType: String, in workingDir: String) {
-        store.showingLaunchSheet = false
+        dismiss()
         store.launchSession(agentType: agentType, in: workingDir)
     }
 
     private func browseAndLaunch(agentType: String) {
-        store.showingLaunchSheet = false
+        dismiss()
         DispatchQueue.main.async {
             let panel = NSOpenPanel()
             panel.canChooseFiles = false

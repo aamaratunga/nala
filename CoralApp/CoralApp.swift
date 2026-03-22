@@ -34,12 +34,27 @@ struct CoralApp: App {
                 }
                 .keyboardShortcut("n")
 
-                Button("New Terminal") {
+                Button("New Terminal…") {
+                    sessionStore.showingTerminalLaunchSheet = true
+                }
+                .keyboardShortcut("t")
+
+                Divider()
+
+                Button("New Agent in Current Folder") {
+                    if let session = sessionStore.selectedSession {
+                        sessionStore.launchSession(agentType: "claude", in: session.workingDirectory)
+                    }
+                }
+                .keyboardShortcut("n", modifiers: [.command, .shift])
+                .disabled(sessionStore.selectedSession == nil)
+
+                Button("New Terminal in Current Folder") {
                     if let session = sessionStore.selectedSession {
                         sessionStore.launchTerminal(in: session.workingDirectory)
                     }
                 }
-                .keyboardShortcut("t")
+                .keyboardShortcut("t", modifiers: [.command, .shift])
                 .disabled(sessionStore.selectedSession == nil)
             }
         }

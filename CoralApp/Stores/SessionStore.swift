@@ -26,6 +26,7 @@ final class SessionStore {
     var sessions: [Session] = []
     var selectedSessionId: String?
     var showingLaunchSheet = false
+    var showingTerminalLaunchSheet = false
     var isConnected = false
 
     // MARK: - Ordering State (persisted via UserDefaults)

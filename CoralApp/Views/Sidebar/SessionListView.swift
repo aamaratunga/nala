@@ -107,9 +107,21 @@ struct SessionListView: View {
                         .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
-                .help("Launch new agent")
-                .popover(isPresented: $store.showingLaunchSheet) {
-                    LaunchDropdown()
+                .help("Launch new agent (⌘N)")
+                .popover(isPresented: $store.showingLaunchSheet, arrowEdge: .bottom) {
+                    LaunchDropdown(mode: .agent)
+                }
+
+                Button {
+                    store.showingTerminalLaunchSheet = true
+                } label: {
+                    Image(systemName: "terminal")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Launch new terminal (⌘T)")
+                .popover(isPresented: $store.showingTerminalLaunchSheet, arrowEdge: .bottom) {
+                    LaunchDropdown(mode: .terminal)
                 }
             }
             .padding(.horizontal, 12)
