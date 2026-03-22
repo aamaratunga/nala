@@ -66,6 +66,8 @@ struct SessionListView: View {
     }
 
     var body: some View {
+        @Bindable var store = store
+
         VStack(spacing: 0) {
             // Sidebar header with toggle and add buttons
             HStack(spacing: 12) {
@@ -97,6 +99,9 @@ struct SessionListView: View {
                 }
                 .buttonStyle(.plain)
                 .help("Launch new agent")
+                .popover(isPresented: $store.showingLaunchSheet) {
+                    LaunchDropdown()
+                }
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)

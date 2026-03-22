@@ -4,8 +4,6 @@ struct ContentView: View {
     @Environment(SessionStore.self) private var store
 
     var body: some View {
-        @Bindable var store = store
-
         NavigationSplitView {
             SessionListView()
                 .navigationSplitViewColumnWidth(min: 220, ideal: 280, max: 400)
@@ -19,9 +17,6 @@ struct ContentView: View {
                     Text("Select an agent session from the sidebar, or launch a new one.")
                 }
             }
-        }
-        .sheet(isPresented: $store.showingLaunchSheet) {
-            LaunchAgentSheet()
         }
     }
 }
