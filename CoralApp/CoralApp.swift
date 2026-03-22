@@ -27,6 +27,14 @@ struct CoralApp: App {
                     sessionStore.showingLaunchSheet = true
                 }
                 .keyboardShortcut("n")
+
+                Button("New Terminal") {
+                    if let session = sessionStore.selectedSession {
+                        sessionStore.launchTerminal(in: session.workingDirectory)
+                    }
+                }
+                .keyboardShortcut("t")
+                .disabled(sessionStore.selectedSession == nil)
             }
         }
     }

@@ -159,6 +159,18 @@ final class SessionStore {
         isConnected = false
     }
 
+    func launchTerminal(in workingDir: String) {
+        let request = LaunchRequest(workingDir: workingDir, agentType: "terminal")
+        Task {
+            do {
+                let response = try await apiClient.launchAgent(request)
+                selectedSessionId = response.sessionId
+            } catch {
+                logger.error("Failed to launch terminal: \(error)")
+            }
+        }
+    }
+
     // MARK: - Move Handlers
 
     func moveFolders(from source: IndexSet, to destination: Int) {

@@ -18,6 +18,7 @@
 		4E7EDCC9A5FAB5E95E8CDE04 /* SessionRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7CAB080FA8DB71565FFA7DD /* SessionRowView.swift */; };
 		59228F6413F6A8EE3B40BFBD /* TestHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10926C8ADD6242F9497396DE /* TestHelpers.swift */; };
 		6B9287A51A0915CBFBAD10CE /* TerminalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1EFD4CEDFBCC8C1978C8A43 /* TerminalView.swift */; };
+		B3A7C1D2E4F56A89012DE3F7 /* LocalTerminalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4D8E2A1F3B67C9501A2E4B8 /* LocalTerminalView.swift */; };
 		7C623E75E7BE38323532980A /* Session.swift in Sources */ = {isa = PBXBuildFile; fileRef = E158502CB4D1ECBBB16A18DF /* Session.swift */; };
 		95A0A85A9FCE22CCF11FA75B /* CoralApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC357D9F795A7AB0C43066C3 /* CoralApp.swift */; };
 		97C10100BD2253767B09024D /* LaunchRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2624FB63A4C17E2E10C76016 /* LaunchRequest.swift */; };
@@ -59,6 +60,7 @@
 		7823D1C8C48B265CCCE1B113 /* SessionStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionStoreTests.swift; sourceTree = "<group>"; };
 		8065D02284CB252911E724B0 /* ServerManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerManager.swift; sourceTree = "<group>"; };
 		A1EFD4CEDFBCC8C1978C8A43 /* TerminalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalView.swift; sourceTree = "<group>"; };
+		C4D8E2A1F3B67C9501A2E4B8 /* LocalTerminalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalTerminalView.swift; sourceTree = "<group>"; };
 		A575A756179C98F028B6DA79 /* CoralAppTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CoralAppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		C151889272ED744F29772385 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		C81C9C0758A1D0458CDCF70A /* WSEnvelopeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WSEnvelopeTests.swift; sourceTree = "<group>"; };
@@ -125,6 +127,7 @@
 			isa = PBXGroup;
 			children = (
 				CBF58A276EFBCDED88FBFE4A /* CommandInputView.swift */,
+				C4D8E2A1F3B67C9501A2E4B8 /* LocalTerminalView.swift */,
 				4CC658695A521A00A426C842 /* SessionDetailView.swift */,
 				A1EFD4CEDFBCC8C1978C8A43 /* TerminalView.swift */,
 			);
@@ -291,6 +294,7 @@
 				F6A1181753693D8D454B94B8 /* CoralWebSocket.swift in Sources */,
 				1C1481D08BD0D900047CF487 /* LaunchAgentSheet.swift in Sources */,
 				97C10100BD2253767B09024D /* LaunchRequest.swift in Sources */,
+				B3A7C1D2E4F56A89012DE3F7 /* LocalTerminalView.swift in Sources */,
 				C25D7A900B9CCD6A8D096B4D /* LoadingView.swift in Sources */,
 				19DAE3E0EBBBFFF78EDCC03D /* ServerManager.swift in Sources */,
 				7C623E75E7BE38323532980A /* Session.swift in Sources */,

@@ -13,13 +13,13 @@ struct LaunchAgentSheet: View {
     @State private var directoryEntries: [String] = []
     @State private var currentBrowsePath = "~"
 
-    private let agentTypes = ["claude", "gemini"]
+    private let agentTypes = ["claude", "gemini", "terminal"]
 
     var body: some View {
         VStack(spacing: 0) {
             // Header
             HStack {
-                Text("Launch Agent")
+                Text(agentType == "terminal" ? "Launch Terminal" : "Launch Agent")
                     .font(.headline)
                 Spacer()
                 Button("Cancel") { dismiss() }
@@ -51,14 +51,16 @@ struct LaunchAgentSheet: View {
                         .textFieldStyle(.roundedBorder)
                 }
 
-                Section("Prompt (optional)") {
-                    TextEditor(text: $prompt)
-                        .font(.system(.body, design: .monospaced))
-                        .frame(minHeight: 80, maxHeight: 200)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 6)
-                                .stroke(.quaternary)
-                        )
+                if agentType != "terminal" {
+                    Section("Prompt (optional)") {
+                        TextEditor(text: $prompt)
+                            .font(.system(.body, design: .monospaced))
+                            .frame(minHeight: 80, maxHeight: 200)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 6)
+                                    .stroke(.quaternary)
+                            )
+                    }
                 }
 
                 if let errorMessage {
@@ -76,7 +78,7 @@ struct LaunchAgentSheet: View {
             // Footer
             HStack {
                 Spacer()
-                Button("Launch") {
+                Button(agentType == "terminal" ? "Open Terminal" : "Launch") {
                     launchAgent()
                 }
                 .keyboardShortcut(.defaultAction)
@@ -84,7 +86,7 @@ struct LaunchAgentSheet: View {
             }
             .padding()
         }
-        .frame(width: 480, height: 440)
+        .frame(width: 480, height: agentType == "terminal" ? 300 : 440)
         .onAppear {
             // Default to home directory
             workingDir = FileManager.default.homeDirectoryForCurrentUser.path

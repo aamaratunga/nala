@@ -5,6 +5,10 @@ struct SessionDetailView: View {
     @Environment(SessionStore.self) private var store
     @State private var terminalWS = TerminalWebSocket()
     @State private var isClosed = false
+    /// Tracks whether the local PTY process has exited (terminal sessions only).
+    @State private var isLocalTerminated = false
+    /// Incremented to force-recreate the LocalTerminalView (reattach).
+    @State private var localTerminalGeneration = 0
 
     var body: some View {
         VStack(spacing: 0) {
@@ -21,7 +25,13 @@ struct SessionDetailView: View {
 
             // Terminal area
             ZStack {
-                TerminalDisplayView(webSocket: terminalWS)
+                if session.agentType == "terminal" {
+                    // Live PTY — attaches directly to the tmux session
+                    LocalTerminalView(
+                        sessionName: session.tmuxSession,
+                        isTerminated: $isLocalTerminated
+                    )
+                    .id(localTerminalGeneration)
                     .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
                     .overlay(
                         RoundedRectangle(cornerRadius: 6, style: .continuous)
@@ -31,22 +41,47 @@ struct SessionDetailView: View {
                     .padding(6)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                if isClosed {
-                    closedOverlay
+                    if isLocalTerminated {
+                        detachedOverlay
+                    }
+                } else {
+                    // Agent sessions — WebSocket capture-pane relay
+                    TerminalDisplayView(webSocket: terminalWS)
+                        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                .strokeBorder(.white.opacity(0.06), lineWidth: 0.5)
+                        )
+                        .shadow(color: .black.opacity(0.3), radius: 8, y: 2)
+                        .padding(6)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                    if isClosed {
+                        closedOverlay
+                    }
                 }
             }
             .background(Color(red: 0.031, green: 0.043, blue: 0.063))
 
             Divider()
 
-            // Command input
-            CommandInputView(session: session)
+            // Command input (not shown for terminal sessions — they use the PTY directly)
+            if session.agentType != "terminal" {
+                CommandInputView(session: session)
+            }
         }
-        .onChange(of: session.id) { _, newId in
-            connectTerminal()
+        .onChange(of: session.id) { _, _ in
+            if session.agentType == "terminal" {
+                isLocalTerminated = false
+                localTerminalGeneration += 1
+            } else {
+                connectTerminal()
+            }
         }
         .onAppear {
-            connectTerminal()
+            if session.agentType != "terminal" {
+                connectTerminal()
+            }
         }
         .onDisappear {
             terminalWS.disconnect()
@@ -103,6 +138,27 @@ struct SessionDetailView: View {
             Text("Session Ended")
                 .font(.headline)
                 .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(.ultraThinMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+        .padding(6)
+    }
+
+    private var detachedOverlay: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "rectangle.disconnect")
+                .font(.largeTitle)
+                .foregroundStyle(.secondary)
+            Text("Session Detached")
+                .font(.headline)
+                .foregroundStyle(.secondary)
+            Button("Reattach") {
+                isLocalTerminated = false
+                localTerminalGeneration += 1
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.regular)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(.ultraThinMaterial)

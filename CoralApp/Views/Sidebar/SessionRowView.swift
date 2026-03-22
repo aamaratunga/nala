@@ -83,5 +83,7 @@ struct SessionRowView: View {
             .clipShape(Capsule())
     }
 
-    private var agentColor: Color { .secondary }
+    private var agentColor: Color {
+        session.agentType == "terminal" ? .teal : .secondary
+    }
 }
