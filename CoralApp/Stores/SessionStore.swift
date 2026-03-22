@@ -55,6 +55,20 @@ final class SessionStore {
         didSet { if !isSuppressingPersistence { saveSectionExpansion() } }
     }
 
+    /// Parent directory whose top-level subfolders appear in the sidebar
+    /// regardless of active sessions. Persisted to UserDefaults.
+    var parentFolderPath: String? {
+        didSet {
+            guard !isSuppressingPersistence else { return }
+            UserDefaults.standard.set(parentFolderPath, forKey: Self.parentFolderPathKey)
+            scanParentFolder()
+        }
+    }
+
+    /// Subfolders discovered by scanning `parentFolderPath`. Re-derived on
+    /// each scan; not persisted.
+    var discoveredFolders: Set<String> = []
+
     private(set) var apiClient = APIClient()
     private var webSocket: CoralWebSocket?
     private let logger = Logger(subsystem: "com.coral.app", category: "SessionStore")
@@ -65,6 +79,7 @@ final class SessionStore {
     private static let folderExpansionKey = "coral.folderExpansion"
     private static let folderStatusKey = "coral.folderStatus"
     private static let sectionExpansionKey = "coral.sectionExpansion"
+    private static let parentFolderPathKey = "coral.parentFolderPath"
 
     /// The currently selected session, if any.
     var selectedSession: Session? {
@@ -80,9 +95,11 @@ final class SessionStore {
         let grouped = Dictionary(grouping: sessions) { $0.workingDirectory }
 
         // Build groups for every folder in folderOrder that has sessions
+        // or is a discovered folder from the parent directory
         var result: [SessionGroup] = []
         for path in folderOrder {
-            guard let folderSessions = grouped[path] else { continue }
+            let folderSessions = grouped[path] ?? []
+            if folderSessions.isEmpty && !discoveredFolders.contains(path) { continue }
             let label = path.isEmpty
                 ? "Other"
                 : URL(fileURLWithPath: path).lastPathComponent
@@ -131,9 +148,42 @@ final class SessionStore {
 
     // MARK: - Connection
 
+    /// Scan `parentFolderPath` for top-level subdirectories and update
+    /// `discoveredFolders`, then reconcile sidebar order.
+    func scanParentFolder() {
+        guard let parent = parentFolderPath else {
+            discoveredFolders = []
+            reconcileOrder()
+            return
+        }
+
+        let url = URL(fileURLWithPath: parent)
+        let fm = FileManager.default
+        do {
+            let contents = try fm.contentsOfDirectory(
+                at: url,
+                includingPropertiesForKeys: [.isDirectoryKey],
+                options: [.skipsHiddenFiles]
+            )
+            var folders = Set<String>()
+            for item in contents {
+                let values = try item.resourceValues(forKeys: [.isDirectoryKey])
+                if values.isDirectory == true {
+                    folders.insert(item.path)
+                }
+            }
+            discoveredFolders = folders
+        } catch {
+            logger.warning("Failed to scan parent folder: \(error)")
+            discoveredFolders = []
+        }
+        reconcileOrder()
+    }
+
     func connect(port: Int) {
         apiClient = APIClient(port: port)
         loadSavedOrder()
+        scanParentFolder()
 
         let ws = CoralWebSocket(port: port)
         webSocket = ws
@@ -291,17 +341,18 @@ final class SessionStore {
 
         let currentFolders = Set(sessions.map(\.workingDirectory))
         let currentSessionsByFolder = Dictionary(grouping: sessions) { $0.workingDirectory }
+        let keepFolders = currentFolders.union(discoveredFolders)
 
-        // Prune folders that no longer exist
-        folderOrder.removeAll { !currentFolders.contains($0) }
+        // Prune folders that no longer exist (in sessions or discovered)
+        folderOrder.removeAll { !keepFolders.contains($0) }
 
         // Append new folders to the end
-        for folder in currentFolders where !folderOrder.contains(folder) {
+        for folder in keepFolders where !folderOrder.contains(folder) {
             folderOrder.append(folder)
         }
 
         // Prune stale session ordering keys
-        for key in sessionOrder.keys where !currentFolders.contains(key) {
+        for key in sessionOrder.keys where !keepFolders.contains(key) {
             sessionOrder.removeValue(forKey: key)
         }
 
@@ -322,7 +373,7 @@ final class SessionStore {
         }
 
         // Prune stale folder status entries
-        for key in folderStatus.keys where !currentFolders.contains(key) {
+        for key in folderStatus.keys where !keepFolders.contains(key) {
             folderStatus.removeValue(forKey: key)
         }
     }
@@ -335,6 +386,7 @@ final class SessionStore {
 
         let defaults = UserDefaults.standard
         folderOrder = defaults.stringArray(forKey: Self.folderOrderKey) ?? []
+        parentFolderPath = defaults.string(forKey: Self.parentFolderPathKey)
 
         if let data = defaults.data(forKey: Self.sessionOrderKey),
            let decoded = try? JSONDecoder().decode([String: [String]].self, from: data) {

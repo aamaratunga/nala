@@ -104,7 +104,7 @@ struct SessionListView: View {
             Divider()
 
             List {
-                if store.sessions.isEmpty {
+                if store.sessions.isEmpty && store.discoveredFolders.isEmpty {
                     ContentUnavailableView {
                         Label("No Active Sessions", systemImage: "bolt.slash")
                     } description: {
@@ -239,12 +239,14 @@ struct SessionListView: View {
                     .foregroundStyle(.secondary)
             }
 
-            Text("\(group.sessions.count)")
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 1)
-                .background(.quaternary.opacity(0.5), in: Capsule())
+            if group.sessions.count > 0 {
+                Text("\(group.sessions.count)")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 1)
+                    .background(.quaternary.opacity(0.5), in: Capsule())
+            }
         }
         .padding(.vertical, 10)
         .contentShape(Rectangle())

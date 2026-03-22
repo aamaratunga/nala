@@ -14,6 +14,11 @@ struct CoralApp: App {
                         .onAppear {
                             sessionStore.connect(port: serverManager.port)
                         }
+                        .onReceive(NotificationCenter.default.publisher(
+                            for: NSApplication.didBecomeActiveNotification
+                        )) { _ in
+                            sessionStore.scanParentFolder()
+                        }
                 } else {
                     LoadingView(serverManager: serverManager)
                 }
@@ -36,6 +41,11 @@ struct CoralApp: App {
                 .keyboardShortcut("t")
                 .disabled(sessionStore.selectedSession == nil)
             }
+        }
+
+        Settings {
+            SettingsView()
+                .environment(sessionStore)
         }
     }
 }

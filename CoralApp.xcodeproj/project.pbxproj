@@ -31,6 +31,7 @@
 		D308B9600E14E598E09446EA /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C151889272ED744F29772385 /* ContentView.swift */; };
 		EAF55BFBA30FF6858891F835 /* StatusDot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32DE040A2413C63DC90B0FD0 /* StatusDot.swift */; };
 		F6A1181753693D8D454B94B8 /* CoralWebSocket.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53E64546468C05F7E4BF2D28 /* CoralWebSocket.swift */; };
+		A2B3C4D5E6F70819AABB1234 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1E2F3A4B5C60718CCDD5678 /* SettingsView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -70,6 +71,7 @@
 		D7CAB080FA8DB71565FFA7DD /* SessionRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionRowView.swift; sourceTree = "<group>"; };
 		E158502CB4D1ECBBB16A18DF /* Session.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Session.swift; sourceTree = "<group>"; };
 		FEDE795CD7EB1F749FD20818 /* LaunchAgentSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchAgentSheet.swift; sourceTree = "<group>"; };
+		D1E2F3A4B5C60718CCDD5678 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -89,10 +91,19 @@
 			children = (
 				C151889272ED744F29772385 /* ContentView.swift */,
 				A1DDC13C5D2CBBEA3A113501 /* Detail */,
+				B4C5D6E7F8091A2B3C4D5E6F /* Settings */,
 				8B0CE2DAE7D8EE9DF8882432 /* Shared */,
 				9446CBF8CF0904319BA9966B /* Sidebar */,
 			);
 			path = Views;
+			sourceTree = "<group>";
+		};
+		B4C5D6E7F8091A2B3C4D5E6F /* Settings */ = {
+			isa = PBXGroup;
+			children = (
+				D1E2F3A4B5C60718CCDD5678 /* SettingsView.swift */,
+			);
+			path = Settings;
 			sourceTree = "<group>";
 		};
 		510FEAAE6770BDDAC931E955 = {
@@ -302,6 +313,7 @@
 				11A49F79CAB93FED75F13EDA /* SessionListView.swift in Sources */,
 				4E7EDCC9A5FAB5E95E8CDE04 /* SessionRowView.swift in Sources */,
 				07BC9699EE306F772D3D98A2 /* SessionStore.swift in Sources */,
+				A2B3C4D5E6F70819AABB1234 /* SettingsView.swift in Sources */,
 				EAF55BFBA30FF6858891F835 /* StatusDot.swift in Sources */,
 				6B9287A51A0915CBFBAD10CE /* TerminalView.swift in Sources */,
 				9DE88FFBC496B5797F95BEBD /* TerminalWebSocket.swift in Sources */,

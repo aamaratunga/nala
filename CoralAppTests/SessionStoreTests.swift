@@ -420,6 +420,81 @@ final class SessionStoreTests: XCTestCase {
         XCTAssertEqual(statuses, [.done, .inReview, .inProgress, .backlog, .canceled])
     }
 
+    // MARK: - Discovered Folders
+
+    func testReconcilePreservesDiscoveredFolders() {
+        let store = makeStore()
+        store.discoveredFolders = ["/proj/discovered"]
+        store.folderOrder = ["/proj/discovered", "/old"]
+        store.sessions = [] // no sessions at all
+
+        store.reconcileOrder()
+
+        // Discovered folder survives pruning; /old (no sessions, not discovered) is pruned
+        XCTAssertTrue(store.folderOrder.contains("/proj/discovered"))
+        XCTAssertFalse(store.folderOrder.contains("/old"))
+    }
+
+    func testReconcilePrunesRemovedDiscoveredFolder() {
+        let store = makeStore()
+        // Start with a discovered folder
+        store.discoveredFolders = ["/proj/discovered"]
+        store.folderOrder = ["/proj/discovered"]
+        store.sessions = []
+        store.reconcileOrder()
+        XCTAssertTrue(store.folderOrder.contains("/proj/discovered"))
+
+        // Now remove it from discovered (simulates directory deleted from disk)
+        store.discoveredFolders = []
+        store.reconcileOrder()
+
+        XCTAssertFalse(store.folderOrder.contains("/proj/discovered"))
+    }
+
+    func testOrderedGroupsIncludesEmptyDiscoveredFolder() {
+        let store = makeStore()
+        store.discoveredFolders = ["/proj/empty"]
+        store.folderOrder = ["/proj/empty"]
+        store.sessions = []
+
+        let groups = store.orderedGroups
+
+        XCTAssertEqual(groups.count, 1)
+        XCTAssertEqual(groups[0].path, "/proj/empty")
+        XCTAssertEqual(groups[0].sessions.count, 0)
+        XCTAssertEqual(groups[0].label, "empty")
+    }
+
+    func testDiscoveredFolderMergesWithSessionFolder() {
+        let store = makeStore()
+        store.discoveredFolders = ["/proj/alpha"]
+        store.sessions = [
+            makeSession(name: "a", sessionId: "s1", workingDirectory: "/proj/alpha"),
+        ]
+        store.reconcileOrder()
+
+        let groups = store.orderedGroups
+
+        // Should produce exactly one group (not two) with the session in it
+        XCTAssertEqual(groups.count, 1)
+        XCTAssertEqual(groups[0].path, "/proj/alpha")
+        XCTAssertEqual(groups[0].sessions.count, 1)
+        XCTAssertEqual(groups[0].sessions[0].sessionId, "s1")
+    }
+
+    func testDiscoveredFoldersAppearInDefaultSection() {
+        let store = makeStore()
+        store.discoveredFolders = ["/proj/alpha", "/proj/beta"]
+        store.sessions = []
+        store.reconcileOrder()
+
+        let sections = store.orderedSections
+        let inProgressSection = sections.first { $0.status == .inProgress }!
+
+        // Both discovered folders should appear in In Progress (default)
+        XCTAssertEqual(inProgressSection.groups.count, 2)
+    }
+
     func testReconcilePrunesStaleFolderStatus() {
         let store = makeStore()
         store.folderStatus = ["/old": .done, "/proj/alpha": .inReview]
