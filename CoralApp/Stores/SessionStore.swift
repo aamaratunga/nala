@@ -27,6 +27,7 @@ final class SessionStore {
     var selectedSessionId: String?
     var showingLaunchSheet = false
     var showingTerminalLaunchSheet = false
+    var showingCreateWorktreeSheet = false
     var isConnected = false
 
     // MARK: - Ordering State (persisted via UserDefaults)
@@ -56,31 +57,41 @@ final class SessionStore {
         didSet { if !isSuppressingPersistence { saveSectionExpansion() } }
     }
 
-    /// Parent directory whose top-level subfolders appear in the sidebar
-    /// regardless of active sessions. Persisted to UserDefaults.
-    var parentFolderPath: String? {
+    /// Configured repositories for worktree management.
+    var repoConfigs: [RepoConfig] = [] {
         didSet {
-            guard !isSuppressingPersistence else { return }
-            UserDefaults.standard.set(parentFolderPath, forKey: Self.parentFolderPathKey)
-            scanParentFolder()
+            if !isSuppressingPersistence {
+                saveRepoConfigs()
+                // Only rescan if the set of worktree folder paths changed
+                let newPaths = Set(repoConfigs.compactMap { config -> String? in
+                    guard !config.repoPath.isEmpty, !config.worktreeFolderPath.isEmpty else { return nil }
+                    return config.worktreeFolderPath
+                })
+                if newPaths != lastScannedWorktreePaths {
+                    scanWorktreeFolders()
+                }
+            }
         }
     }
 
-    /// Subfolders discovered by scanning `parentFolderPath`. Re-derived on
-    /// each scan; not persisted.
+    /// Subfolders discovered by scanning worktree folders. Cached to
+    /// UserDefaults so the sidebar loads instantly on next launch.
     var discoveredFolders: Set<String> = []
 
     private(set) var apiClient = APIClient()
     private var webSocket: CoralWebSocket?
     private let logger = Logger(subsystem: "com.coral.app", category: "SessionStore")
     private var isSuppressingPersistence = false
+    private var lastScannedWorktreePaths: Set<String> = []
+    private var scanTask: Task<Void, Never>?
 
     private static let folderOrderKey = "coral.folderOrder"
     private static let sessionOrderKey = "coral.sessionOrder"
     private static let folderExpansionKey = "coral.folderExpansion"
     private static let folderStatusKey = "coral.folderStatus"
     private static let sectionExpansionKey = "coral.sectionExpansion"
-    private static let parentFolderPathKey = "coral.parentFolderPath"
+    private static let repoConfigsKey = "coral.repoConfigs"
+    private static let discoveredFoldersKey = "coral.discoveredFolders"
 
     /// The currently selected session, if any.
     var selectedSession: Session? {
@@ -149,42 +160,69 @@ final class SessionStore {
 
     // MARK: - Connection
 
-    /// Scan `parentFolderPath` for top-level subdirectories and update
-    /// `discoveredFolders`, then reconcile sidebar order.
-    func scanParentFolder() {
-        guard let parent = parentFolderPath else {
-            discoveredFolders = []
-            reconcileOrder()
+    /// Computed list of repo configs that have both required fields set.
+    var validRepoConfigs: [RepoConfig] {
+        repoConfigs.filter { !$0.repoPath.isEmpty && !$0.worktreeFolderPath.isEmpty }
+    }
+
+    /// Scan all configured worktree folders for top-level subdirectories
+    /// in the background, then update `discoveredFolders` and reconcile
+    /// on the main thread. Results are cached to UserDefaults.
+    func scanWorktreeFolders() {
+        let folders = validRepoConfigs.map(\.worktreeFolderPath)
+        let folderSet = Set(folders)
+        lastScannedWorktreePaths = folderSet
+
+        guard !folders.isEmpty else {
+            if !discoveredFolders.isEmpty {
+                discoveredFolders = []
+                saveDiscoveredFolders()
+                reconcileOrder()
+            }
             return
         }
 
-        let url = URL(fileURLWithPath: parent)
-        let fm = FileManager.default
-        do {
-            let contents = try fm.contentsOfDirectory(
-                at: url,
-                includingPropertiesForKeys: [.isDirectoryKey],
-                options: [.skipsHiddenFiles]
-            )
-            var folders = Set<String>()
-            for item in contents {
-                let values = try item.resourceValues(forKeys: [.isDirectoryKey])
-                if values.isDirectory == true {
-                    folders.insert(item.path)
+        // Cancel any in-flight scan
+        scanTask?.cancel()
+        scanTask = Task.detached(priority: .utility) { [weak self] in
+            let fm = FileManager.default
+            var allDiscovered = Set<String>()
+            for folder in folders {
+                guard !Task.isCancelled else { return }
+                let url = URL(fileURLWithPath: folder)
+                do {
+                    let contents = try fm.contentsOfDirectory(
+                        at: url,
+                        includingPropertiesForKeys: [.isDirectoryKey],
+                        options: [.skipsHiddenFiles]
+                    )
+                    for item in contents {
+                        let values = try item.resourceValues(forKeys: [.isDirectoryKey])
+                        if values.isDirectory == true {
+                            allDiscovered.insert(item.path)
+                        }
+                    }
+                } catch {
+                    // Logged on main thread below
                 }
             }
-            discoveredFolders = folders
-        } catch {
-            logger.warning("Failed to scan parent folder: \(error)")
-            discoveredFolders = []
+
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                guard let self, !Task.isCancelled else { return }
+                if self.discoveredFolders != allDiscovered {
+                    self.discoveredFolders = allDiscovered
+                    self.saveDiscoveredFolders()
+                    self.reconcileOrder()
+                }
+            }
         }
-        reconcileOrder()
     }
 
     func connect(port: Int) {
         apiClient = APIClient(port: port)
         loadSavedOrder()
-        scanParentFolder()
+        scanWorktreeFolders()
 
         let ws = CoralWebSocket(port: port)
         webSocket = ws
@@ -399,7 +437,6 @@ final class SessionStore {
 
         let defaults = UserDefaults.standard
         folderOrder = defaults.stringArray(forKey: Self.folderOrderKey) ?? []
-        parentFolderPath = defaults.string(forKey: Self.parentFolderPathKey)
 
         if let data = defaults.data(forKey: Self.sessionOrderKey),
            let decoded = try? JSONDecoder().decode([String: [String]].self, from: data) {
@@ -424,6 +461,16 @@ final class SessionStore {
                     result[status] = pair.value
                 }
             }
+        }
+
+        if let data = defaults.data(forKey: Self.repoConfigsKey),
+           let decoded = try? JSONDecoder().decode([RepoConfig].self, from: data) {
+            repoConfigs = decoded
+        }
+
+        // Restore cached discovered folders for instant sidebar on launch
+        if let cached = defaults.stringArray(forKey: Self.discoveredFoldersKey) {
+            discoveredFolders = Set(cached)
         }
     }
 
@@ -457,6 +504,104 @@ final class SessionStore {
         if let data = try? JSONEncoder().encode(stringKeyed) {
             UserDefaults.standard.set(data, forKey: Self.sectionExpansionKey)
         }
+    }
+
+    private func saveRepoConfigs() {
+        if let data = try? JSONEncoder().encode(repoConfigs) {
+            UserDefaults.standard.set(data, forKey: Self.repoConfigsKey)
+        }
+    }
+
+    private func saveDiscoveredFolders() {
+        UserDefaults.standard.set(Array(discoveredFolders), forKey: Self.discoveredFoldersKey)
+    }
+
+    // MARK: - Worktree Helpers
+
+    /// Finds the matching repo config for a given worktree path.
+    func repoConfigForWorktree(path: String) -> RepoConfig? {
+        // First check if the path is under a configured worktree folder
+        for config in repoConfigs {
+            if !config.worktreeFolderPath.isEmpty && path.hasPrefix(config.worktreeFolderPath) {
+                return config
+            }
+        }
+        // Fall back to parsing the .git file to find the parent repo
+        if let parentRepo = GitService.findParentRepoPath(worktreePath: path) {
+            return repoConfigs.first { $0.repoPath == parentRepo }
+        }
+        return nil
+    }
+
+    /// Kills all sessions in the worktree, runs pre-delete script, removes worktree via git.
+    func deleteWorktree(folderPath: String) async {
+        logger.info("deleteWorktree: starting for \(folderPath)")
+
+        // Kill all sessions in this folder
+        let sessionsInFolder = sessions.filter { $0.workingDirectory == folderPath }
+        logger.info("deleteWorktree: found \(sessionsInFolder.count) sessions to kill")
+        for session in sessionsInFolder {
+            logger.info("deleteWorktree: killing session \(session.name) (id=\(session.sessionId), type=\(session.agentType))")
+            try? await apiClient.killSession(
+                sessionName: session.name,
+                agentType: session.agentType,
+                sessionId: session.sessionId
+            )
+        }
+
+        // Find the repo config and parent repo path
+        let repoPath: String
+        if let config = repoConfigForWorktree(path: folderPath) {
+            logger.info("deleteWorktree: matched repo config '\(config.displayName)' (repoPath=\(config.repoPath))")
+            // Run pre-delete script if configured
+            if let script = config.preDeleteScript, !script.isEmpty {
+                let branchName = URL(fileURLWithPath: folderPath).lastPathComponent
+                logger.info("deleteWorktree: running pre-delete script: \(script)")
+                let scriptResult = await GitService.runScript(
+                    scriptPath: script,
+                    worktreePath: folderPath,
+                    branchName: branchName,
+                    repoPath: config.repoPath
+                )
+                if !scriptResult.succeeded {
+                    logger.warning("deleteWorktree: pre-delete script failed: \(scriptResult.errorMessage)")
+                } else {
+                    logger.info("deleteWorktree: pre-delete script succeeded")
+                }
+            }
+            repoPath = config.repoPath
+        } else if let parsed = GitService.findParentRepoPath(worktreePath: folderPath) {
+            logger.info("deleteWorktree: no repo config match, parsed parent repo from .git file: \(parsed)")
+            repoPath = parsed
+        } else {
+            logger.error("deleteWorktree: cannot determine parent repo for \(folderPath) — aborting")
+            return
+        }
+
+        // Remove the worktree (try normal first, then force)
+        logger.info("deleteWorktree: removing worktree (repo=\(repoPath), path=\(folderPath))")
+        var result = await GitService.removeWorktree(repoPath: repoPath, worktreePath: folderPath)
+        if !result.succeeded {
+            logger.warning("deleteWorktree: normal remove failed, retrying with --force")
+            result = await GitService.removeWorktree(repoPath: repoPath, worktreePath: folderPath, force: true)
+        }
+
+        if result.succeeded {
+            logger.info("deleteWorktree: worktree removed successfully")
+
+            // Delete the branch now that the worktree is gone
+            let branchName = URL(fileURLWithPath: folderPath).lastPathComponent
+            logger.info("deleteWorktree: deleting branch '\(branchName)'")
+            let branchResult = await GitService.deleteBranch(repoPath: repoPath, branchName: branchName)
+            if !branchResult.succeeded {
+                logger.warning("deleteWorktree: branch deletion failed (may not exist or is current): \(branchResult.errorMessage)")
+            }
+        } else {
+            logger.error("deleteWorktree: failed to remove worktree even with force: \(result.errorMessage)")
+        }
+
+        logger.info("deleteWorktree: triggering folder rescan")
+        scanWorktreeFolders()
     }
 
     // MARK: - REST Fallback

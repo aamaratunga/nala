@@ -21,6 +21,8 @@ struct SessionListView: View {
 
     @State private var draggingSessionId: String?
     @State private var dragCleanupTask: Task<Void, Never>?
+    @State private var pendingWorktreeDeletion: String?
+    @State private var showingDeleteConfirmation = false
 
     private var anyFolderExpanded: Bool {
         store.folderOrder.contains { store.folderExpansion[$0] ?? true }
@@ -123,6 +125,18 @@ struct SessionListView: View {
                 .popover(isPresented: $store.showingTerminalLaunchSheet, arrowEdge: .bottom) {
                     LaunchDropdown(mode: .terminal)
                 }
+
+                Button {
+                    store.showingCreateWorktreeSheet = true
+                } label: {
+                    Image(systemName: "arrow.triangle.branch")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("New worktree (⌥⌘N)")
+                .popover(isPresented: $store.showingCreateWorktreeSheet, arrowEdge: .bottom) {
+                    CreateWorktreeDropdown()
+                }
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
@@ -163,6 +177,21 @@ struct SessionListView: View {
                         sessionId: session.sessionId
                     )
                 }
+            }
+        }
+        .alert("Delete Worktree?", isPresented: $showingDeleteConfirmation) {
+            Button("Cancel", role: .cancel) {
+                pendingWorktreeDeletion = nil
+            }
+            Button("Delete", role: .destructive) {
+                if let path = pendingWorktreeDeletion {
+                    pendingWorktreeDeletion = nil
+                    Task { await store.deleteWorktree(folderPath: path) }
+                }
+            }
+        } message: {
+            if let path = pendingWorktreeDeletion {
+                Text("This will kill all sessions, run the pre-delete script, and remove the worktree at:\n\(URL(fileURLWithPath: path).lastPathComponent)")
             }
         }
         .navigationTitle("Coral")
@@ -420,6 +449,15 @@ struct SessionListView: View {
                         }
                     }
                 ))
+            }
+        }
+
+        if GitService.isWorktree(path: path) {
+            Divider()
+
+            Button("Delete Worktree…", role: .destructive) {
+                pendingWorktreeDeletion = path
+                showingDeleteConfirmation = true
             }
         }
     }

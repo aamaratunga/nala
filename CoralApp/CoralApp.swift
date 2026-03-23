@@ -18,7 +18,7 @@ struct CoralApp: App {
                         .onReceive(NotificationCenter.default.publisher(
                             for: NSApplication.didBecomeActiveNotification
                         )) { _ in
-                            sessionStore.scanParentFolder()
+                            sessionStore.scanWorktreeFolders()
                         }
                 } else {
                     LoadingView(serverManager: serverManager)
@@ -56,6 +56,14 @@ struct CoralApp: App {
                 }
                 .keyboardShortcut("t", modifiers: [.command, .shift])
                 .disabled(sessionStore.selectedSession == nil)
+
+                Divider()
+
+                Button("New Worktree…") {
+                    sessionStore.showingCreateWorktreeSheet = true
+                }
+                .keyboardShortcut("n", modifiers: [.command, .option])
+                .disabled(sessionStore.validRepoConfigs.isEmpty)
 
                 Divider()
 

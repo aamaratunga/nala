@@ -1,5 +1,4 @@
 import SwiftUI
-import AppKit
 
 struct SettingsView: View {
     @Environment(SessionStore.self) private var store
@@ -7,32 +6,25 @@ struct SettingsView: View {
     @AppStorage("coral.notifications.done") private var doneEnabled = true
 
     var body: some View {
+        @Bindable var store = store
+
         Form {
             Section {
-                HStack {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Parent Folder")
-                            .fontWeight(.medium)
-                        Text(store.parentFolderPath ?? "None selected")
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                    }
-
-                    Spacer()
-
-                    if store.parentFolderPath != nil {
-                        Button("Clear") {
-                            store.parentFolderPath = nil
+                ForEach($store.repoConfigs) { $config in
+                    RepoConfigRow(config: $config) {
+                        if let index = store.repoConfigs.firstIndex(where: { $0.id == config.id }) {
+                            store.repoConfigs.remove(at: index)
                         }
                     }
-
-                    Button("Choose…") {
-                        chooseFolder()
-                    }
                 }
+
+                Button("Add Repository") {
+                    store.repoConfigs.append(RepoConfig())
+                }
+            } header: {
+                Text("Repositories")
             } footer: {
-                Text("All top-level subfolders of the selected directory will appear in the sidebar, even without active sessions.")
+                Text("Configure git repositories for worktree creation. Subfolders of each worktree folder appear in the sidebar automatically.")
                     .foregroundStyle(.secondary)
             }
 
@@ -47,18 +39,6 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 450, height: 260)
-    }
-
-    private func chooseFolder() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.allowsMultipleSelection = false
-        panel.message = "Select a parent directory whose subfolders should appear in the sidebar."
-
-        if panel.runModal() == .OK, let url = panel.url {
-            store.parentFolderPath = url.path
-        }
+        .frame(width: 450, height: 420)
     }
 }
