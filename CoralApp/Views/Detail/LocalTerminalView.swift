@@ -51,6 +51,7 @@ struct LocalTerminalView: NSViewRepresentable {
         tv.processDelegate = context.coordinator
         context.coordinator.terminalView = tv
         context.coordinator.installScrollMonitor()
+        context.coordinator.installKeyMonitor()
 
         // Enable mouse mode (so trackpad/scroll wheel works) then attach.
         // Using login shell so tmux is found via PATH.
@@ -67,21 +68,27 @@ struct LocalTerminalView: NSViewRepresentable {
     }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(isTerminated: $isTerminated)
+        Coordinator(sessionName: sessionName, isTerminated: $isTerminated)
     }
 
     final class Coordinator: NSObject, LocalProcessTerminalViewDelegate {
+        let sessionName: String
         @Binding var isTerminated: Bool
         weak var terminalView: LocalProcessTerminalView?
         private var scrollMonitor: Any?
+        private var keyMonitor: Any?
 
-        init(isTerminated: Binding<Bool>) {
+        init(sessionName: String, isTerminated: Binding<Bool>) {
+            self.sessionName = sessionName
             _isTerminated = isTerminated
         }
 
         deinit {
             if let scrollMonitor {
                 NSEvent.removeMonitor(scrollMonitor)
+            }
+            if let keyMonitor {
+                NSEvent.removeMonitor(keyMonitor)
             }
         }
 
@@ -126,6 +133,45 @@ struct LocalTerminalView: NSViewRepresentable {
                     terminal.sendEvent(buttonFlags: buttonFlags, x: col, y: row)
                 }
                 return nil  // consume — don't let SwiftTerm's no-op scrollback run
+            }
+        }
+
+        /// Intercepts Shift+Enter and sends the CSI u escape sequence so apps
+        /// like Claude Code can distinguish it from plain Enter and insert a
+        /// newline.  Uses `tmux send-keys -H` to inject the raw bytes directly
+        /// into the pane's PTY, bypassing tmux's own key input parser which
+        /// would re-encode the sequence into a format the inner app may not
+        /// understand.
+        func installKeyMonitor() {
+            keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                guard let self,
+                      let tv = self.terminalView else {
+                    return event
+                }
+
+                // Only intercept events targeting our terminal view
+                guard let window = tv.window,
+                      let firstResponder = window.firstResponder as? NSView,
+                      firstResponder === tv || firstResponder.isDescendant(of: tv) else {
+                    return event
+                }
+
+                // keyCode 36 = Return; check only Shift is held
+                let mods = event.modifierFlags.intersection([.shift, .command, .control, .option])
+                guard event.keyCode == 36 && mods == .shift else { return event }
+
+                // Send CSI u for Shift+Enter (\e[13;2u) directly to the tmux
+                // pane via send-keys -H, bypassing tmux's key input parser.
+                let session = self.sessionName
+                DispatchQueue.global(qos: .userInteractive).async {
+                    let proc = Process()
+                    proc.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+                    // \e[13;2u = ESC [ 1 3 ; 2 u = 1b 5b 31 33 3b 32 75
+                    proc.arguments = ["tmux", "send-keys", "-t", session, "-H", "1b", "5b", "31", "33", "3b", "32", "75"]
+                    try? proc.run()
+                    proc.waitUntilExit()
+                }
+                return nil  // consume the event
             }
         }
 
