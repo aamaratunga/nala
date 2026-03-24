@@ -29,6 +29,7 @@ final class SessionStore {
     var showingLaunchSheet = false
     var showingTerminalLaunchSheet = false
     var showingCreateWorktreeSheet = false
+    var showingShortcutsPanel = false
     var isConnected = false
 
     /// Active worktree creation states, keyed by placeholder session ID.

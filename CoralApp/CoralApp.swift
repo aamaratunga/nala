@@ -82,6 +82,12 @@ struct CoralApp: App {
                 .keyboardShortcut("w")
                 .disabled(sessionStore.selectedSession == nil)
             }
+            CommandGroup(replacing: .help) {
+                Button("Keyboard Shortcuts") {
+                    withAnimation { sessionStore.showingShortcutsPanel.toggle() }
+                }
+                .keyboardShortcut("/", modifiers: .command)
+            }
         }
 
         Settings {

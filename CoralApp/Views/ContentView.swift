@@ -1,10 +1,14 @@
 import SwiftUI
+import AppKit
 
 struct ContentView: View {
     @Environment(SessionStore.self) private var store
     @State private var visitedSessionIds: Set<String> = []
+    @State private var shortcutMonitor: Any?
 
     var body: some View {
+        @Bindable var store = store
+
         NavigationSplitView {
             SessionListView()
                 .navigationSplitViewColumnWidth(min: 220, ideal: 280, max: 400)
@@ -44,6 +48,45 @@ struct ContentView: View {
                 let currentIds = Set(newSessions.map(\.id))
                 visitedSessionIds = visitedSessionIds.intersection(currentIds)
             }
+        }
+        .inspector(isPresented: $store.showingShortcutsPanel) {
+            KeyboardShortcutsPanel()
+        }
+        .onAppear { installShortcutMonitor() }
+        .onDisappear { removeShortcutMonitor() }
+    }
+
+    // MARK: - Bare ? key monitor
+
+    /// Installs a local event monitor for the `?` key (Shift+/) that toggles
+    /// the shortcuts panel when no text input field has focus.
+    private func installShortcutMonitor() {
+        shortcutMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [store] event in
+            // ? is Shift + / (keyCode 44)
+            let mods = event.modifierFlags.intersection([.shift, .command, .control, .option])
+            guard event.keyCode == 44 && mods == .shift else { return event }
+
+            // Don't intercept when a text field or terminal has focus
+            guard let window = NSApp.keyWindow,
+                  let firstResponder = window.firstResponder else {
+                return event
+            }
+
+            let responderClass = String(describing: type(of: firstResponder))
+            if firstResponder is NSTextView || firstResponder is NSTextField
+                || responderClass.contains("Terminal") {
+                return event
+            }
+
+            withAnimation { store.showingShortcutsPanel.toggle() }
+            return nil
+        }
+    }
+
+    private func removeShortcutMonitor() {
+        if let monitor = shortcutMonitor {
+            NSEvent.removeMonitor(monitor)
+            shortcutMonitor = nil
         }
     }
 }

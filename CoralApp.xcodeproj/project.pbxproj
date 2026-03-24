@@ -44,6 +44,7 @@
 		EAF55BFBA30FF6858891F835 /* StatusDot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32DE040A2413C63DC90B0FD0 /* StatusDot.swift */; };
 		EB8CF35F8F1ACAA90122565A /* GitService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 307756661CE76AC251EB6E64 /* GitService.swift */; };
 		F6A1181753693D8D454B94B8 /* CoralWebSocket.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53E64546468C05F7E4BF2D28 /* CoralWebSocket.swift */; };
+		F6F18E778D6F789A5D6F5D60 /* KeyboardShortcutsPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F8032BD7132A73B2DC4483B /* KeyboardShortcutsPanel.swift */; };
 		F90E39C0FAE95502F742B2CC /* SessionRestartProgressView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8A78A043F1C75CEB205F05E /* SessionRestartProgressView.swift */; };
 /* End PBXBuildFile section */
 
@@ -63,6 +64,7 @@
 		12966A78F0F559D62D19423C /* CreateWorktreeSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CreateWorktreeSheet.swift; sourceTree = "<group>"; };
 		1864DB002A542409908ECBD3 /* SessionListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionListView.swift; sourceTree = "<group>"; };
 		2624FB63A4C17E2E10C76016 /* LaunchRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchRequest.swift; sourceTree = "<group>"; };
+		2F8032BD7132A73B2DC4483B /* KeyboardShortcutsPanel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutsPanel.swift; sourceTree = "<group>"; };
 		307756661CE76AC251EB6E64 /* GitService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitService.swift; sourceTree = "<group>"; };
 		32085BEFAF7A53294BA4BEE0 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		32DE040A2413C63DC90B0FD0 /* StatusDot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusDot.swift; sourceTree = "<group>"; };
@@ -120,6 +122,7 @@
 				78FCA3336CB92DF1199A7921 /* Settings */,
 				8B0CE2DAE7D8EE9DF8882432 /* Shared */,
 				9446CBF8CF0904319BA9966B /* Sidebar */,
+				2F8032BD7132A73B2DC4483B /* KeyboardShortcutsPanel.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -268,8 +271,6 @@
 				5F2D71D296DB23218AA3DB4A /* PBXTargetDependency */,
 			);
 			name = CoralAppTests;
-			packageProductDependencies = (
-			);
 			productName = CoralAppTests;
 			productReference = A575A756179C98F028B6DA79 /* CoralAppTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
@@ -388,6 +389,7 @@
 				104CF4933A54CB0402F5EBF5 /* WorktreeCreationState.swift in Sources */,
 				DCFE7E745531C7D7A543D5F0 /* WorktreeDeletionProgressView.swift in Sources */,
 				823EB02BF7BB2173A140B584 /* WorktreeDeletionState.swift in Sources */,
+				F6F18E778D6F789A5D6F5D60 /* KeyboardShortcutsPanel.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
