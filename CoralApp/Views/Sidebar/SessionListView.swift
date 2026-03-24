@@ -603,6 +603,12 @@ struct SessionListView: View {
             store.renamingSessionId = session.id
         }
 
+        if session.hasTmuxTarget {
+            Button("Attach in Terminal") {
+                TerminalLauncher.attachOrPrompt(sessionName: session.tmuxSession)
+            }
+        }
+
         Divider()
 
         Button("Restart") {

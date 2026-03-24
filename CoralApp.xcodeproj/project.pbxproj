@@ -26,6 +26,7 @@
 		63107A62F753C9DBA358236A /* RepoConfigRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD6073EB5575DFC81E4C21B2 /* RepoConfigRow.swift */; };
 		680B73EEB5ED3BB1DEB6CC6F /* RepoConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = D388B14CE0AC9CC031D1678A /* RepoConfig.swift */; };
 		756AF30956CBE52D140F0D3F /* Lottie in Frameworks */ = {isa = PBXBuildFile; productRef = 7BA578991C254E127232131A /* Lottie */; };
+		7938CE871BB35BF93A33DB6F /* TerminalLauncher.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5C539DA543E378FC9096FA8 /* TerminalLauncher.swift */; };
 		7C623E75E7BE38323532980A /* Session.swift in Sources */ = {isa = PBXBuildFile; fileRef = E158502CB4D1ECBBB16A18DF /* Session.swift */; };
 		823EB02BF7BB2173A140B584 /* WorktreeDeletionState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83DDE8BAEBCF85BD58D9D828 /* WorktreeDeletionState.swift */; };
 		89705BDC957C56E753DCA773 /* Loading_Hand.lottie in Resources */ = {isa = PBXBuildFile; fileRef = F19764FC0B07B9BA69CE9F57 /* Loading_Hand.lottie */; };
@@ -86,6 +87,7 @@
 		A575A756179C98F028B6DA79 /* CoralAppTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CoralAppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		AA8E88A34F65AEADD17C473F /* SessionLaunchState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionLaunchState.swift; sourceTree = "<group>"; };
 		B192BA3D3921BE8C321ED8EC /* LaunchDropdown.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchDropdown.swift; sourceTree = "<group>"; };
+		B5C539DA543E378FC9096FA8 /* TerminalLauncher.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TerminalLauncher.swift; sourceTree = "<group>"; };
 		BD6073EB5575DFC81E4C21B2 /* RepoConfigRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RepoConfigRow.swift; sourceTree = "<group>"; };
 		BE6D9C79685D7C043B3F0D87 /* WorktreeCreationProgressView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorktreeCreationProgressView.swift; sourceTree = "<group>"; };
 		C151889272ED744F29772385 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
@@ -252,6 +254,7 @@
 				307756661CE76AC251EB6E64 /* GitService.swift */,
 				334F021BEEE52BBAEC37F2FA /* NotificationManager.swift */,
 				8065D02284CB252911E724B0 /* ServerManager.swift */,
+				B5C539DA543E378FC9096FA8 /* TerminalLauncher.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -390,6 +393,7 @@
 				DCFE7E745531C7D7A543D5F0 /* WorktreeDeletionProgressView.swift in Sources */,
 				823EB02BF7BB2173A140B584 /* WorktreeDeletionState.swift in Sources */,
 				F6F18E778D6F789A5D6F5D60 /* KeyboardShortcutsPanel.swift in Sources */,
+				7938CE871BB35BF93A33DB6F /* TerminalLauncher.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

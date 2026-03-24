@@ -1,9 +1,16 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct SettingsView: View {
     @Environment(SessionStore.self) private var store
+    @AppStorage("coral.terminalAppPath") private var terminalAppPath: String = ""
     @AppStorage("coral.notifications.needsInput") private var needsInputEnabled = true
     @AppStorage("coral.notifications.done") private var doneEnabled = true
+
+    private var terminalAppName: String? {
+        guard !terminalAppPath.isEmpty else { return nil }
+        return URL(fileURLWithPath: terminalAppPath).deletingPathExtension().lastPathComponent
+    }
 
     var body: some View {
         @Bindable var store = store
@@ -29,6 +36,39 @@ struct SettingsView: View {
             }
 
             Section {
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(terminalAppName ?? "Not set")
+                            .foregroundStyle(terminalAppName != nil ? .primary : .secondary)
+                        if !terminalAppPath.isEmpty {
+                            Text(terminalAppPath)
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
+                    }
+
+                    Spacer()
+
+                    Button("Browse…") {
+                        chooseTerminalApp()
+                    }
+
+                    if !terminalAppPath.isEmpty {
+                        Button("Clear") {
+                            terminalAppPath = ""
+                        }
+                    }
+                }
+            } header: {
+                Text("Terminal")
+            } footer: {
+                Text("Choose which terminal app to use for \"Attach in Terminal\" (⌘O).")
+                    .foregroundStyle(.secondary)
+            }
+
+            Section {
                 Toggle("Needs Input", isOn: $needsInputEnabled)
                 Toggle("Done", isOn: $doneEnabled)
             } header: {
@@ -39,6 +79,19 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 450, height: 420)
+        .frame(width: 450, height: 500)
+    }
+
+    private func chooseTerminalApp() {
+        let panel = NSOpenPanel()
+        panel.title = "Choose Terminal App"
+        panel.allowedContentTypes = [UTType.application]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.directoryURL = URL(fileURLWithPath: "/Applications")
+
+        if panel.runModal() == .OK, let url = panel.url {
+            terminalAppPath = url.path
+        }
     }
 }

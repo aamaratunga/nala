@@ -68,6 +68,16 @@ struct CoralApp: App {
                 }
                 .keyboardShortcut("w")
                 .disabled(sessionStore.selectedSession == nil)
+
+                Divider()
+
+                Button("Attach in Terminal") {
+                    if let session = sessionStore.selectedSession {
+                        TerminalLauncher.attachOrPrompt(sessionName: session.tmuxSession)
+                    }
+                }
+                .keyboardShortcut("o")
+                .disabled(sessionStore.selectedSession?.hasTmuxTarget != true)
             }
             CommandGroup(before: .sidebar) {
                 Button("Toggle Sidebar") {

@@ -22,6 +22,7 @@ struct KeyboardShortcutsPanel: View {
             Shortcut(description: "New Terminal", keys: ["⌘", "T"]),
             Shortcut(description: "New Worktree", keys: ["⌘", "⌥", "N"]),
             Shortcut(description: "Kill Session", keys: ["⌘", "W"]),
+            Shortcut(description: "Attach in Terminal", keys: ["⌘", "O"]),
         ]),
         ShortcutGroup(title: "Navigation", icon: "arrow.up.arrow.down", shortcuts: [
             Shortcut(description: "Toggle Sidebar", keys: ["⌘", "S"]),
