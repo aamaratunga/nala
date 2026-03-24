@@ -51,7 +51,7 @@ struct CoralApp: App {
 
                 Button("Kill Session") {
                     if let session = sessionStore.selectedSession {
-                        if !session.done && !session.sleeping {
+                        if session.agentType != "terminal" && (session.working || session.waitingForInput) {
                             sessionStore.pendingKillSession = session
                             sessionStore.showingKillConfirmation = true
                         } else {
