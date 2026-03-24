@@ -24,6 +24,22 @@ struct CommandResult {
 enum GitService {
     private static let logger = Logger(subsystem: "com.coral.app", category: "GitService")
 
+    // MARK: - Git Root Detection
+
+    /// Walks up from `path` to find the nearest directory containing `.git`.
+    /// Returns the git root path, or `nil` if no git repo is found.
+    static func findGitRoot(from path: String) -> String? {
+        var current = URL(fileURLWithPath: path).standardized
+        while current.path != "/" {
+            let gitPath = current.appendingPathComponent(".git").path
+            if FileManager.default.fileExists(atPath: gitPath) {
+                return current.path
+            }
+            current = current.deletingLastPathComponent()
+        }
+        return nil
+    }
+
     // MARK: - Worktree Operations
 
     static func createWorktree(repoPath: String, worktreeFolder: String, branchName: String) async -> CommandResult {

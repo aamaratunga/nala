@@ -102,6 +102,17 @@ final class SessionStore {
     private var lastScannedWorktreePaths: Set<String> = []
     private var scanTask: Task<Void, Never>?
 
+    /// Cache: workingDirectory → resolved git root (or self if not in a git repo).
+    private var gitRootCache: [String: String] = [:]
+
+    /// Returns the git root for a working directory, falling back to the path itself.
+    func groupingPath(for workingDirectory: String) -> String {
+        if let cached = gitRootCache[workingDirectory] { return cached }
+        let resolved = GitService.findGitRoot(from: workingDirectory) ?? workingDirectory
+        gitRootCache[workingDirectory] = resolved
+        return resolved
+    }
+
     private static let folderOrderKey = "coral.folderOrder"
     private static let sessionOrderKey = "coral.sessionOrder"
     private static let folderExpansionKey = "coral.folderExpansion"
@@ -128,6 +139,7 @@ final class SessionStore {
         if let state = activeDeletions[id] { return state }
         if let session = sessions.first(where: { $0.id == id }) {
             return activeDeletions[session.workingDirectory]
+                ?? activeDeletions[groupingPath(for: session.workingDirectory)]
         }
         return nil
     }
@@ -157,7 +169,7 @@ final class SessionStore {
     /// Groups sessions by workingDirectory, ordered by folderOrder,
     /// with sessions within each group ordered by sessionOrder.
     var orderedGroups: [SessionGroup] {
-        let grouped = Dictionary(grouping: sessions) { $0.workingDirectory }
+        let grouped = Dictionary(grouping: sessions) { groupingPath(for: $0.workingDirectory) }
 
         // Build groups for every folder in folderOrder that has sessions
         // or is a discovered folder from the parent directory
@@ -321,8 +333,9 @@ final class SessionStore {
 
         // Select the placeholder and ensure its folder + section are expanded
         selectedSessionId = state.id
-        folderExpansion[workingDir] = true
-        let status = folderStatus[workingDir] ?? .inProgress
+        let resolvedDir = groupingPath(for: workingDir)
+        folderExpansion[resolvedDir] = true
+        let status = folderStatus[resolvedDir] ?? .inProgress
         sectionExpansion[status] = true
 
         Task { await performLaunch(state: state) }
@@ -381,7 +394,8 @@ final class SessionStore {
     func removeSessionOptimistically(_ session: Session) {
         // Move selection to next/prev session in same folder before removing
         if selectedSessionId == session.id {
-            if let group = orderedGroups.first(where: { $0.path == session.workingDirectory }) {
+            let resolvedPath = groupingPath(for: session.workingDirectory)
+            if let group = orderedGroups.first(where: { $0.path == resolvedPath }) {
                 let siblings = group.sessions.filter { $0.id != session.id && !$0.isPlaceholder }
                 if let idx = group.sessions.firstIndex(where: { $0.id == session.id }) {
                     // Prefer next session, fall back to previous
@@ -542,7 +556,9 @@ final class SessionStore {
         }
 
         // Save sessions in folders being deleted before replacing
-        let deletingSessions = sessions.filter { activeDeletions[$0.workingDirectory] != nil }
+        let deletingSessions = sessions.filter {
+            activeDeletions[$0.workingDirectory] != nil || activeDeletions[groupingPath(for: $0.workingDirectory)] != nil
+        }
 
         // Deduplicate by id — the server may send the same session twice
         var seen = Set<String>()
@@ -585,7 +601,8 @@ final class SessionStore {
 
             sessions.removeAll { session in
                 guard !session.isPlaceholder else { return false }
-                guard activeDeletions[session.workingDirectory] == nil else { return false }
+                guard activeDeletions[session.workingDirectory] == nil
+                   && activeDeletions[groupingPath(for: session.workingDirectory)] == nil else { return false }
                 return removed.contains(session.sessionId) || removed.contains(session.name)
             }
             // Clear selection if the selected session was removed
@@ -593,7 +610,7 @@ final class SessionStore {
             if let selectedId = selectedSessionId,
                removed.contains(selectedId) || sessions.first(where: { $0.id == selectedId }) == nil {
                 let isInDeletingFolder = sessions.first(where: { $0.id == selectedId })
-                    .map { activeDeletions[$0.workingDirectory] != nil } ?? false
+                    .map { activeDeletions[$0.workingDirectory] != nil || activeDeletions[groupingPath(for: $0.workingDirectory)] != nil } ?? false
                 let isBeingRestarted = activeRestarts[selectedId] != nil
                 if !isInDeletingFolder && !isBeingRestarted {
                     selectedSessionId = nil
@@ -672,8 +689,8 @@ final class SessionStore {
             saveFolderStatus()
         }
 
-        let currentFolders = Set(sessions.map(\.workingDirectory))
-        let currentSessionsByFolder = Dictionary(grouping: sessions) { $0.workingDirectory }
+        let currentFolders = Set(sessions.map { groupingPath(for: $0.workingDirectory) })
+        let currentSessionsByFolder = Dictionary(grouping: sessions) { groupingPath(for: $0.workingDirectory) }
         let keepFolders = currentFolders.union(discoveredFolders)
 
         // Prune folders that no longer exist (in sessions or discovered)
@@ -817,7 +834,7 @@ final class SessionStore {
 
     /// Synchronous entry point: creates deletion state, starts async deletion pipeline.
     func beginWorktreeDeletion(folderPath: String) {
-        let sessionsInFolder = sessions.filter { $0.workingDirectory == folderPath }
+        let sessionsInFolder = sessions.filter { groupingPath(for: $0.workingDirectory) == folderPath }
         let repoPath = repoConfigForWorktree(path: folderPath)?.repoPath ?? ""
         let state = WorktreeDeletionState(folderPath: folderPath, sessionCount: sessionsInFolder.count, repoPath: repoPath)
 
@@ -852,7 +869,7 @@ final class SessionStore {
         logger.info("deleteWorktree: starting for \(folderPath)")
 
         // Step 1: Kill all real sessions in this folder (exclude placeholders)
-        let sessionsInFolder = sessions.filter { $0.workingDirectory == folderPath && !$0.isPlaceholder }
+        let sessionsInFolder = sessions.filter { groupingPath(for: $0.workingDirectory) == folderPath && !$0.isPlaceholder }
         logger.info("deleteWorktree: found \(sessionsInFolder.count) sessions to kill")
 
         if sessionsInFolder.isEmpty {
@@ -941,7 +958,7 @@ final class SessionStore {
         state.isFinished = true
 
         // Remove sessions belonging to this folder
-        sessions.removeAll { $0.workingDirectory == state.folderPath }
+        sessions.removeAll { groupingPath(for: $0.workingDirectory) == state.folderPath }
 
         // Remove from discovered folders
         discoveredFolders.remove(state.folderPath)
