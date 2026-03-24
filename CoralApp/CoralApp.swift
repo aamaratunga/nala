@@ -41,24 +41,6 @@ struct CoralApp: App {
 
                 Divider()
 
-                Button("New Agent in Current Folder") {
-                    if let session = sessionStore.selectedSession {
-                        sessionStore.launchSession(agentType: "claude", in: session.workingDirectory)
-                    }
-                }
-                .keyboardShortcut("n", modifiers: [.command, .shift])
-                .disabled(sessionStore.selectedSession == nil)
-
-                Button("New Terminal in Current Folder") {
-                    if let session = sessionStore.selectedSession {
-                        sessionStore.launchTerminal(in: session.workingDirectory)
-                    }
-                }
-                .keyboardShortcut("t", modifiers: [.command, .shift])
-                .disabled(sessionStore.selectedSession == nil)
-
-                Divider()
-
                 Button("New Worktree…") {
                     sessionStore.showingCreateWorktreeSheet = true
                 }
@@ -69,18 +51,32 @@ struct CoralApp: App {
 
                 Button("Kill Session") {
                     if let session = sessionStore.selectedSession {
-                        sessionStore.removeSessionOptimistically(session)
-                        Task {
-                            try? await sessionStore.apiClient.killSession(
-                                sessionName: session.name,
-                                agentType: session.agentType,
-                                sessionId: session.sessionId
-                            )
+                        if !session.done && !session.sleeping {
+                            sessionStore.pendingKillSession = session
+                            sessionStore.showingKillConfirmation = true
+                        } else {
+                            sessionStore.removeSessionOptimistically(session)
+                            Task {
+                                try? await sessionStore.apiClient.killSession(
+                                    sessionName: session.name,
+                                    agentType: session.agentType,
+                                    sessionId: session.sessionId
+                                )
+                            }
                         }
                     }
                 }
                 .keyboardShortcut("w")
                 .disabled(sessionStore.selectedSession == nil)
+            }
+            CommandGroup(before: .sidebar) {
+                Button("Toggle Sidebar") {
+                    withAnimation {
+                        sessionStore.sidebarVisibility = sessionStore.sidebarVisibility == .all
+                            ? .detailOnly : .all
+                    }
+                }
+                .keyboardShortcut("s")
             }
             CommandGroup(replacing: .help) {
                 Button("Keyboard Shortcuts") {

@@ -54,6 +54,12 @@ struct LocalTerminalView: NSViewRepresentable {
     let sessionName: String
     @Binding var isTerminated: Bool
 
+    /// Weak map from tmux session name → terminal view, used by
+    /// ContentView.focusTerminal() to find the correct visible terminal.
+    static let viewsBySession = NSMapTable<NSString, CoralTerminalView>(
+        keyOptions: .strongMemory, valueOptions: .weakMemory
+    )
+
     /// Convert a 0–255 byte to SwiftTerm's UInt16 color component (0–65535).
     private static func c(_ byte: UInt16) -> UInt16 { byte * 257 }
 
@@ -81,6 +87,7 @@ struct LocalTerminalView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> CoralTerminalView {
         let tv = CoralTerminalView(frame: .zero)
+        Self.viewsBySession.setObject(tv, forKey: sessionName as NSString)
 
         // Font — prefer MesloLGS Nerd Font for icon glyphs
         if let nerdFont = NSFont(name: "MesloLGS Nerd Font Mono", size: 16) {

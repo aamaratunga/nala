@@ -1,5 +1,5 @@
 import Foundation
-import AppKit
+import SwiftUI
 import os
 
 // MARK: - SessionGroup
@@ -31,6 +31,12 @@ final class SessionStore {
     var showingCreateWorktreeSheet = false
     var showingShortcutsPanel = false
     var isConnected = false
+
+    var pendingKillSession: Session?
+    var showingKillConfirmation = false
+    var renamingSessionId: String?
+    var sidebarFocused = false
+    var sidebarVisibility: NavigationSplitViewVisibility = .all
 
     /// Active worktree creation states, keyed by placeholder session ID.
     var activeCreations: [String: WorktreeCreationState] = [:]
@@ -126,6 +132,38 @@ final class SessionStore {
     var selectedSession: Session? {
         guard let id = selectedSessionId else { return nil }
         return sessions.first { $0.id == id }
+    }
+
+    /// Flat list of visible session IDs in sidebar order, for keyboard navigation.
+    var navigableSessionIds: [String] {
+        orderedSections.flatMap { section -> [String] in
+            guard sectionExpansion[section.status] ?? true else { return [] }
+            return section.groups.flatMap { group -> [String] in
+                guard folderExpansion[group.path] ?? true else { return [] }
+                return group.sessions.map(\.id)
+            }
+        }
+    }
+
+    /// The folder path containing the currently selected session.
+    var focusedFolderPath: String? {
+        guard let id = selectedSessionId,
+              let session = sessions.first(where: { $0.id == id }) else { return nil }
+        return groupingPath(for: session.workingDirectory)
+    }
+
+    /// Jump to the Nth visible folder (0-indexed) and select its first session.
+    func jumpToFolder(at index: Int) {
+        let visibleFolders = orderedSections.flatMap { section -> [SessionGroup] in
+            guard sectionExpansion[section.status] ?? true else { return [] }
+            return section.groups
+        }
+        guard index < visibleFolders.count else { return }
+        let folder = visibleFolders[index]
+        folderExpansion[folder.path] = true
+        if let firstSession = folder.sessions.first {
+            selectedSessionId = firstSession.id
+        }
     }
 
     /// The creation state for the currently selected placeholder, if any.

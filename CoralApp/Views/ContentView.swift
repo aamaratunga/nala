@@ -9,7 +9,7 @@ struct ContentView: View {
     var body: some View {
         @Bindable var store = store
 
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: $store.sidebarVisibility) {
             SessionListView()
                 .navigationSplitViewColumnWidth(min: 220, ideal: 280, max: 400)
         } detail: {
@@ -52,34 +52,135 @@ struct ContentView: View {
         .inspector(isPresented: $store.showingShortcutsPanel) {
             KeyboardShortcutsPanel()
         }
+        .alert("Kill Session?", isPresented: $store.showingKillConfirmation) {
+            Button("Cancel", role: .cancel) { store.pendingKillSession = nil }
+            Button("Kill", role: .destructive) {
+                if let session = store.pendingKillSession {
+                    store.pendingKillSession = nil
+                    store.removeSessionOptimistically(session)
+                    Task {
+                        try? await store.apiClient.killSession(
+                            sessionName: session.name,
+                            agentType: session.agentType,
+                            sessionId: session.sessionId
+                        )
+                    }
+                }
+            }
+        } message: {
+            if let session = store.pendingKillSession {
+                Text("'\(session.displayLabel)' is still running. Kill it?")
+            }
+        }
         .onAppear { installShortcutMonitor() }
         .onDisappear { removeShortcutMonitor() }
     }
 
-    // MARK: - Bare ? key monitor
+    // MARK: - Keyboard Shortcut Monitor
 
-    /// Installs a local event monitor for the `?` key (Shift+/) that toggles
-    /// the shortcuts panel when no text input field has focus.
+    /// Installs a consolidated local event monitor for all custom keyboard shortcuts.
     private func installShortcutMonitor() {
         shortcutMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [store] event in
-            // ? is Shift + / (keyCode 44)
             let mods = event.modifierFlags.intersection([.shift, .command, .control, .option])
-            guard event.keyCode == 44 && mods == .shift else { return event }
 
-            // Don't intercept when a text field or terminal has focus
-            guard let window = NSApp.keyWindow,
-                  let firstResponder = window.firstResponder else {
-                return event
+            // Determine focus context from the responder chain
+            let window = NSApp.keyWindow
+            let firstResponder = window?.firstResponder
+            let responderClass = firstResponder.map { String(describing: type(of: $0)) } ?? ""
+            let isTerminalFocused = responderClass.contains("Terminal")
+            let isTextFieldFocused = firstResponder is NSTextView || firstResponder is NSTextField
+
+            // Sync sidebar focus: if the terminal just gained focus (e.g. user
+            // clicked on it), clear the sidebar-focused flag.
+            if isTerminalFocused || isTextFieldFocused {
+                store.sidebarFocused = false
             }
 
-            let responderClass = String(describing: type(of: firstResponder))
-            if firstResponder is NSTextView || firstResponder is NSTextField
-                || responderClass.contains("Terminal") {
-                return event
+            // ⌘0: Focus sidebar (global — works even from terminal)
+            if event.keyCode == 29 && mods == .command {
+                withAnimation { store.sidebarVisibility = .all }
+                store.sidebarFocused = true
+                ContentView.resignTerminalFocus()
+                return nil
             }
 
-            withAnimation { store.showingShortcutsPanel.toggle() }
-            return nil
+            // ⌘1-9: Jump to folder (global)
+            if mods == .command, let chars = event.characters, let digit = Int(chars), (1...9).contains(digit) {
+                store.jumpToFolder(at: digit - 1)
+                store.sidebarFocused = true
+                ContentView.resignTerminalFocus()
+                return nil
+            }
+
+            // ?: Toggle shortcuts panel (Shift+/, not terminal, not text field)
+            if event.keyCode == 44 && mods == .shift && !isTerminalFocused && !isTextFieldFocused {
+                withAnimation { store.showingShortcutsPanel.toggle() }
+                return nil
+            }
+
+            // --- Sidebar-only shortcuts (require sidebarFocused) ---
+
+            guard store.sidebarFocused else { return event }
+
+            // Tab: Focus terminal (sidebar → terminal)
+            if event.keyCode == 48 && mods.isEmpty {
+                store.sidebarFocused = false
+                ContentView.focusTerminal(session: store.selectedSession)
+                return nil
+            }
+
+            // Enter: Start rename (session selected, not already renaming)
+            if event.keyCode == 36 && mods.isEmpty
+               && store.selectedSessionId != nil && store.renamingSessionId == nil {
+                store.renamingSessionId = store.selectedSessionId
+                return nil
+            }
+
+            // ↑: Navigate to previous session
+            if event.keyCode == 126 && mods.isEmpty {
+                let ids = store.navigableSessionIds
+                if let current = store.selectedSessionId,
+                   let idx = ids.firstIndex(of: current), idx > 0 {
+                    store.selectedSessionId = ids[idx - 1]
+                } else if store.selectedSessionId == nil, let last = ids.last {
+                    store.selectedSessionId = last
+                }
+                return nil
+            }
+
+            // ↓: Navigate to next session
+            if event.keyCode == 125 && mods.isEmpty {
+                let ids = store.navigableSessionIds
+                if let current = store.selectedSessionId,
+                   let idx = ids.firstIndex(of: current), idx < ids.count - 1 {
+                    store.selectedSessionId = ids[idx + 1]
+                } else if store.selectedSessionId == nil, let first = ids.first {
+                    store.selectedSessionId = first
+                }
+                return nil
+            }
+
+            // ←: Collapse folder
+            if event.keyCode == 123 && mods.isEmpty {
+                if let folderPath = store.focusedFolderPath {
+                    withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) {
+                        store.folderExpansion[folderPath] = false
+                    }
+                }
+                return nil
+            }
+
+            // →: Expand folder
+            if event.keyCode == 124 && mods.isEmpty {
+                if let folderPath = store.focusedFolderPath {
+                    withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) {
+                        store.folderExpansion[folderPath] = true
+                    }
+                }
+                return nil
+            }
+
+            return event
         }
     }
 
@@ -88,5 +189,24 @@ struct ContentView: View {
             NSEvent.removeMonitor(monitor)
             shortcutMonitor = nil
         }
+    }
+
+    // MARK: - Focus Helpers
+
+    /// Resign terminal focus so keyboard input stops going to the PTY.
+    /// Makes the window itself the first responder.
+    private static func resignTerminalFocus() {
+        guard let window = NSApp.keyWindow else { return }
+        window.makeFirstResponder(nil)
+    }
+
+    /// Focus the terminal view for the given session using the stored
+    /// weak reference map, avoiding unreliable view-hierarchy searches.
+    private static func focusTerminal(session: Session?) {
+        guard let window = NSApp.keyWindow,
+              let session,
+              let tv = LocalTerminalView.viewsBySession.object(forKey: session.tmuxSession as NSString)
+        else { return }
+        window.makeFirstResponder(tv)
     }
 }

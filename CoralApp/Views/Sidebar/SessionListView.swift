@@ -23,7 +23,6 @@ struct SessionListView: View {
     @State private var dragCleanupTask: Task<Void, Never>?
     @State private var pendingWorktreeDeletion: String?
     @State private var showingDeleteConfirmation = false
-    @State private var renamingSessionId: String?
 
     private var anyFolderExpanded: Bool {
         store.folderOrder.contains { store.folderExpansion[$0] ?? true }
@@ -170,8 +169,8 @@ struct SessionListView: View {
         }
         .onChange(of: store.selectedSessionId) { _, newId in
             // Cancel rename if selection moves to a different session
-            if let renaming = renamingSessionId, renaming != newId {
-                renamingSessionId = nil
+            if let renaming = store.renamingSessionId, renaming != newId {
+                store.renamingSessionId = nil
             }
 
             if let id = newId,
@@ -364,6 +363,7 @@ struct SessionListView: View {
         .listRowSeparator(.hidden)
         .onTapGesture {
             store.selectedSessionId = session.id
+            store.sidebarFocused = true
         }
     }
 
@@ -395,6 +395,7 @@ struct SessionListView: View {
         .listRowSeparator(.hidden)
         .onTapGesture {
             store.selectedSessionId = session.id
+            store.sidebarFocused = true
         }
     }
 
@@ -426,22 +427,23 @@ struct SessionListView: View {
         .listRowSeparator(.hidden)
         .onTapGesture {
             store.selectedSessionId = session.id
+            store.sidebarFocused = true
         }
     }
 
     @ViewBuilder
     private func realSessionRow(for session: Session, in folderPath: String) -> some View {
         let isSelected = store.selectedSessionId == session.id
-        let isEditing = renamingSessionId == session.id
+        let isEditing = store.renamingSessionId == session.id
         SessionRowView(
             session: session,
             isEditing: isEditing,
             onRename: { newName in
-                renamingSessionId = nil
+                store.renamingSessionId = nil
                 store.renameSession(session, to: newName)
             },
             onCancelRename: {
-                renamingSessionId = nil
+                store.renamingSessionId = nil
             }
         )
             .padding(.leading, 36)
@@ -454,10 +456,11 @@ struct SessionListView: View {
             .listRowInsets(EdgeInsets(top: -1, leading: 0, bottom: -1, trailing: 8))
             .listRowSeparator(.hidden)
             .onTapGesture(count: 2) {
-                renamingSessionId = session.id
+                store.renamingSessionId = session.id
             }
             .onTapGesture {
                 store.selectedSessionId = session.id
+                store.sidebarFocused = true
             }
             .contextMenu {
                 sessionContextMenu(for: session)
@@ -591,7 +594,7 @@ struct SessionListView: View {
     @ViewBuilder
     private func sessionContextMenu(for session: Session) -> some View {
         Button("Rename") {
-            renamingSessionId = session.id
+            store.renamingSessionId = session.id
         }
 
         Divider()

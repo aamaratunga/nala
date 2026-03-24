@@ -20,10 +20,17 @@ struct KeyboardShortcutsPanel: View {
             Shortcut(description: "Show Shortcuts", keys: ["⌘", "/"]),
             Shortcut(description: "New Agent", keys: ["⌘", "N"]),
             Shortcut(description: "New Terminal", keys: ["⌘", "T"]),
-            Shortcut(description: "New Agent in Current Folder", keys: ["⌘", "⇧", "N"]),
-            Shortcut(description: "New Terminal in Current Folder", keys: ["⌘", "⇧", "T"]),
             Shortcut(description: "New Worktree", keys: ["⌘", "⌥", "N"]),
             Shortcut(description: "Kill Session", keys: ["⌘", "W"]),
+        ]),
+        ShortcutGroup(title: "Navigation", icon: "arrow.up.arrow.down", shortcuts: [
+            Shortcut(description: "Toggle Sidebar", keys: ["⌘", "S"]),
+            Shortcut(description: "Focus Sidebar", keys: ["⌘", "0"]),
+            Shortcut(description: "Focus Terminal", keys: ["Tab"]),
+            Shortcut(description: "Navigate Sessions", keys: ["↑", "–", "↓"]),
+            Shortcut(description: "Collapse/Expand Folder", keys: ["←", "–", "→"]),
+            Shortcut(description: "Jump to Folder", keys: ["⌘", "1-9"]),
+            Shortcut(description: "Rename Session", keys: ["Enter"]),
         ]),
     ]
 
