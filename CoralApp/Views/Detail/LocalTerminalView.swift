@@ -2,6 +2,53 @@ import SwiftUI
 import AppKit
 import SwiftTerm
 
+/// Coalesces PTY data during bursts so SwiftTerm renders the final
+/// state instead of dozens of intermediate scroll positions.
+final class CoralTerminalView: LocalProcessTerminalView {
+    private var pendingBytes: [UInt8] = []
+    private var coalesceTimer: DispatchWorkItem?
+    private var burstStart: TimeInterval = 0
+
+    /// Quiet period — flush when no new data arrives for this long.
+    private static let quietPeriod: TimeInterval = 0.004  // 4ms
+
+    /// Max coalesce window — force flush to keep UI responsive during
+    /// sustained output (e.g. `cat large_file`).
+    private static let maxCoalesceWindow: TimeInterval = 0.050  // 50ms ≈ 3 frames
+
+    override func dataReceived(slice: ArraySlice<UInt8>) {
+        pendingBytes.append(contentsOf: slice)
+
+        coalesceTimer?.cancel()
+
+        let now = CACurrentMediaTime()
+        if burstStart == 0 { burstStart = now }
+
+        // Force flush if coalescing too long
+        if now - burstStart >= Self.maxCoalesceWindow {
+            flushPendingData()
+            return
+        }
+
+        // Wait for quiet period (detects end of burst)
+        let item = DispatchWorkItem { [weak self] in
+            self?.flushPendingData()
+        }
+        coalesceTimer = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.quietPeriod, execute: item)
+    }
+
+    private func flushPendingData() {
+        coalesceTimer?.cancel()
+        coalesceTimer = nil
+        burstStart = 0
+        guard !pendingBytes.isEmpty else { return }
+        let data = pendingBytes
+        pendingBytes.removeAll(keepingCapacity: true)
+        super.dataReceived(slice: data[...])
+    }
+}
+
 /// A live PTY terminal that attaches to a tmux session via `tmux attach`.
 struct LocalTerminalView: NSViewRepresentable {
     let sessionName: String
@@ -32,8 +79,8 @@ struct LocalTerminalView: NSViewRepresentable {
         /* 15 brWhite   */ SwiftTerm.Color(red: c(0xf0), green: c(0xf6), blue: c(0xfc)),
     ]
 
-    func makeNSView(context: Context) -> LocalProcessTerminalView {
-        let tv = LocalProcessTerminalView(frame: .zero)
+    func makeNSView(context: Context) -> CoralTerminalView {
+        let tv = CoralTerminalView(frame: .zero)
 
         // Font — prefer MesloLGS Nerd Font for icon glyphs
         if let nerdFont = NSFont(name: "MesloLGS Nerd Font Mono", size: 14) {
@@ -68,7 +115,7 @@ struct LocalTerminalView: NSViewRepresentable {
         return tv
     }
 
-    func updateNSView(_ tv: LocalProcessTerminalView, context: Context) {
+    func updateNSView(_ tv: CoralTerminalView, context: Context) {
         // Nothing to update — the PTY session is self-contained
     }
 
@@ -79,10 +126,11 @@ struct LocalTerminalView: NSViewRepresentable {
     final class Coordinator: NSObject, LocalProcessTerminalViewDelegate {
         let sessionName: String
         @Binding var isTerminated: Bool
-        weak var terminalView: LocalProcessTerminalView?
+        weak var terminalView: CoralTerminalView?
         private var scrollMonitor: Any?
         private var keyMonitor: Any?
         private var scrollAccumulator: CGFloat = 0
+        private var lastRepeatForward: TimeInterval = 0
 
         init(sessionName: String, isTerminated: Binding<Bool>) {
             self.sessionName = sessionName
@@ -171,12 +219,20 @@ struct LocalTerminalView: NSViewRepresentable {
             }
         }
 
-        /// Intercepts Shift+Enter and sends the CSI u escape sequence so apps
-        /// like Claude Code can distinguish it from plain Enter and insert a
-        /// newline.  Uses `tmux send-keys -H` to inject the raw bytes directly
-        /// into the pane's PTY, bypassing tmux's own key input parser which
-        /// would re-encode the sequence into a format the inner app may not
-        /// understand.
+        /// Intercepts key-down events targeting our terminal view for two
+        /// purposes:
+        ///
+        /// 1. **Key-repeat throttle** — TUI apps (Claude Code) redraw the full
+        ///    screen for each arrow-key press.  At the OS's max repeat rate
+        ///    (~120/s) events pile up in the tmux PTY buffer faster than the
+        ///    app can render, causing a backlog that keeps replaying after the
+        ///    key is released.  We cap repeats at ~16/s — smooth for list
+        ///    navigation while leaving headroom for the redraw round-trip.
+        ///
+        /// 2. **Shift+Enter** — sends the CSI u escape sequence so apps can
+        ///    distinguish it from plain Enter and insert a newline.  Uses
+        ///    `tmux send-keys -H` to inject the raw bytes directly into the
+        ///    pane's PTY, bypassing tmux's own key input parser.
         func installKeyMonitor() {
             keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
                 guard let self,
@@ -189,6 +245,13 @@ struct LocalTerminalView: NSViewRepresentable {
                       let firstResponder = window.firstResponder as? NSView,
                       firstResponder === tv || firstResponder.isDescendant(of: tv) else {
                     return event
+                }
+
+                // Throttle key repeats to prevent PTY buffer backlog
+                if event.isARepeat {
+                    let now = CACurrentMediaTime()
+                    guard now - self.lastRepeatForward >= 0.06 else { return nil }
+                    self.lastRepeatForward = now
                 }
 
                 // keyCode 36 = Return; check only Shift is held
