@@ -5,6 +5,17 @@ import SwiftTerm
 /// Coalesces PTY data during bursts so SwiftTerm renders the final
 /// state instead of dozens of intermediate scroll positions.
 final class CoralTerminalView: LocalProcessTerminalView {
+    /// The tmux session name this terminal is attached to.
+    var sessionName: String = ""
+
+    /// The tmux session name of the currently selected (visible) terminal.
+    /// Only that terminal accepts first-responder status, preventing macOS
+    /// from restoring focus to a hidden terminal on app reactivation.
+    static var activeSessionName: String?
+
+    /// Whether this terminal is the currently selected (visible) one.
+    var isActiveTerminal: Bool { sessionName == Self.activeSessionName }
+
     private var pendingBytes: [UInt8] = []
     private var coalesceTimer: DispatchWorkItem?
     private var burstStart: TimeInterval = 0
@@ -87,6 +98,7 @@ struct LocalTerminalView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> CoralTerminalView {
         let tv = CoralTerminalView(frame: .zero)
+        tv.sessionName = sessionName
         Self.viewsBySession.setObject(tv, forKey: sessionName as NSString)
 
         // Font — prefer MesloLGS Nerd Font for icon glyphs

@@ -43,6 +43,8 @@ struct ContentView: View {
                 if let id = newId {
                     visitedSessionIds.insert(id)
                 }
+                CoralTerminalView.activeSessionName = store.sessions
+                    .first(where: { $0.id == newId })?.tmuxSession
             }
             .onChange(of: store.sessions) { _, newSessions in
                 let currentIds = Set(newSessions.map(\.id))
@@ -74,6 +76,24 @@ struct ContentView: View {
         }
         .onAppear { installShortcutMonitor() }
         .onDisappear { removeShortcutMonitor() }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { notification in
+            guard let window = notification.object as? NSWindow,
+                  window === NSApp.keyWindow else { return }
+            // Small delay so this runs AFTER AppKit finishes its own
+            // first-responder restoration, overriding it reliably.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                guard window.isKeyWindow else { return }
+                if store.sidebarFocused {
+                    window.makeFirstResponder(nil)
+                } else if let session = store.selectedSession,
+                          let tv = LocalTerminalView.viewsBySession.object(forKey: session.tmuxSession as NSString) {
+                    window.makeFirstResponder(tv)
+                } else {
+                    store.sidebarFocused = true
+                    window.makeFirstResponder(nil)
+                }
+            }
+        }
     }
 
     // MARK: - Keyboard Shortcut Monitor
@@ -89,6 +109,22 @@ struct ContentView: View {
             let responderClass = firstResponder.map { String(describing: type(of: $0)) } ?? ""
             let isTerminalFocused = responderClass.contains("Terminal")
             let isTextFieldFocused = firstResponder is NSTextView || firstResponder is NSTextField
+
+            // Guard: if a hidden (non-active) terminal has focus, redirect
+            // immediately and swallow this keystroke.  This catches any case
+            // where macOS restored focus to the wrong terminal on app
+            // reactivation before the notification handler could fix it.
+            if isTerminalFocused,
+               let tv = firstResponder as? CoralTerminalView,
+               !tv.isActiveTerminal {
+                if let session = store.selectedSession {
+                    ContentView.focusTerminal(session: session)
+                } else {
+                    store.sidebarFocused = true
+                    ContentView.resignTerminalFocus()
+                }
+                return nil
+            }
 
             // Sync sidebar focus: if the terminal just gained focus (e.g. user
             // clicked on it), clear the sidebar-focused flag.
