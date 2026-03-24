@@ -71,16 +71,14 @@ struct CoralApp: App {
             }
             CommandGroup(before: .sidebar) {
                 Button("Toggle Sidebar") {
-                    withAnimation {
-                        sessionStore.sidebarVisibility = sessionStore.sidebarVisibility == .all
-                            ? .detailOnly : .all
-                    }
+                    sessionStore.sidebarVisibility = sessionStore.sidebarVisibility == .all
+                        ? .detailOnly : .all
                 }
                 .keyboardShortcut("s")
             }
             CommandGroup(replacing: .help) {
                 Button("Keyboard Shortcuts") {
-                    withAnimation { sessionStore.showingShortcutsPanel.toggle() }
+                    sessionStore.showingShortcutsPanel.toggle()
                 }
                 .keyboardShortcut("/", modifiers: .command)
             }

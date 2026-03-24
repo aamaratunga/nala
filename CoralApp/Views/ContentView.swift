@@ -147,7 +147,7 @@ struct ContentView: View {
 
             // ⌘0: Focus sidebar (global — works even from terminal)
             if event.keyCode == 29 && mods == .command {
-                withAnimation { store.sidebarVisibility = .all }
+                store.sidebarVisibility = .all
                 store.sidebarFocused = true
                 ContentView.resignTerminalFocus()
                 return nil
@@ -163,7 +163,7 @@ struct ContentView: View {
 
             // ?: Toggle shortcuts panel (Shift+/, not terminal, not text field)
             if event.keyCode == 44 && mods == .shift && !isTerminalFocused && !isTextFieldFocused {
-                withAnimation { store.showingShortcutsPanel.toggle() }
+                store.showingShortcutsPanel.toggle()
                 return nil
             }
 
