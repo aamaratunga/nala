@@ -460,7 +460,7 @@ struct SessionListView: View {
             }
             .onTapGesture {
                 store.selectedSessionId = session.id
-                store.sidebarFocused = true
+                store.sidebarFocused = false
             }
             .contextMenu {
                 sessionContextMenu(for: session)

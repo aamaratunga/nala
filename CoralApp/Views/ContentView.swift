@@ -43,8 +43,21 @@ struct ContentView: View {
                 if let id = newId {
                     visitedSessionIds.insert(id)
                 }
-                CoralTerminalView.activeSessionName = store.sessions
+                let tmuxName = store.sessions
                     .first(where: { $0.id == newId })?.tmuxSession
+                CoralTerminalView.activeSessionName = tmuxName
+
+                // When a session was selected via mouse click (sidebarFocused
+                // is false), focus its terminal.  The async lets SwiftUI
+                // create the terminal view first on initial visit.
+                if !store.sidebarFocused, let tmuxName {
+                    DispatchQueue.main.async {
+                        guard let window = NSApp.keyWindow,
+                              let tv = LocalTerminalView.viewsBySession.object(forKey: tmuxName as NSString)
+                        else { return }
+                        window.makeFirstResponder(tv)
+                    }
+                }
             }
             .onChange(of: store.sessions) { _, newSessions in
                 let currentIds = Set(newSessions.map(\.id))
