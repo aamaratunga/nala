@@ -202,14 +202,20 @@ struct SessionListView: View {
         .navigationTitle("Coral")
         .toolbar {
             ToolbarItem(placement: .status) {
-                HStack(spacing: 4) {
-                    Circle()
-                        .fill(store.isConnected ? .green : .red)
-                        .frame(width: 6, height: 6)
-                    Text(store.isConnected ? "Connected" : "Disconnected")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+                Button {
+                    NSWorkspace.shared.open(store.apiClient.baseURL)
+                } label: {
+                    HStack(spacing: 4) {
+                        Circle()
+                            .fill(store.isConnected ? .green : .red)
+                            .frame(width: 6, height: 6)
+                        Text(store.isConnected ? "Connected" : "Disconnected")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
                 }
+                .buttonStyle(.plain)
+                .help("Open web dashboard")
             }
         }
     }
