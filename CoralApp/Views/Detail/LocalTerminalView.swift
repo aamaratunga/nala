@@ -48,6 +48,11 @@ struct LocalTerminalView: NSViewRepresentable {
         tv.caretColor = NSColor(red: 0.345, green: 0.651, blue: 1.0, alpha: 1.0)
         tv.installColors(Self.ansiPalette)
 
+        // Disable mouse reporting so SwiftTerm handles native text selection
+        // instead of forwarding click/drag events to tmux. The custom scroll
+        // monitor still forwards scroll events to tmux independently.
+        tv.allowMouseReporting = false
+
         tv.processDelegate = context.coordinator
         context.coordinator.terminalView = tv
         context.coordinator.installScrollMonitor()
@@ -77,6 +82,7 @@ struct LocalTerminalView: NSViewRepresentable {
         weak var terminalView: LocalProcessTerminalView?
         private var scrollMonitor: Any?
         private var keyMonitor: Any?
+        private var scrollAccumulator: CGFloat = 0
 
         init(sessionName: String, isTerminated: Binding<Bool>) {
             self.sessionName = sessionName
@@ -116,22 +122,51 @@ struct LocalTerminalView: NSViewRepresentable {
                 // When mouse mode is off, let SwiftTerm handle it (native scrollback)
                 guard terminal.mouseMode != .off else { return event }
 
-                let deltaY = event.deltaY
-                if deltaY == 0 { return event }
+                // Ignore momentum/inertia events (trackpad lift-off generates
+                // synthetic scroll events we don't want forwarded to tmux).
+                guard event.momentumPhase == [] else {
+                    if event.momentumPhase == .ended {
+                        self.scrollAccumulator = 0
+                    }
+                    return nil
+                }
 
-                // Approximate grid position from the event
+                // Convert the scroll delta into a single mouse-protocol scroll
+                // event.  We send exactly ONE sendEvent per OS event — tmux's
+                // own scroll-num-lines setting controls how many lines each
+                // event scrolls.  Sending multiple sendEvent calls in a loop
+                // floods tmux faster than it can render, creating a backlog
+                // that keeps scrolling after the user stops.
+                let buttonFlags: Int
+
+                if event.hasPreciseScrollingDeltas {
+                    // Trackpad: accumulate pixel deltas until we reach one line
+                    let delta = event.scrollingDeltaY / 20.0
+                    if delta == 0 { return nil }
+
+                    if (delta > 0) != (self.scrollAccumulator > 0) {
+                        self.scrollAccumulator = 0
+                    }
+                    self.scrollAccumulator += delta
+
+                    guard abs(self.scrollAccumulator) >= 1.0 else { return nil }
+
+                    buttonFlags = self.scrollAccumulator > 0 ? 64 : 65
+                    self.scrollAccumulator -= self.scrollAccumulator > 0 ? 1.0 : -1.0
+                } else {
+                    // Mouse wheel: each notch fires one scroll event
+                    let delta = event.deltaY
+                    if delta == 0 { return nil }
+                    buttonFlags = delta > 0 ? 64 : 65
+                }
+
                 let point = tv.convert(event.locationInWindow, from: nil)
                 let cols = CGFloat(terminal.cols)
                 let rows = CGFloat(terminal.rows)
                 let col = max(0, min(Int(point.x / (tv.bounds.width / cols)), terminal.cols - 1))
                 let row = max(0, min(Int((tv.bounds.height - point.y) / (tv.bounds.height / rows)), terminal.rows - 1))
 
-                // Mouse protocol button flags: 64 = scroll up, 65 = scroll down
-                let buttonFlags = deltaY > 0 ? 64 : 65
-                let lines = max(1, Int(abs(deltaY)))
-                for _ in 0..<min(lines, 5) {
-                    terminal.sendEvent(buttonFlags: buttonFlags, x: col, y: row)
-                }
+                terminal.sendEvent(buttonFlags: buttonFlags, x: col, y: row)
                 return nil  // consume — don't let SwiftTerm's no-op scrollback run
             }
         }
