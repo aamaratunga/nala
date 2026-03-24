@@ -83,10 +83,10 @@ struct LocalTerminalView: NSViewRepresentable {
         let tv = CoralTerminalView(frame: .zero)
 
         // Font — prefer MesloLGS Nerd Font for icon glyphs
-        if let nerdFont = NSFont(name: "MesloLGS Nerd Font Mono", size: 14) {
+        if let nerdFont = NSFont(name: "MesloLGS Nerd Font Mono", size: 16) {
             tv.font = nerdFont
         } else {
-            tv.font = NSFont.monospacedSystemFont(ofSize: 14, weight: .medium)
+            tv.font = NSFont.monospacedSystemFont(ofSize: 16, weight: .medium)
         }
 
         // GitHub dark theme
