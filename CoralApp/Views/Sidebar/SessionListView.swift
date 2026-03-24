@@ -73,8 +73,6 @@ struct SessionListView: View {
         VStack(spacing: 0) {
             // Sidebar header with toggle and add buttons
             HStack(spacing: 12) {
-                Spacer()
-
                 Menu {
                     Button {
                         toggleAllSections()
@@ -94,7 +92,7 @@ struct SessionListView: View {
                         )
                     }
                 } label: {
-                    Image(systemName: "line.3.horizontal.decrease")
+                    Image(systemName: "slider.horizontal.3")
                         .foregroundStyle(.secondary)
                 }
                 .menuStyle(.borderlessButton)
@@ -102,10 +100,12 @@ struct SessionListView: View {
                 .fixedSize()
                 .help("Expand/Collapse options")
 
+                Spacer()
+
                 Button {
                     store.showingLaunchSheet = true
                 } label: {
-                    Image(systemName: "plus")
+                    Image(systemName: "sparkles")
                         .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
