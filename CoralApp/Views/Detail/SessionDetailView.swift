@@ -3,9 +3,7 @@ import SwiftUI
 struct SessionDetailView: View {
     let session: Session
     @Environment(SessionStore.self) private var store
-    @State private var terminalWS = TerminalWebSocket()
-    @State private var isClosed = false
-    /// Tracks whether the local PTY process has exited (terminal sessions only).
+    /// Tracks whether the local PTY process has exited.
     @State private var isLocalTerminated = false
     /// Incremented to force-recreate the LocalTerminalView (reattach).
     @State private var localTerminalGeneration = 0
@@ -25,8 +23,7 @@ struct SessionDetailView: View {
 
             // Terminal area
             ZStack {
-                if session.agentType == "terminal" {
-                    // Live PTY — attaches directly to the tmux session
+                if session.hasTmuxTarget {
                     LocalTerminalView(
                         sessionName: session.tmuxSession,
                         isTerminated: $isLocalTerminated
@@ -40,51 +37,31 @@ struct SessionDetailView: View {
                     .shadow(color: .black.opacity(0.3), radius: 8, y: 2)
                     .padding(6)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-                    if isLocalTerminated {
-                        detachedOverlay
-                    }
                 } else {
-                    // Agent sessions — WebSocket capture-pane relay
-                    TerminalDisplayView(webSocket: terminalWS)
-                        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                .strokeBorder(.white.opacity(0.06), lineWidth: 0.5)
-                        )
-                        .shadow(color: .black.opacity(0.3), radius: 8, y: 2)
-                        .padding(6)
+                    Color(red: 0.031, green: 0.043, blue: 0.063)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
 
-                    if isClosed {
-                        closedOverlay
-                    }
+                // Overlays driven by /ws/coral metadata
+                if session.sleeping {
+                    sleepingOverlay
+                } else if session.done && isLocalTerminated {
+                    sessionEndedOverlay
+                } else if isLocalTerminated {
+                    detachedOverlay
                 }
             }
             .background(Color(red: 0.031, green: 0.043, blue: 0.063))
-
-            Divider()
-
-            // Command input (not shown for terminal sessions — they use the PTY directly)
-            if session.agentType != "terminal" {
-                CommandInputView(session: session)
-            }
         }
-        .onAppear {
-            if session.agentType != "terminal" {
-                connectTerminal()
-            }
+        .onChange(of: session.tmuxSession) { _, newTarget in
+            // Session restarted — force recreate PTY to attach to new tmux target
+            guard !newTarget.isEmpty else { return }
+            isLocalTerminated = false
+            localTerminalGeneration += 1
         }
-        .onChange(of: store.selectedSessionId) { _, newId in
-            guard session.agentType != "terminal" else { return }
-            if newId == session.id {
-                // Re-selected — reconnect WebSocket
-                if !terminalWS.isConnected {
-                    connectTerminal()
-                }
-            } else {
-                // Deselected — disconnect to save resources
-                terminalWS.disconnect()
+        .onChange(of: session.hasTmuxTarget) { _, hasTmux in
+            if hasTmux {
+                isLocalTerminated = false
             }
         }
     }
@@ -131,9 +108,24 @@ struct SessionDetailView: View {
         .background(.bar)
     }
 
-    private var closedOverlay: some View {
+    private var sleepingOverlay: some View {
         VStack(spacing: 12) {
-            Image(systemName: "terminal")
+            Image(systemName: "moon.zzz.fill")
+                .font(.largeTitle)
+                .foregroundStyle(.secondary)
+            Text("Session Sleeping")
+                .font(.headline)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(.ultraThinMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+        .padding(6)
+    }
+
+    private var sessionEndedOverlay: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "checkmark.circle")
                 .font(.largeTitle)
                 .foregroundStyle(.secondary)
             Text("Session Ended")
@@ -165,28 +157,5 @@ struct SessionDetailView: View {
         .background(.ultraThinMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
         .padding(6)
-    }
-
-    private func connectTerminal() {
-        isClosed = false
-
-        terminalWS.disconnect()
-        terminalWS = TerminalWebSocket(port: store.apiClient.baseURL.port ?? 8420)
-
-        // onOutput is wired by TerminalDisplayView's coordinator
-
-        terminalWS.onClosed = {
-            isClosed = true
-        }
-
-        terminalWS.onDisconnect = {
-            // Could show a reconnecting indicator
-        }
-
-        terminalWS.connect(
-            sessionName: session.name,
-            agentType: session.agentType,
-            sessionId: session.sessionId
-        )
     }
 }

@@ -15,7 +15,6 @@
 		14623DABFD747B4DE3725711 /* Loading_Paperplane.lottie in Resources */ = {isa = PBXBuildFile; fileRef = 4F59B183DA0A19A078835130 /* Loading_Paperplane.lottie */; };
 		17E2C8899DF06AE371788C16 /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = D79A1485035DE4D05047F604 /* APIClient.swift */; };
 		19DAE3E0EBBBFFF78EDCC03D /* ServerManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8065D02284CB252911E724B0 /* ServerManager.swift */; };
-		2B918E92798AC7B98F897565 /* CommandInputView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBF58A276EFBCDED88FBFE4A /* CommandInputView.swift */; };
 		303A2088B3C8615747071AAF /* LaunchDropdown.swift in Sources */ = {isa = PBXBuildFile; fileRef = B192BA3D3921BE8C321ED8EC /* LaunchDropdown.swift */; };
 		3D412C695B40F51A73D5B36C /* WorktreeCreationProgressView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE6D9C79685D7C043B3F0D87 /* WorktreeCreationProgressView.swift */; };
 		46E6D7D5BD1B727CE24185D3 /* LocalTerminalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FADC0D7A2D747C4BBD5FC948 /* LocalTerminalView.swift */; };
@@ -26,7 +25,6 @@
 		5BDF7819FCDA83B9DABDDD7B /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58DA0323E26FB69F3510BFE6 /* SettingsView.swift */; };
 		63107A62F753C9DBA358236A /* RepoConfigRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD6073EB5575DFC81E4C21B2 /* RepoConfigRow.swift */; };
 		680B73EEB5ED3BB1DEB6CC6F /* RepoConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = D388B14CE0AC9CC031D1678A /* RepoConfig.swift */; };
-		6B9287A51A0915CBFBAD10CE /* TerminalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1EFD4CEDFBCC8C1978C8A43 /* TerminalView.swift */; };
 		756AF30956CBE52D140F0D3F /* Lottie in Frameworks */ = {isa = PBXBuildFile; productRef = 7BA578991C254E127232131A /* Lottie */; };
 		7C623E75E7BE38323532980A /* Session.swift in Sources */ = {isa = PBXBuildFile; fileRef = E158502CB4D1ECBBB16A18DF /* Session.swift */; };
 		823EB02BF7BB2173A140B584 /* WorktreeDeletionState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83DDE8BAEBCF85BD58D9D828 /* WorktreeDeletionState.swift */; };
@@ -35,7 +33,6 @@
 		95A0A85A9FCE22CCF11FA75B /* CoralApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC357D9F795A7AB0C43066C3 /* CoralApp.swift */; };
 		97C10100BD2253767B09024D /* LaunchRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2624FB63A4C17E2E10C76016 /* LaunchRequest.swift */; };
 		9A183AC5B573AC1799933BEC /* SessionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36AAE19C5549F55E9AEC39A3 /* SessionTests.swift */; };
-		9DE88FFBC496B5797F95BEBD /* TerminalWebSocket.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C10D0761FAF424E8E791CB2 /* TerminalWebSocket.swift */; };
 		A71FC1E4865D34638FDB1D1C /* SessionDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CC658695A521A00A426C842 /* SessionDetailView.swift */; };
 		B702A9B02F6793C221AB19C2 /* WSEnvelopeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C81C9C0758A1D0458CDCF70A /* WSEnvelopeTests.swift */; };
 		C25D7A900B9CCD6A8D096B4D /* LoadingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E264D0341BAFD453D0E785C /* LoadingView.swift */; };
@@ -65,7 +62,6 @@
 		10926C8ADD6242F9497396DE /* TestHelpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestHelpers.swift; sourceTree = "<group>"; };
 		12966A78F0F559D62D19423C /* CreateWorktreeSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CreateWorktreeSheet.swift; sourceTree = "<group>"; };
 		1864DB002A542409908ECBD3 /* SessionListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionListView.swift; sourceTree = "<group>"; };
-		1C10D0761FAF424E8E791CB2 /* TerminalWebSocket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalWebSocket.swift; sourceTree = "<group>"; };
 		2624FB63A4C17E2E10C76016 /* LaunchRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchRequest.swift; sourceTree = "<group>"; };
 		307756661CE76AC251EB6E64 /* GitService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitService.swift; sourceTree = "<group>"; };
 		32085BEFAF7A53294BA4BEE0 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
@@ -85,7 +81,6 @@
 		83DDE8BAEBCF85BD58D9D828 /* WorktreeDeletionState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorktreeDeletionState.swift; sourceTree = "<group>"; };
 		940A06C4F9448E5A2EC73E55 /* SessionLaunchProgressView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionLaunchProgressView.swift; sourceTree = "<group>"; };
 		94161870C6D2ACCAE4AB54F5 /* SessionRestartState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionRestartState.swift; sourceTree = "<group>"; };
-		A1EFD4CEDFBCC8C1978C8A43 /* TerminalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalView.swift; sourceTree = "<group>"; };
 		A575A756179C98F028B6DA79 /* CoralAppTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CoralAppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		AA8E88A34F65AEADD17C473F /* SessionLaunchState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionLaunchState.swift; sourceTree = "<group>"; };
 		B192BA3D3921BE8C321ED8EC /* LaunchDropdown.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchDropdown.swift; sourceTree = "<group>"; };
@@ -93,7 +88,6 @@
 		BE6D9C79685D7C043B3F0D87 /* WorktreeCreationProgressView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorktreeCreationProgressView.swift; sourceTree = "<group>"; };
 		C151889272ED744F29772385 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		C81C9C0758A1D0458CDCF70A /* WSEnvelopeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WSEnvelopeTests.swift; sourceTree = "<group>"; };
-		CBF58A276EFBCDED88FBFE4A /* CommandInputView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandInputView.swift; sourceTree = "<group>"; };
 		CC357D9F795A7AB0C43066C3 /* CoralApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoralApp.swift; sourceTree = "<group>"; };
 		D388B14CE0AC9CC031D1678A /* RepoConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RepoConfig.swift; sourceTree = "<group>"; };
 		D79A1485035DE4D05047F604 /* APIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIClient.swift; sourceTree = "<group>"; };
@@ -171,12 +165,10 @@
 		A1DDC13C5D2CBBEA3A113501 /* Detail */ = {
 			isa = PBXGroup;
 			children = (
-				CBF58A276EFBCDED88FBFE4A /* CommandInputView.swift */,
 				FADC0D7A2D747C4BBD5FC948 /* LocalTerminalView.swift */,
 				4CC658695A521A00A426C842 /* SessionDetailView.swift */,
 				940A06C4F9448E5A2EC73E55 /* SessionLaunchProgressView.swift */,
 				F8A78A043F1C75CEB205F05E /* SessionRestartProgressView.swift */,
-				A1EFD4CEDFBCC8C1978C8A43 /* TerminalView.swift */,
 				BE6D9C79685D7C043B3F0D87 /* WorktreeCreationProgressView.swift */,
 				D7F4AE7C8AF68BC29C7562CF /* WorktreeDeletionProgressView.swift */,
 			);
@@ -257,7 +249,6 @@
 				307756661CE76AC251EB6E64 /* GitService.swift */,
 				334F021BEEE52BBAEC37F2FA /* NotificationManager.swift */,
 				8065D02284CB252911E724B0 /* ServerManager.swift */,
-				1C10D0761FAF424E8E791CB2 /* TerminalWebSocket.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -369,7 +360,6 @@
 			buildActionMask = 2147483647;
 			files = (
 				17E2C8899DF06AE371788C16 /* APIClient.swift in Sources */,
-				2B918E92798AC7B98F897565 /* CommandInputView.swift in Sources */,
 				D308B9600E14E598E09446EA /* ContentView.swift in Sources */,
 				95A0A85A9FCE22CCF11FA75B /* CoralApp.swift in Sources */,
 				F6A1181753693D8D454B94B8 /* CoralWebSocket.swift in Sources */,
@@ -394,8 +384,6 @@
 				07BC9699EE306F772D3D98A2 /* SessionStore.swift in Sources */,
 				5BDF7819FCDA83B9DABDDD7B /* SettingsView.swift in Sources */,
 				EAF55BFBA30FF6858891F835 /* StatusDot.swift in Sources */,
-				6B9287A51A0915CBFBAD10CE /* TerminalView.swift in Sources */,
-				9DE88FFBC496B5797F95BEBD /* TerminalWebSocket.swift in Sources */,
 				3D412C695B40F51A73D5B36C /* WorktreeCreationProgressView.swift in Sources */,
 				104CF4933A54CB0402F5EBF5 /* WorktreeCreationState.swift in Sources */,
 				DCFE7E745531C7D7A543D5F0 /* WorktreeDeletionProgressView.swift in Sources */,

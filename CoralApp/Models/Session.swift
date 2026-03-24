@@ -60,6 +60,7 @@ struct Session: Identifiable, Equatable {
     var done: Bool
     var working: Bool
     var stuck: Bool
+    var sleeping: Bool
     var waitingReason: String?
     var waitingSummary: String?
     var changedFileCount: Int
@@ -71,6 +72,7 @@ struct Session: Identifiable, Equatable {
     var isPlaceholder: Bool = false
 
     var id: String { sessionId.isEmpty ? name : sessionId }
+    var hasTmuxTarget: Bool { !tmuxSession.isEmpty }
 
     /// Memberwise initializer for programmatic creation (e.g. placeholders, tests).
     init(
@@ -89,6 +91,7 @@ struct Session: Identifiable, Equatable {
         done: Bool = false,
         working: Bool = false,
         stuck: Bool = false,
+        sleeping: Bool = false,
         waitingReason: String? = nil,
         waitingSummary: String? = nil,
         changedFileCount: Int = 0,
@@ -113,6 +116,7 @@ struct Session: Identifiable, Equatable {
         self.done = done
         self.working = working
         self.stuck = stuck
+        self.sleeping = sleeping
         self.waitingReason = waitingReason
         self.waitingSummary = waitingSummary
         self.changedFileCount = changedFileCount
@@ -156,6 +160,7 @@ extension Session: Decodable {
         case done
         case working
         case stuck
+        case sleeping
         case waitingReason = "waiting_reason"
         case waitingSummary = "waiting_summary"
         case changedFileCount = "changed_file_count"
@@ -183,6 +188,7 @@ extension Session: Decodable {
         done = try c.decodeIfPresent(Bool.self, forKey: .done) ?? false
         working = try c.decodeIfPresent(Bool.self, forKey: .working) ?? false
         stuck = try c.decodeIfPresent(Bool.self, forKey: .stuck) ?? false
+        sleeping = try c.decodeIfPresent(Bool.self, forKey: .sleeping) ?? false
         waitingReason = try c.decodeIfPresent(String.self, forKey: .waitingReason)
         waitingSummary = try c.decodeIfPresent(String.self, forKey: .waitingSummary)
         changedFileCount = try c.decodeIfPresent(Int.self, forKey: .changedFileCount) ?? 0

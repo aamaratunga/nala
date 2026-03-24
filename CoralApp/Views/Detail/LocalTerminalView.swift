@@ -3,7 +3,6 @@ import AppKit
 import SwiftTerm
 
 /// A live PTY terminal that attaches to a tmux session via `tmux attach`.
-/// Used for interactive terminal sessions (not agent sessions).
 struct LocalTerminalView: NSViewRepresentable {
     let sessionName: String
     @Binding var isTerminated: Bool
@@ -11,7 +10,7 @@ struct LocalTerminalView: NSViewRepresentable {
     /// Convert a 0–255 byte to SwiftTerm's UInt16 color component (0–65535).
     private static func c(_ byte: UInt16) -> UInt16 { byte * 257 }
 
-    /// GitHub-dark-inspired ANSI palette (16 colors) — shared with TerminalDisplayView.
+    /// GitHub-dark-inspired ANSI palette (16 colors).
     private static let ansiPalette: [SwiftTerm.Color] = [
         // Normal colors
         /* 0 black   */ SwiftTerm.Color(red: c(0x48), green: c(0x4f), blue: c(0x58)),
@@ -50,12 +49,14 @@ struct LocalTerminalView: NSViewRepresentable {
         tv.installColors(Self.ansiPalette)
 
         tv.processDelegate = context.coordinator
+        context.coordinator.terminalView = tv
+        context.coordinator.installScrollMonitor()
 
-        // Launch: /bin/zsh -l -c 'tmux attach -t <session>'
-        // Using login shell so tmux is found via PATH
+        // Enable mouse mode (so trackpad/scroll wheel works) then attach.
+        // Using login shell so tmux is found via PATH.
         tv.startProcess(
             executable: "/bin/zsh",
-            args: ["-l", "-c", "tmux attach -t \(sessionName)"]
+            args: ["-l", "-c", "tmux set-option -t \(sessionName) mouse on && tmux attach -t \(sessionName)"]
         )
 
         return tv
@@ -71,9 +72,61 @@ struct LocalTerminalView: NSViewRepresentable {
 
     final class Coordinator: NSObject, LocalProcessTerminalViewDelegate {
         @Binding var isTerminated: Bool
+        weak var terminalView: LocalProcessTerminalView?
+        private var scrollMonitor: Any?
 
         init(isTerminated: Binding<Bool>) {
             _isTerminated = isTerminated
+        }
+
+        deinit {
+            if let scrollMonitor {
+                NSEvent.removeMonitor(scrollMonitor)
+            }
+        }
+
+        /// Installs a local event monitor that intercepts scroll-wheel events
+        /// targeting our terminal view.  When tmux has mouse mode enabled,
+        /// the monitor translates trackpad/wheel deltas into mouse-protocol
+        /// escape sequences sent through the PTY.  SwiftTerm's built-in
+        /// scrollWheel only scrolls its own buffer (empty when tmux uses the
+        /// alternate screen), so without this, scrolling does nothing.
+        func installScrollMonitor() {
+            scrollMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+                guard let self,
+                      let tv = self.terminalView,
+                      let terminal = tv.terminal else {
+                    return event
+                }
+
+                // Only intercept events targeting our terminal view
+                guard let window = tv.window,
+                      let hitView = window.contentView?.hitTest(event.locationInWindow),
+                      hitView === tv || hitView.isDescendant(of: tv) else {
+                    return event
+                }
+
+                // When mouse mode is off, let SwiftTerm handle it (native scrollback)
+                guard terminal.mouseMode != .off else { return event }
+
+                let deltaY = event.deltaY
+                if deltaY == 0 { return event }
+
+                // Approximate grid position from the event
+                let point = tv.convert(event.locationInWindow, from: nil)
+                let cols = CGFloat(terminal.cols)
+                let rows = CGFloat(terminal.rows)
+                let col = max(0, min(Int(point.x / (tv.bounds.width / cols)), terminal.cols - 1))
+                let row = max(0, min(Int((tv.bounds.height - point.y) / (tv.bounds.height / rows)), terminal.rows - 1))
+
+                // Mouse protocol button flags: 64 = scroll up, 65 = scroll down
+                let buttonFlags = deltaY > 0 ? 64 : 65
+                let lines = max(1, Int(abs(deltaY)))
+                for _ in 0..<min(lines, 5) {
+                    terminal.sendEvent(buttonFlags: buttonFlags, x: col, y: row)
+                }
+                return nil  // consume — don't let SwiftTerm's no-op scrollback run
+            }
         }
 
         func sizeChanged(source: LocalProcessTerminalView, newCols: Int, newRows: Int) {}
