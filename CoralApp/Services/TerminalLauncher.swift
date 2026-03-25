@@ -17,6 +17,62 @@ enum TerminalLauncher {
             return
         }
 
+        // Try to use the terminal app's CLI directly so that the new window
+        // respects the app's default profile (including window size).
+        // Falling back to `open -a <app> <script>` opens the script as a
+        // "document" which many apps render in a minimal/non-default window.
+        if launchViaCLI(appPath: appPath, sessionName: sessionName) {
+            return
+        }
+
+        // Fallback: open a temp script as a document
+        launchViaOpenScript(appPath: appPath, sessionName: sessionName)
+    }
+
+    /// Launch via the terminal app's own CLI (returns true if handled).
+    private static func launchViaCLI(appPath: String, sessionName: String) -> Bool {
+        let appURL = URL(fileURLWithPath: appPath)
+        let appName = appURL.deletingPathExtension().lastPathComponent.lowercased()
+        let macosDir = appURL.appendingPathComponent("Contents/MacOS")
+
+        let process = Process()
+        let tmuxCmd = "tmux attach -t \(shellEscape(sessionName))"
+
+        switch appName {
+        case "wezterm":
+            let cli = macosDir.appendingPathComponent("wezterm").path
+            guard FileManager.default.isExecutableFile(atPath: cli) else { return false }
+            process.executableURL = URL(fileURLWithPath: cli)
+            process.arguments = ["start", "--", "/bin/zsh", "-l", "-c", tmuxCmd]
+
+        case "kitty":
+            let cli = macosDir.appendingPathComponent("kitty").path
+            guard FileManager.default.isExecutableFile(atPath: cli) else { return false }
+            process.executableURL = URL(fileURLWithPath: cli)
+            process.arguments = ["/bin/zsh", "-l", "-c", tmuxCmd]
+
+        case "alacritty":
+            let cli = macosDir.appendingPathComponent("alacritty").path
+            guard FileManager.default.isExecutableFile(atPath: cli) else { return false }
+            process.executableURL = URL(fileURLWithPath: cli)
+            process.arguments = ["-e", "/bin/zsh", "-l", "-c", tmuxCmd]
+
+        default:
+            return false
+        }
+
+        do {
+            try process.run()
+            logger.info("Launched \(appName) CLI for session '\(sessionName)'")
+            return true
+        } catch {
+            logger.error("CLI launch failed for \(appName): \(error)")
+            return false
+        }
+    }
+
+    /// Fallback: write a temp script and open it as a document with the terminal app.
+    private static func launchViaOpenScript(appPath: String, sessionName: String) {
         let fm = FileManager.default
         let scriptPath = fm.temporaryDirectory
             .appendingPathComponent("coral-attach-\(ProcessInfo.processInfo.processIdentifier)-\(sessionName).sh")
