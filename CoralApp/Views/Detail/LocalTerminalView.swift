@@ -114,14 +114,14 @@ struct LocalTerminalView: NSViewRepresentable {
         tv.caretColor = NSColor(red: 0.345, green: 0.651, blue: 1.0, alpha: 1.0)
         tv.installColors(Self.ansiPalette)
 
-        // Disable mouse reporting so SwiftTerm handles native text selection
-        // instead of forwarding click/drag events to tmux. The custom scroll
-        // monitor still forwards scroll events to tmux independently.
+        // Disable mouse reporting so SwiftTerm doesn't clear selections on
+        // linefeed (its linefeed handler calls selectNone when this is true).
+        // The Coordinator's mouse monitor forwards events to tmux instead.
         tv.allowMouseReporting = false
 
         tv.processDelegate = context.coordinator
         context.coordinator.terminalView = tv
-        context.coordinator.installScrollMonitor()
+        context.coordinator.installMouseMonitor()
         context.coordinator.installKeyMonitor()
 
         // Enable mouse mode (so trackpad/scroll wheel works) then attach.
@@ -146,8 +146,10 @@ struct LocalTerminalView: NSViewRepresentable {
         let sessionName: String
         @Binding var isTerminated: Bool
         weak var terminalView: CoralTerminalView?
-        private var scrollMonitor: Any?
+        private var mouseMonitor: Any?
         private var keyMonitor: Any?
+        private var forwardedMouseDown = false
+        private var didDrag = false
         private var scrollAccumulator: CGFloat = 0
         private var lastRepeatForward: TimeInterval = 0
 
@@ -157,84 +159,184 @@ struct LocalTerminalView: NSViewRepresentable {
         }
 
         deinit {
-            if let scrollMonitor {
-                NSEvent.removeMonitor(scrollMonitor)
+            if let mouseMonitor {
+                NSEvent.removeMonitor(mouseMonitor)
             }
             if let keyMonitor {
                 NSEvent.removeMonitor(keyMonitor)
             }
         }
 
-        /// Installs a local event monitor that intercepts scroll-wheel events
-        /// targeting our terminal view.  When tmux has mouse mode enabled,
-        /// the monitor translates trackpad/wheel deltas into mouse-protocol
-        /// escape sequences sent through the PTY.  SwiftTerm's built-in
-        /// scrollWheel only scrolls its own buffer (empty when tmux uses the
-        /// alternate screen), so without this, scrolling does nothing.
-        func installScrollMonitor() {
-            scrollMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+        // MARK: - Mouse & scroll forwarding
+
+        /// Converts an NSEvent location to terminal grid coordinates.
+        private func gridPosition(for event: NSEvent, tv: CoralTerminalView, terminal: SwiftTerm.Terminal) -> (col: Int, row: Int) {
+            let point = tv.convert(event.locationInWindow, from: nil)
+            let cols = CGFloat(terminal.cols)
+            let rows = CGFloat(terminal.rows)
+            let col = max(0, min(Int(point.x / (tv.bounds.width / cols)), terminal.cols - 1))
+            let row = max(0, min(Int((tv.bounds.height - point.y) / (tv.bounds.height / rows)), terminal.rows - 1))
+            return (col, row)
+        }
+
+        /// Encodes mouse button and modifier flags for the terminal mouse protocol.
+        /// Remaps NSEvent button numbers (0=left, 1=right, 2=middle) to terminal
+        /// protocol numbers (0=left, 1=middle, 2=right).
+        private func encodeMouseFlags(for event: NSEvent, terminal: SwiftTerm.Terminal, release: Bool = false) -> Int {
+            let flags = event.modifierFlags
+            let button: Int
+            switch event.buttonNumber {
+            case 1:  button = 2  // NSEvent right → terminal right
+            case 2:  button = 1  // NSEvent middle → terminal middle
+            default: button = event.buttonNumber
+            }
+            return terminal.encodeButton(
+                button: button, release: release,
+                shift: flags.contains(.shift),
+                meta: flags.contains(.option),
+                control: flags.contains(.control)
+            )
+        }
+
+        /// Copies tmux's most recent paste buffer to the macOS clipboard.
+        private func syncTmuxPasteBufferToClipboard() {
+            DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 0.05) {
+                let proc = Process()
+                proc.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+                proc.arguments = ["tmux", "show-buffer"]
+                let pipe = Pipe()
+                proc.standardOutput = pipe
+                proc.standardError = FileHandle.nullDevice
+                do {
+                    try proc.run()
+                    proc.waitUntilExit()
+                    let data = pipe.fileHandleForReading.readDataToEndOfFile()
+                    guard proc.terminationStatus == 0,
+                          let text = String(data: data, encoding: .utf8),
+                          !text.isEmpty else { return }
+                    DispatchQueue.main.async {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(text, forType: .string)
+                    }
+                } catch { }
+            }
+        }
+
+        /// Installs a local event monitor that intercepts mouse and scroll events
+        /// targeting our terminal view.  When tmux has mouse mode enabled, mouse
+        /// events (click, drag, release) are forwarded to tmux via the terminal's
+        /// mouse protocol, giving tmux full control of text selection with
+        /// auto-scroll.  Scroll wheel events are translated into mouse-protocol
+        /// escape sequences.  When mouse mode is off, all events pass through to
+        /// SwiftTerm for native selection and scrollback.
+        ///
+        /// This works around two SwiftTerm issues:
+        /// 1. `mouseDragged` silently swallows drag events when mouseMode is
+        ///    `.buttonEventTracking` (tmux's mode), preventing both forwarding
+        ///    and native selection.
+        /// 2. `scrollWheel` only scrolls SwiftTerm's own buffer, which is empty
+        ///    when tmux uses the alternate screen.
+        func installMouseMonitor() {
+            mouseMonitor = NSEvent.addLocalMonitorForEvents(
+                matching: [.leftMouseDown, .leftMouseDragged, .leftMouseUp, .scrollWheel]
+            ) { [weak self] event in
                 guard let self,
                       let tv = self.terminalView,
                       let terminal = tv.terminal else {
                     return event
                 }
 
-                // Only intercept events targeting our terminal view
-                guard let window = tv.window,
-                      let hitView = window.contentView?.hitTest(event.locationInWindow),
-                      hitView === tv || hitView.isDescendant(of: tv) else {
-                    return event
-                }
+                switch event.type {
+                case .leftMouseDown:
+                    // Only intercept events targeting our terminal view
+                    guard let window = tv.window,
+                          let hitView = window.contentView?.hitTest(event.locationInWindow),
+                          hitView === tv || hitView.isDescendant(of: tv) else {
+                        return event
+                    }
+                    let mode = terminal.mouseMode
+                    // sendButtonPress() (internal): true for .vt200, .buttonEventTracking, .anyEvent
+                    guard mode == .vt200 || mode == .buttonEventTracking || mode == .anyEvent else {
+                        return event  // let SwiftTerm handle native selection
+                    }
+                    // Ensure the terminal becomes first responder on click
+                    if let window = tv.window, window.firstResponder !== tv {
+                        window.makeFirstResponder(tv)
+                    }
+                    self.forwardedMouseDown = true
+                    self.didDrag = false
+                    let flags = self.encodeMouseFlags(for: event, terminal: terminal)
+                    let pos = self.gridPosition(for: event, tv: tv, terminal: terminal)
+                    terminal.sendEvent(buttonFlags: flags, x: pos.col, y: pos.row)
+                    return nil  // consume — prevent SwiftTerm's native selection
 
-                // When mouse mode is off, let SwiftTerm handle it (native scrollback)
-                guard terminal.mouseMode != .off else { return event }
+                case .leftMouseDragged:
+                    guard self.forwardedMouseDown else { return event }
+                    let mode = terminal.mouseMode
+                    // sendButtonTracking() (internal): true for .buttonEventTracking, .anyEvent
+                    guard mode == .buttonEventTracking || mode == .anyEvent else { return nil }
+                    self.didDrag = true
+                    let flags = self.encodeMouseFlags(for: event, terminal: terminal)
+                    let pos = self.gridPosition(for: event, tv: tv, terminal: terminal)
+                    terminal.sendMotion(buttonFlags: flags, x: pos.col, y: pos.row, pixelX: 0, pixelY: 0)
+                    return nil
 
-                // Ignore momentum/inertia events (trackpad lift-off generates
-                // synthetic scroll events we don't want forwarded to tmux).
-                guard event.momentumPhase == [] else {
-                    if event.momentumPhase == .ended {
-                        self.scrollAccumulator = 0
+                case .leftMouseUp:
+                    guard self.forwardedMouseDown else { return event }
+                    self.forwardedMouseDown = false
+                    let flags = self.encodeMouseFlags(for: event, terminal: terminal, release: true)
+                    let pos = self.gridPosition(for: event, tv: tv, terminal: terminal)
+                    terminal.sendEvent(buttonFlags: flags, x: pos.col, y: pos.row)
+                    if self.didDrag {
+                        self.syncTmuxPasteBufferToClipboard()
+                        self.didDrag = false
                     }
                     return nil
-                }
 
-                // Convert the scroll delta into a single mouse-protocol scroll
-                // event.  We send exactly ONE sendEvent per OS event — tmux's
-                // own scroll-num-lines setting controls how many lines each
-                // event scrolls.  Sending multiple sendEvent calls in a loop
-                // floods tmux faster than it can render, creating a backlog
-                // that keeps scrolling after the user stops.
-                let buttonFlags: Int
-
-                if event.hasPreciseScrollingDeltas {
-                    // Trackpad: accumulate pixel deltas until we reach one line
-                    let delta = event.scrollingDeltaY / 20.0
-                    if delta == 0 { return nil }
-
-                    if (delta > 0) != (self.scrollAccumulator > 0) {
-                        self.scrollAccumulator = 0
+                case .scrollWheel:
+                    // Only intercept events targeting our terminal view
+                    guard let window = tv.window,
+                          let hitView = window.contentView?.hitTest(event.locationInWindow),
+                          hitView === tv || hitView.isDescendant(of: tv) else {
+                        return event
                     }
-                    self.scrollAccumulator += delta
+                    // When mouse mode is off, let SwiftTerm handle native scrollback
+                    guard terminal.mouseMode != .off else { return event }
 
-                    guard abs(self.scrollAccumulator) >= 1.0 else { return nil }
+                    // Ignore momentum/inertia events (trackpad lift-off)
+                    guard event.momentumPhase == [] else {
+                        if event.momentumPhase == .ended {
+                            self.scrollAccumulator = 0
+                        }
+                        return nil
+                    }
 
-                    buttonFlags = self.scrollAccumulator > 0 ? 64 : 65
-                    self.scrollAccumulator -= self.scrollAccumulator > 0 ? 1.0 : -1.0
-                } else {
-                    // Mouse wheel: each notch fires one scroll event
-                    let delta = event.deltaY
-                    if delta == 0 { return nil }
-                    buttonFlags = delta > 0 ? 64 : 65
+                    let buttonFlags: Int
+                    if event.hasPreciseScrollingDeltas {
+                        // Trackpad: accumulate pixel deltas until we reach one line
+                        let delta = event.scrollingDeltaY / 20.0
+                        if delta == 0 { return nil }
+                        if (delta > 0) != (self.scrollAccumulator > 0) {
+                            self.scrollAccumulator = 0
+                        }
+                        self.scrollAccumulator += delta
+                        guard abs(self.scrollAccumulator) >= 1.0 else { return nil }
+                        buttonFlags = self.scrollAccumulator > 0 ? 64 : 65
+                        self.scrollAccumulator -= self.scrollAccumulator > 0 ? 1.0 : -1.0
+                    } else {
+                        // Mouse wheel: each notch fires one scroll event
+                        let delta = event.deltaY
+                        if delta == 0 { return nil }
+                        buttonFlags = delta > 0 ? 64 : 65
+                    }
+
+                    let pos = self.gridPosition(for: event, tv: tv, terminal: terminal)
+                    terminal.sendEvent(buttonFlags: buttonFlags, x: pos.col, y: pos.row)
+                    return nil  // consume — don't let SwiftTerm's no-op scrollback run
+
+                default:
+                    return event
                 }
-
-                let point = tv.convert(event.locationInWindow, from: nil)
-                let cols = CGFloat(terminal.cols)
-                let rows = CGFloat(terminal.rows)
-                let col = max(0, min(Int(point.x / (tv.bounds.width / cols)), terminal.cols - 1))
-                let row = max(0, min(Int((tv.bounds.height - point.y) / (tv.bounds.height / rows)), terminal.rows - 1))
-
-                terminal.sendEvent(buttonFlags: buttonFlags, x: col, y: row)
-                return nil  // consume — don't let SwiftTerm's no-op scrollback run
             }
         }
 
