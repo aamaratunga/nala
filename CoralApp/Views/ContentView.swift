@@ -161,12 +161,6 @@ struct ContentView: View {
                 return nil
             }
 
-            // ?: Toggle shortcuts panel (Shift+/, not terminal, not text field)
-            if event.keyCode == 44 && mods == .shift && !isTerminalFocused && !isTextFieldFocused {
-                store.showingShortcutsPanel.toggle()
-                return nil
-            }
-
             // --- Sidebar-only shortcuts (require sidebarFocused) ---
 
             guard store.sidebarFocused else { return event }
