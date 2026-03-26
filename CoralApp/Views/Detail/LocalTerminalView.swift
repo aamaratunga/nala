@@ -66,9 +66,12 @@ final class CoralTerminalView: LocalProcessTerminalView {
     /// content to NSPasteboard.  Works around a missing bridge in
     /// SwiftTerm's macOS TerminalView — see iOSTerminalView.swift:2646
     /// for the equivalent iOS bridge that macOS is missing.
+    ///
+    /// Accepts any selection parameter (c, p, s, empty, etc.) since tmux
+    /// may vary which it uses depending on configuration.
     private func handleOSC52(in data: [UInt8]) {
-        // OSC 52 prefix: ESC ] 5 2 ; c ;
-        let prefix: [UInt8] = [0x1b, 0x5d, 0x35, 0x32, 0x3b, 0x63, 0x3b]
+        // OSC 52 starts with: ESC ] 5 2 ;
+        let osc52Start: [UInt8] = [0x1b, 0x5d, 0x35, 0x32, 0x3b]
 
         // Prepend any leftover partial from the previous flush
         let scanData: [UInt8]
@@ -80,13 +83,28 @@ final class CoralTerminalView: LocalProcessTerminalView {
         }
 
         var i = 0
-        while i <= scanData.count - prefix.count {
-            // Find the prefix
-            guard scanData[i...].starts(with: prefix) else {
+        while i <= scanData.count - osc52Start.count {
+            guard scanData[i...].starts(with: osc52Start) else {
                 i += 1
                 continue
             }
-            let payloadStart = i + prefix.count
+
+            // Skip past "ESC ] 5 2 ;" to find the selection param and semicolon
+            // Format: ESC ] 52 ; <Pc> ; <base64> BEL/ST
+            // <Pc> can be empty, "c", "p", "s", etc.
+            var semicolonIndex: Int?
+            for j in (i + osc52Start.count)..<min(i + osc52Start.count + 10, scanData.count) {
+                if scanData[j] == 0x3b { // ';'
+                    semicolonIndex = j
+                    break
+                }
+            }
+            guard let payloadStart = semicolonIndex.map({ $0 + 1 }) else {
+                // Incomplete — no second semicolon yet
+                pendingOSC52 = Array(scanData[i...])
+                break
+            }
+
             // Look for BEL (\x07) or ST (ESC \)
             var end: Int?
             for j in payloadStart..<scanData.count {
