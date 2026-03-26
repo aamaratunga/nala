@@ -1,7 +1,6 @@
 import SwiftUI
 import AppKit
 import SwiftTerm
-import os
 
 /// Coalesces PTY data during bursts so SwiftTerm renders the final
 /// state instead of dozens of intermediate scroll positions.
@@ -226,7 +225,6 @@ struct LocalTerminalView: NSViewRepresentable {
     }
 
     final class Coordinator: NSObject, LocalProcessTerminalViewDelegate {
-        private static let logger = Logger(subsystem: "com.coral.app", category: "Terminal")
         let sessionName: String
         @Binding var isTerminated: Bool
         weak var terminalView: CoralTerminalView?
@@ -437,7 +435,6 @@ struct LocalTerminalView: NSViewRepresentable {
                 // Cmd+C: copy tmux selection to macOS clipboard.
                 if event.keyCode == 8 && mods == .command {
                     let session = self.sessionName
-                    Self.logger.info("[\(session)] Cmd+C: sending copy-pipe-and-cancel to tmux")
                     DispatchQueue.global(qos: .userInitiated).async {
                         let proc = Process()
                         proc.executableURL = URL(fileURLWithPath: "/usr/bin/env")
@@ -454,9 +451,6 @@ struct LocalTerminalView: NSViewRepresentable {
                 // Cmd+V: paste macOS clipboard into terminal.
                 // SwiftTerm's paste(_:) handles bracketed paste mode.
                 if event.keyCode == 9 && mods == .command {
-                    let clipText = NSPasteboard.general.string(forType: .string) ?? ""
-                    let preview = clipText.prefix(80).replacingOccurrences(of: "\n", with: "\\n")
-                    Self.logger.info("[\(self.sessionName)] Cmd+V: pasting \(clipText.count) chars: \"\(preview)\"")
                     tv.paste(self)
                     return nil
                 }
