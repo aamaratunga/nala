@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import SwiftTerm
+import os
 
 /// Coalesces PTY data during bursts so SwiftTerm renders the final
 /// state instead of dozens of intermediate scroll positions.
@@ -17,6 +18,7 @@ final class CoralTerminalView: LocalProcessTerminalView {
     var isActiveTerminal: Bool { sessionName == Self.activeSessionName }
 
     private var pendingBytes: [UInt8] = []
+    private var pendingOSC52: [UInt8] = []
     private var coalesceTimer: DispatchWorkItem?
     private var burstStart: TimeInterval = 0
 
@@ -56,7 +58,62 @@ final class CoralTerminalView: LocalProcessTerminalView {
         guard !pendingBytes.isEmpty else { return }
         let data = pendingBytes
         pendingBytes.removeAll(keepingCapacity: true)
+        handleOSC52(in: data)
         super.dataReceived(slice: data[...])
+    }
+
+    /// Scans data for OSC 52 clipboard sequences and copies decoded
+    /// content to NSPasteboard.  Works around a missing bridge in
+    /// SwiftTerm's macOS TerminalView — see iOSTerminalView.swift:2646
+    /// for the equivalent iOS bridge that macOS is missing.
+    private func handleOSC52(in data: [UInt8]) {
+        // OSC 52 prefix: ESC ] 5 2 ; c ;
+        let prefix: [UInt8] = [0x1b, 0x5d, 0x35, 0x32, 0x3b, 0x63, 0x3b]
+
+        // Prepend any leftover partial from the previous flush
+        let scanData: [UInt8]
+        if !pendingOSC52.isEmpty {
+            scanData = pendingOSC52 + data
+            pendingOSC52.removeAll()
+        } else {
+            scanData = data
+        }
+
+        var i = 0
+        while i <= scanData.count - prefix.count {
+            // Find the prefix
+            guard scanData[i...].starts(with: prefix) else {
+                i += 1
+                continue
+            }
+            let payloadStart = i + prefix.count
+            // Look for BEL (\x07) or ST (ESC \)
+            var end: Int?
+            for j in payloadStart..<scanData.count {
+                if scanData[j] == 0x07 {
+                    end = j
+                    break
+                }
+                if scanData[j] == 0x1b, j + 1 < scanData.count, scanData[j + 1] == 0x5c {
+                    end = j
+                    break
+                }
+            }
+            guard let terminatorIndex = end else {
+                // Incomplete sequence — save for next flush
+                pendingOSC52 = Array(scanData[i...])
+                break
+            }
+            let base64Bytes = Array(scanData[payloadStart..<terminatorIndex])
+            if let base64String = String(bytes: base64Bytes, encoding: .ascii),
+               let decoded = Data(base64Encoded: base64String),
+               let text = String(data: decoded, encoding: .utf8) {
+                let pasteboard = NSPasteboard.general
+                pasteboard.clearContents()
+                pasteboard.writeObjects([text as NSString])
+            }
+            i = terminatorIndex + 1
+        }
     }
 }
 
@@ -124,11 +181,19 @@ struct LocalTerminalView: NSViewRepresentable {
         context.coordinator.installMouseMonitor()
         context.coordinator.installKeyMonitor()
 
-        // Enable mouse mode (so trackpad/scroll wheel works) then attach.
-        // Using login shell so tmux is found via PATH.
+        // Enable OSC 52 clipboard bridge and mouse mode, then attach.
+        // - set-clipboard on: tmux generates OSC 52 on every copy operation
+        // - terminal-features: tells tmux that xterm-256color supports clipboard
+        //   (the system terminfo lacks the Ms capability)
+        // All other copy-mode bindings come from the user's tmux.conf.
         tv.startProcess(
             executable: "/bin/zsh",
-            args: ["-l", "-c", "tmux set-option -t \(sessionName) mouse on && tmux attach -t \(sessionName)"]
+            args: ["-l", "-c", """
+                tmux set -s set-clipboard on \\; \
+                set -as terminal-features 'xterm-256color:clipboard' \\; \
+                set -t \(sessionName) mouse on \
+                && tmux attach -t \(sessionName)
+                """]
         )
 
         return tv
@@ -143,6 +208,7 @@ struct LocalTerminalView: NSViewRepresentable {
     }
 
     final class Coordinator: NSObject, LocalProcessTerminalViewDelegate {
+        private static let logger = Logger(subsystem: "com.coral.app", category: "Terminal")
         let sessionName: String
         @Binding var isTerminated: Bool
         weak var terminalView: CoralTerminalView?
@@ -196,30 +262,6 @@ struct LocalTerminalView: NSViewRepresentable {
                 meta: flags.contains(.option),
                 control: flags.contains(.control)
             )
-        }
-
-        /// Copies tmux's most recent paste buffer to the macOS clipboard.
-        private func syncTmuxPasteBufferToClipboard() {
-            DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 0.05) {
-                let proc = Process()
-                proc.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-                proc.arguments = ["tmux", "show-buffer"]
-                let pipe = Pipe()
-                proc.standardOutput = pipe
-                proc.standardError = FileHandle.nullDevice
-                do {
-                    try proc.run()
-                    proc.waitUntilExit()
-                    let data = pipe.fileHandleForReading.readDataToEndOfFile()
-                    guard proc.terminationStatus == 0,
-                          let text = String(data: data, encoding: .utf8),
-                          !text.isEmpty else { return }
-                    DispatchQueue.main.async {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(text, forType: .string)
-                    }
-                } catch { }
-            }
         }
 
         /// Installs a local event monitor that intercepts mouse and scroll events
@@ -287,10 +329,7 @@ struct LocalTerminalView: NSViewRepresentable {
                     let flags = self.encodeMouseFlags(for: event, terminal: terminal, release: true)
                     let pos = self.gridPosition(for: event, tv: tv, terminal: terminal)
                     terminal.sendEvent(buttonFlags: flags, x: pos.col, y: pos.row)
-                    if self.didDrag {
-                        self.syncTmuxPasteBufferToClipboard()
-                        self.didDrag = false
-                    }
+                    self.didDrag = false
                     return nil
 
                 case .scrollWheel:
@@ -375,8 +414,36 @@ struct LocalTerminalView: NSViewRepresentable {
                     self.lastRepeatForward = now
                 }
 
-                // keyCode 36 = Return; check only Shift is held
                 let mods = event.modifierFlags.intersection([.shift, .command, .control, .option])
+
+                // Cmd+C: copy tmux selection to macOS clipboard.
+                if event.keyCode == 8 && mods == .command {
+                    let session = self.sessionName
+                    Self.logger.info("[\(session)] Cmd+C: sending copy-pipe-and-cancel to tmux")
+                    DispatchQueue.global(qos: .userInitiated).async {
+                        let proc = Process()
+                        proc.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+                        proc.arguments = ["tmux", "send-keys", "-X", "-t", session,
+                                          "copy-pipe-and-cancel", "pbcopy"]
+                        proc.standardOutput = FileHandle.nullDevice
+                        proc.standardError = FileHandle.nullDevice
+                        try? proc.run()
+                        proc.waitUntilExit()
+                    }
+                    return nil
+                }
+
+                // Cmd+V: paste macOS clipboard into terminal.
+                // SwiftTerm's paste(_:) handles bracketed paste mode.
+                if event.keyCode == 9 && mods == .command {
+                    let clipText = NSPasteboard.general.string(forType: .string) ?? ""
+                    let preview = clipText.prefix(80).replacingOccurrences(of: "\n", with: "\\n")
+                    Self.logger.info("[\(self.sessionName)] Cmd+V: pasting \(clipText.count) chars: \"\(preview)\"")
+                    tv.paste(self)
+                    return nil
+                }
+
+                // keyCode 36 = Return; check only Shift is held
                 guard event.keyCode == 36 && mods == .shift else { return event }
 
                 // Send CSI u for Shift+Enter (\e[13;2u) directly to the tmux
