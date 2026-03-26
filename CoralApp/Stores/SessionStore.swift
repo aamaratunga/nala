@@ -372,6 +372,7 @@ final class SessionStore {
 
         // Select the placeholder and ensure its folder + section are expanded
         selectedSessionId = state.id
+        sidebarFocused = false
         let resolvedDir = groupingPath(for: workingDir)
         folderExpansion[resolvedDir] = true
         let status = folderStatus[resolvedDir] ?? .inProgress

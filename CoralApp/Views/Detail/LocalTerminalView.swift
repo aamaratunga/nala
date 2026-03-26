@@ -175,6 +175,16 @@ struct LocalTerminalView: NSViewRepresentable {
         tv.sessionName = sessionName
         Self.viewsBySession.setObject(tv, forKey: sessionName as NSString)
 
+        // Auto-focus if this terminal matches the currently selected session.
+        // Catches the race where the onChange handler's focus attempt failed
+        // because the view didn't exist yet when it ran.
+        if sessionName == CoralTerminalView.activeSessionName {
+            DispatchQueue.main.async {
+                guard let window = NSApp.keyWindow else { return }
+                window.makeFirstResponder(tv)
+            }
+        }
+
         // Font — prefer MesloLGS Nerd Font for icon glyphs
         if let nerdFont = NSFont(name: "MesloLGS Nerd Font Mono", size: 16) {
             tv.font = nerdFont
