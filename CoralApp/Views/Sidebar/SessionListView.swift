@@ -300,7 +300,7 @@ struct SessionListView: View {
 
                 Image(systemName: status.icon)
                     .font(.title3)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(status.color)
 
                 Text(status.displayName)
                     .font(.title3)

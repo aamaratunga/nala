@@ -59,6 +59,12 @@ struct SessionRowView: View {
 
             Spacer()
 
+            if let staleness = session.stalenessSeconds, staleness > 300, session.working {
+                Text(formatStaleness(staleness))
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+
             agentBadge
         }
         .padding(.vertical, 3)
@@ -115,5 +121,11 @@ struct SessionRowView: View {
 
     private var agentColor: Color {
         session.agentType == "terminal" ? .teal : .secondary
+    }
+
+    private func formatStaleness(_ seconds: Double) -> String {
+        let minutes = Int(seconds) / 60
+        if minutes < 60 { return "\(minutes)m ago" }
+        return "\(minutes / 60)h ago"
     }
 }

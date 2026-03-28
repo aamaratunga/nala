@@ -3,12 +3,18 @@ import SwiftUI
 struct StatusDot: View {
     let session: Session
 
+    private var isStale: Bool {
+        guard session.working, let staleness = session.stalenessSeconds else { return false }
+        return staleness > 300
+    }
+
     var body: some View {
         Circle()
             .fill(color)
             .frame(width: 8, height: 8)
+            .opacity(isStale ? 0.5 : 1.0)
             .overlay {
-                if session.working && !session.done && !session.stuck && !session.waitingForInput {
+                if session.working && !isStale && !session.done && !session.stuck && !session.waitingForInput {
                     Circle()
                         .stroke(color.opacity(0.4), lineWidth: 1.5)
                         .frame(width: 14, height: 14)

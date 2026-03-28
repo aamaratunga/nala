@@ -17,6 +17,28 @@ struct SessionDetailView: View {
             CoralTheme.accentGradient(.accentColor)
                 .frame(height: 1)
 
+            // Waiting-for-input banner
+            if session.waitingForInput {
+                HStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.bubble.fill")
+                        .foregroundStyle(.orange)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(session.waitingSummary ?? "Waiting for input")
+                            .font(.callout)
+                            .fontWeight(.medium)
+                        if let reason = session.waitingReason, !reason.isEmpty {
+                            Text(reason)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    Spacer()
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(.orange.opacity(0.1))
+            }
+
             // Terminal area
             ZStack {
                 if session.hasTmuxTarget {
@@ -108,10 +130,13 @@ struct SessionDetailView: View {
         VStack(spacing: 12) {
             Image(systemName: "moon.zzz.fill")
                 .font(.largeTitle)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(.blue.opacity(0.6))
             Text("Session Sleeping")
                 .font(.headline)
                 .foregroundStyle(.secondary)
+            Text("Will resume when needed")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(.ultraThinMaterial)
@@ -121,10 +146,10 @@ struct SessionDetailView: View {
 
     private var sessionEndedOverlay: some View {
         VStack(spacing: 12) {
-            Image(systemName: "checkmark.circle")
+            Image(systemName: "checkmark.circle.fill")
                 .font(.largeTitle)
-                .foregroundStyle(.secondary)
-            Text("Session Ended")
+                .foregroundStyle(.green.opacity(0.8))
+            Text("Task Complete")
                 .font(.headline)
                 .foregroundStyle(.secondary)
         }
@@ -138,8 +163,8 @@ struct SessionDetailView: View {
         VStack(spacing: 12) {
             Image(systemName: "rectangle.badge.xmark")
                 .font(.largeTitle)
-                .foregroundStyle(.secondary)
-            Text("Session Detached")
+                .foregroundStyle(.orange)
+            Text("Terminal Disconnected")
                 .font(.headline)
                 .foregroundStyle(.secondary)
             Button("Reattach") {
@@ -147,6 +172,7 @@ struct SessionDetailView: View {
                 localTerminalGeneration += 1
             }
             .buttonStyle(.borderedProminent)
+            .tint(.orange)
             .controlSize(.regular)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
