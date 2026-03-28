@@ -142,6 +142,7 @@ struct SessionDetailView: View {
         .background(.ultraThinMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
         .padding(6)
+        .accessibilityLabel("Session is sleeping, will resume when needed")
     }
 
     private var sessionEndedOverlay: some View {
@@ -157,6 +158,7 @@ struct SessionDetailView: View {
         .background(.ultraThinMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
         .padding(6)
+        .accessibilityLabel("Task complete, session has ended")
     }
 
     private var detachedOverlay: some View {
@@ -179,5 +181,7 @@ struct SessionDetailView: View {
         .background(.ultraThinMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
         .padding(6)
+        .accessibilityLabel("Terminal disconnected")
+        .accessibilityHint("Activate to reattach")
     }
 }

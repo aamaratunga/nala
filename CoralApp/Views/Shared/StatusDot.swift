@@ -13,6 +13,7 @@ struct StatusDot: View {
             .fill(color)
             .frame(width: 8, height: 8)
             .opacity(isStale ? 0.5 : 1.0)
+            .accessibilityLabel("Status: \(accessibilityStatus)")
             .overlay {
                 if session.working && !isStale && !session.done && !session.stuck && !session.waitingForInput {
                     Circle()
@@ -48,5 +49,13 @@ struct StatusDot: View {
 
     private var pulseOpacity: Double {
         session.working ? 0.0 : 0.5
+    }
+
+    private var accessibilityStatus: String {
+        if session.done { return "completed" }
+        if session.stuck { return "stuck" }
+        if session.waitingForInput { return "waiting for input" }
+        if session.working { return isStale ? "stale" : "working" }
+        return "idle"
     }
 }

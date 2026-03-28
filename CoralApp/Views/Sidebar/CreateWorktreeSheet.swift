@@ -17,7 +17,22 @@ struct CreateWorktreeDropdown: View {
     }
 
     private var isValid: Bool {
-        !branchName.isEmpty && !branchName.contains(" ")
+        !branchName.isEmpty && validationError == nil
+    }
+
+    private var validationError: String? {
+        if branchName.isEmpty { return nil }
+        if branchName.contains(" ") { return "Cannot contain spaces" }
+        if branchName.contains("..") { return "Cannot contain '..'" }
+        if branchName.hasPrefix("/") || branchName.hasSuffix("/") { return "Cannot start or end with '/'" }
+        if branchName.hasPrefix(".") || branchName.hasSuffix(".") { return "Cannot start or end with '.'" }
+        if branchName.hasSuffix(".lock") { return "Cannot end with '.lock'" }
+        let forbidden: [Character] = ["~", "^", ":", "?", "*", "[", "\\"]
+        for char in forbidden {
+            if branchName.contains(char) { return "Cannot contain '\(char)'" }
+        }
+        if branchName.contains("@{") { return "Cannot contain '@{'" }
+        return nil
     }
 
     var body: some View {
@@ -165,8 +180,8 @@ struct CreateWorktreeDropdown: View {
             }
             .padding(.horizontal, 12)
 
-            if !branchName.isEmpty && branchName.contains(" ") {
-                Text("Branch name cannot contain spaces")
+            if let error = validationError {
+                Text(error)
                     .font(.caption)
                     .foregroundStyle(.red)
                     .padding(.horizontal, 12)

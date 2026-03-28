@@ -327,6 +327,9 @@ struct SessionListView: View {
                 store.sectionExpansion[status] = !isExpanded
             }
         }
+        .accessibilityLabel("\(status.displayName) section, \(folderCount) folders")
+        .accessibilityHint(isExpanded ? "Activate to collapse" : "Activate to expand")
+        .accessibilityAddTraits(.isButton)
         .listRowSeparator(.hidden)
         .listRowInsets(EdgeInsets(top: 0, leading: 4, bottom: 0, trailing: 8))
     }

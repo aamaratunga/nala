@@ -73,6 +73,9 @@ struct SessionRowView: View {
         .overlay(alignment: .leading) {
             accentBar
         }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(session.displayLabel), \(session.agentType)")
+        .accessibilityHint(isEditing ? "Editing name" : "Double-tap to rename")
     }
 
     // MARK: - Row Highlight
