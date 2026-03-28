@@ -30,6 +30,10 @@ final class WorktreeCreationState: Identifiable {
     var error: String?
     var isFinished = false
 
+    var hasFailed: Bool {
+        stepStatuses.values.contains { if case .failed = $0 { return true } else { return false } }
+    }
+
     init(branchName: String, repoDisplayName: String, worktreePath: String, repoPath: String) {
         self.id = "placeholder-\(UUID().uuidString)"
         self.branchName = branchName

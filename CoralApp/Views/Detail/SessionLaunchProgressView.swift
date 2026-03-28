@@ -3,6 +3,8 @@ import SwiftUI
 
 struct SessionLaunchProgressView: View {
     let state: SessionLaunchState
+    @Environment(SessionStore.self) private var store
+    @State private var showTimeout = false
 
     private var headerTitle: String {
         state.agentType == "terminal" ? "Launching Terminal" : "Launching Agent"
@@ -39,10 +41,28 @@ struct SessionLaunchProgressView: View {
                     .font(.system(.body, design: .monospaced))
                     .foregroundStyle(.white.opacity(0.6))
 
+                if showTimeout {
+                    VStack(spacing: 8) {
+                        Text("Taking longer than expected\u{2026}")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Button("Dismiss") {
+                            store.dismissLaunchProgress()
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                    }
+                }
+
                 Spacer()
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(CoralTheme.terminalBackground)
+        }
+        .onAppear {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 30) {
+                showTimeout = true
+            }
         }
     }
 }

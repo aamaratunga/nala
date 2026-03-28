@@ -144,13 +144,65 @@ struct SessionListView: View {
 
             Divider()
 
+            if !store.isConnected {
+                HStack(spacing: 8) {
+                    Image(systemName: "wifi.exclamationmark")
+                        .foregroundStyle(.orange)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("Server disconnected")
+                            .font(.callout)
+                            .fontWeight(.medium)
+                        Text("Reconnecting\u{2026} (attempt \(store.reconnectAttempt))")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button("Retry") {
+                        store.forceReconnect()
+                    }
+                    .controlSize(.small)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(.orange.opacity(0.08))
+            }
+
             List {
                 if store.sessions.isEmpty && store.discoveredFolders.isEmpty {
-                    ContentUnavailableView {
-                        Label("No Active Sessions", systemImage: "bolt.slash")
-                    } description: {
-                        Text("Launch an agent to get started.")
+                    VStack(spacing: 16) {
+                        Image(systemName: "bolt.slash")
+                            .font(.system(size: 32))
+                            .foregroundStyle(.tertiary)
+
+                        Text("No Active Sessions")
+                            .font(.headline)
+                            .foregroundStyle(.secondary)
+
+                        VStack(spacing: 8) {
+                            Button {
+                                store.showingLaunchSheet = true
+                            } label: {
+                                Label("Launch Agent", systemImage: "sparkles")
+                                    .frame(maxWidth: 180)
+                            }
+                            .controlSize(.large)
+                            .buttonStyle(.borderedProminent)
+
+                            Button {
+                                store.showingTerminalLaunchSheet = true
+                            } label: {
+                                Label("Open Terminal", systemImage: "terminal")
+                                    .frame(maxWidth: 180)
+                            }
+                            .controlSize(.large)
+                            .buttonStyle(.bordered)
+                        }
+
+                        Text("\u{2318}N agent  \u{00B7}  \u{2318}T terminal  \u{00B7}  \u{2325}\u{2318}N worktree")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
                     }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .listRowSeparator(.hidden)
                 } else {
                     ForEach(flatItems) { item in
@@ -641,13 +693,19 @@ struct SessionListView: View {
         }
 
         Button("Kill", role: .destructive) {
+            let snapshot = session
             store.removeSessionOptimistically(session)
             Task {
-                try? await store.apiClient.killSession(
-                    sessionName: session.name,
-                    agentType: session.agentType,
-                    sessionId: session.sessionId
-                )
+                do {
+                    try await store.apiClient.killSession(
+                        sessionName: session.name,
+                        agentType: session.agentType,
+                        sessionId: session.sessionId
+                    )
+                } catch {
+                    store.restoreSession(snapshot)
+                    store.lastError = "Failed to kill session: \(error.localizedDescription)"
+                }
             }
         }
     }

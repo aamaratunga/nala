@@ -274,6 +274,62 @@ final class SessionStore {
         alert.runModal()
     }
 
+    // MARK: - Dismiss / Retry Progress
+
+    func dismissLaunchProgress() {
+        if let id = selectedSessionId {
+            sessions.removeAll { $0.id == id && $0.isPlaceholder }
+            activeLaunches.removeValue(forKey: id)
+            selectedSessionId = nil
+            reconcileOrder()
+        }
+    }
+
+    func dismissRestartProgress() {
+        if let id = selectedSessionId {
+            activeRestarts.removeValue(forKey: id)
+        }
+    }
+
+    func dismissCreationProgress() {
+        if let id = selectedSessionId, let state = activeCreations[id] {
+            sessions.removeAll { $0.id == id }
+            activeCreations.removeValue(forKey: id)
+            discoveredFolders.remove(state.worktreePath)
+            saveDiscoveredFolders()
+            selectedSessionId = nil
+            reconcileOrder()
+        }
+    }
+
+    func dismissDeletionProgress() {
+        if let id = selectedSessionId {
+            activeDeletions.removeValue(forKey: id)
+            // Also check if the id is a folder path
+            for (key, state) in activeDeletions {
+                if state.folderPath == id || sessions.first(where: { $0.id == id })?.workingDirectory == key {
+                    activeDeletions.removeValue(forKey: key)
+                    break
+                }
+            }
+        }
+    }
+
+    func retryWorktreeCreation(state: WorktreeCreationState) {
+        let branchName = state.branchName
+        let repoPath = state.repoPath
+        dismissCreationProgress()
+        if let config = repoConfigs.first(where: { $0.repoPath == repoPath }) {
+            beginWorktreeCreation(config: config, branchName: branchName)
+        }
+    }
+
+    func retryWorktreeDeletion(state: WorktreeDeletionState) {
+        let folderPath = state.folderPath
+        activeDeletions.removeValue(forKey: folderPath)
+        beginWorktreeDeletion(folderPath: folderPath)
+    }
+
     // MARK: - Connection
 
     /// Computed list of repo configs that have both required fields set.
@@ -359,6 +415,15 @@ final class SessionStore {
         ws.connect()
     }
 
+    var reconnectAttempt: Int {
+        webSocket?.reconnectAttempt ?? 0
+    }
+
+    func forceReconnect() {
+        webSocket?.disconnect()
+        webSocket?.connect()
+    }
+
     func disconnect() {
         webSocket?.disconnect()
         webSocket = nil
@@ -436,6 +501,14 @@ final class SessionStore {
     }
 
     // MARK: - Optimistic Kill
+
+    func restoreSession(_ session: Session) {
+        pendingKills.remove(session.id)
+        if !sessions.contains(where: { $0.id == session.id }) {
+            sessions.append(session)
+            reconcileOrder()
+        }
+    }
 
     func removeSessionOptimistically(_ session: Session) {
         // Move selection to next/prev session in same folder before removing

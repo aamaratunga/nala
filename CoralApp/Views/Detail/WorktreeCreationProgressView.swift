@@ -3,6 +3,7 @@ import SwiftUI
 
 struct WorktreeCreationProgressView: View {
     let state: WorktreeCreationState
+    @Environment(SessionStore.self) private var store
 
     var body: some View {
         VStack(spacing: 0) {
@@ -26,6 +27,27 @@ struct WorktreeCreationProgressView: View {
 
                 // Progress stepper
                 StepProgressList<WorktreeCreationState.Step>(statuses: state.stepStatuses)
+
+                if state.hasFailed {
+                    VStack(spacing: 12) {
+                        Text("Operation failed")
+                            .font(.system(.callout, design: .monospaced))
+                            .foregroundStyle(.red.opacity(0.8))
+
+                        HStack(spacing: 16) {
+                            Button("Dismiss") {
+                                store.dismissCreationProgress()
+                            }
+                            .buttonStyle(.bordered)
+
+                            Button("Retry") {
+                                store.retryWorktreeCreation(state: state)
+                            }
+                            .buttonStyle(.borderedProminent)
+                        }
+                    }
+                    .padding(.top, 16)
+                }
 
                 Spacer()
             }

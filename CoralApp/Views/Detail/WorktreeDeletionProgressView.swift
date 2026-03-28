@@ -3,6 +3,7 @@ import SwiftUI
 
 struct WorktreeDeletionProgressView: View {
     let state: WorktreeDeletionState
+    @Environment(SessionStore.self) private var store
 
     var body: some View {
         VStack(spacing: 0) {
@@ -26,6 +27,27 @@ struct WorktreeDeletionProgressView: View {
 
                 // Progress stepper
                 StepProgressList<WorktreeDeletionState.Step>(statuses: state.stepStatuses)
+
+                if state.hasFailed {
+                    VStack(spacing: 12) {
+                        Text("Operation failed")
+                            .font(.system(.callout, design: .monospaced))
+                            .foregroundStyle(.red.opacity(0.8))
+
+                        HStack(spacing: 16) {
+                            Button("Dismiss") {
+                                store.dismissDeletionProgress()
+                            }
+                            .buttonStyle(.bordered)
+
+                            Button("Retry") {
+                                store.retryWorktreeDeletion(state: state)
+                            }
+                            .buttonStyle(.borderedProminent)
+                        }
+                    }
+                    .padding(.top, 16)
+                }
 
                 Spacer()
             }

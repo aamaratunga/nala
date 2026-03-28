@@ -79,14 +79,20 @@ struct ContentView: View {
             Button("Cancel", role: .cancel) { store.pendingKillSession = nil }
             Button("Kill", role: .destructive) {
                 if let session = store.pendingKillSession {
+                    let snapshot = session
                     store.pendingKillSession = nil
                     store.removeSessionOptimistically(session)
                     Task {
-                        try? await store.apiClient.killSession(
-                            sessionName: session.name,
-                            agentType: session.agentType,
-                            sessionId: session.sessionId
-                        )
+                        do {
+                            try await store.apiClient.killSession(
+                                sessionName: session.name,
+                                agentType: session.agentType,
+                                sessionId: session.sessionId
+                            )
+                        } catch {
+                            store.restoreSession(snapshot)
+                            store.lastError = "Failed to kill session: \(error.localizedDescription)"
+                        }
                     }
                 }
             }

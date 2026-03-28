@@ -3,6 +3,8 @@ import SwiftUI
 
 struct SessionRestartProgressView: View {
     let state: SessionRestartState
+    @Environment(SessionStore.self) private var store
+    @State private var showTimeout = false
 
     private var phaseText: String {
         switch state.phase {
@@ -33,10 +35,28 @@ struct SessionRestartProgressView: View {
                     .font(.system(.body, design: .monospaced))
                     .foregroundStyle(.white.opacity(0.6))
 
+                if showTimeout {
+                    VStack(spacing: 8) {
+                        Text("Taking longer than expected\u{2026}")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Button("Dismiss") {
+                            store.dismissRestartProgress()
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                    }
+                }
+
                 Spacer()
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(CoralTheme.terminalBackground)
+        }
+        .onAppear {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 30) {
+                showTimeout = true
+            }
         }
     }
 }

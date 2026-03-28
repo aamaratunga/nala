@@ -31,6 +31,10 @@ final class WorktreeDeletionState: Identifiable {
     var error: String?
     var isFinished = false
 
+    var hasFailed: Bool {
+        stepStatuses.values.contains { if case .failed = $0 { return true } else { return false } }
+    }
+
     init(folderPath: String, sessionCount: Int, repoPath: String = "") {
         self.id = folderPath
         self.folderPath = folderPath
