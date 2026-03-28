@@ -446,20 +446,12 @@ struct SessionListView: View {
         .padding(.vertical, 3)
         .padding(.horizontal, 5)
         .padding(.leading, 36)
-        .background(
-            Group {
-                if isSelected {
-                    LinearGradient(
-                        colors: [CoralTheme.coralPrimary.opacity(0.18), CoralTheme.coralPrimary.opacity(0.06)],
-                        startPoint: .leading,
-                        endPoint: .trailing
-                    )
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                } else {
-                    Color.clear
-                }
+        .overlay {
+            if isSelected {
+                RoundedRectangle(cornerRadius: 8)
+                    .strokeBorder(CoralTheme.coralPrimary.opacity(0.5), lineWidth: 1.5)
             }
-        )
+        }
         .opacity(0.75)
         .contentShape(Rectangle())
         .listRowInsets(EdgeInsets(top: -1, leading: 0, bottom: -1, trailing: 8))
@@ -488,20 +480,12 @@ struct SessionListView: View {
         .padding(.vertical, 3)
         .padding(.horizontal, 5)
         .padding(.leading, 36)
-        .background(
-            Group {
-                if isSelected {
-                    LinearGradient(
-                        colors: [CoralTheme.coralPrimary.opacity(0.18), CoralTheme.coralPrimary.opacity(0.06)],
-                        startPoint: .leading,
-                        endPoint: .trailing
-                    )
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                } else {
-                    Color.clear
-                }
+        .overlay {
+            if isSelected {
+                RoundedRectangle(cornerRadius: 8)
+                    .strokeBorder(CoralTheme.coralPrimary.opacity(0.5), lineWidth: 1.5)
             }
-        )
+        }
         .opacity(0.75)
         .contentShape(Rectangle())
         .listRowInsets(EdgeInsets(top: -1, leading: 0, bottom: -1, trailing: 8))
@@ -530,20 +514,12 @@ struct SessionListView: View {
         .padding(.vertical, 3)
         .padding(.horizontal, 5)
         .padding(.leading, 36)
-        .background(
-            Group {
-                if isSelected {
-                    LinearGradient(
-                        colors: [CoralTheme.coralPrimary.opacity(0.18), CoralTheme.coralPrimary.opacity(0.06)],
-                        startPoint: .leading,
-                        endPoint: .trailing
-                    )
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                } else {
-                    Color.clear
-                }
+        .overlay {
+            if isSelected {
+                RoundedRectangle(cornerRadius: 8)
+                    .strokeBorder(CoralTheme.coralPrimary.opacity(0.5), lineWidth: 1.5)
             }
-        )
+        }
         .opacity(0.75)
         .contentShape(Rectangle())
         .listRowInsets(EdgeInsets(top: -1, leading: 0, bottom: -1, trailing: 8))
@@ -554,13 +530,12 @@ struct SessionListView: View {
         }
     }
 
+    /// Returns a highlight color only for actionable states that need user attention.
+    /// Working is intentionally excluded — the pulsing status dot is sufficient signal.
     private func sessionHighlightColor(_ session: Session) -> Color? {
         if session.waitingForInput { return CoralTheme.amber }
         if session.stuck { return CoralTheme.red }
         if session.done { return CoralTheme.green }
-        if session.working && !session.done && !session.stuck && !session.waitingForInput {
-            return CoralTheme.teal
-        }
         return nil
     }
 
@@ -581,23 +556,10 @@ struct SessionListView: View {
             }
         )
             .padding(.leading, 36)
+            // Background: status only (actionable states get colored fill)
             .background(
                 Group {
-                    if isSelected, let color = sessionHighlightColor(session) {
-                        LinearGradient(
-                            colors: [color.opacity(0.18), color.opacity(0.06)],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                    } else if isSelected {
-                        LinearGradient(
-                            colors: [CoralTheme.coralPrimary.opacity(0.18), CoralTheme.coralPrimary.opacity(0.06)],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                    } else if let color = sessionHighlightColor(session) {
+                    if let color = sessionHighlightColor(session) {
                         LinearGradient(
                             colors: [color.opacity(0.18), color.opacity(0.04)],
                             startPoint: .leading,
@@ -609,6 +571,7 @@ struct SessionListView: View {
                     }
                 }
             )
+            // Left accent bar: actionable states only
             .overlay(alignment: .leading) {
                 if let color = sessionHighlightColor(session) {
                     LinearGradient(
@@ -624,6 +587,15 @@ struct SessionListView: View {
                         bottomTrailingRadius: 0,
                         topTrailingRadius: 0
                     ))
+                }
+            }
+            // Selection: outline border, independent of status
+            // Inset vertically by 1pt to clear the -1 row inset overlap
+            .overlay {
+                if isSelected {
+                    RoundedRectangle(cornerRadius: 7)
+                        .strokeBorder(CoralTheme.coralPrimary.opacity(0.5), lineWidth: 1.5)
+                        .padding(.vertical, 1)
                 }
             }
             .opacity(draggingSessionId == session.id ? 0.35 : 1)
