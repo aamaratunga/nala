@@ -7,22 +7,23 @@ struct LoadingView: View {
         VStack(spacing: 20) {
             Image(systemName: "circle.hexagongrid.fill")
                 .font(.system(size: 64))
-                .foregroundStyle(.tint)
+                .foregroundStyle(CoralTheme.coralGradient)
                 .symbolEffect(.pulse, options: .repeating)
 
             Text("Coral")
                 .font(.largeTitle)
                 .fontWeight(.semibold)
+                .foregroundStyle(CoralTheme.coralGradient)
 
             ProgressView()
                 .controlSize(.small)
 
             Text(serverManager.statusMessage)
                 .font(.callout)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(CoralTheme.textSecondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(.background)
+        .background(CoralTheme.bgBase)
     }
 }
 

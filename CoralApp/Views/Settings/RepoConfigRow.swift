@@ -61,7 +61,7 @@ struct RepoConfigRow: View {
         } label: {
             HStack(spacing: 6) {
                 Image(systemName: isComplete ? "checkmark.circle.fill" : "exclamationmark.circle")
-                    .foregroundStyle(isComplete ? .green : .orange)
+                    .foregroundStyle(isComplete ? CoralTheme.green : CoralTheme.amber)
                     .font(.caption)
 
                 Text(config.displayName)

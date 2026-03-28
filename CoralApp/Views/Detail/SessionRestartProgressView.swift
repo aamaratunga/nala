@@ -17,7 +17,7 @@ struct SessionRestartProgressView: View {
         VStack(spacing: 0) {
             ProgressHeader(
                 title: "Restarting \(state.originalSession.displayLabel)",
-                accentColor: .orange
+                accentColor: CoralTheme.amber
             )
 
             // Dark terminal background with vertically centered content
@@ -33,7 +33,7 @@ struct SessionRestartProgressView: View {
 
                 Text(phaseText)
                     .font(.system(.body, design: .monospaced))
-                    .foregroundStyle(.white.opacity(0.6))
+                    .foregroundStyle(CoralTheme.textSecondary)
 
                 if showTimeout {
                     VStack(spacing: 8) {

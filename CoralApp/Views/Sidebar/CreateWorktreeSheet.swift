@@ -75,7 +75,7 @@ struct CreateWorktreeDropdown: View {
     private func repoListView() -> some View {
         Label("New Worktree", systemImage: "arrow.triangle.branch")
             .font(.subheadline.weight(.semibold))
-            .foregroundStyle(.secondary)
+            .foregroundStyle(CoralTheme.textSecondary)
             .padding(.horizontal, 12)
             .padding(.vertical, 4)
 
@@ -88,11 +88,11 @@ struct CreateWorktreeDropdown: View {
                 HStack(spacing: 8) {
                     Text("\(index + 1)")
                         .font(.caption.monospacedDigit())
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(CoralTheme.textTertiary)
                         .frame(width: 18, alignment: .trailing)
 
                     Image(systemName: "folder")
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(CoralTheme.textSecondary)
 
                     Text(config.displayName)
                         .lineLimit(1)
@@ -118,11 +118,11 @@ struct CreateWorktreeDropdown: View {
             HStack(spacing: 8) {
                 Text("\(configs.count + 1)")
                     .font(.caption.monospacedDigit())
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(CoralTheme.textTertiary)
                     .frame(width: 18, alignment: .trailing)
 
                 Image(systemName: "plus.circle")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(CoralTheme.textSecondary)
 
                 Text("Add Repository…")
                     .lineLimit(1)
@@ -151,13 +151,13 @@ struct CreateWorktreeDropdown: View {
                 } label: {
                     Image(systemName: "chevron.left")
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(CoralTheme.textSecondary)
                 }
                 .buttonStyle(.plain)
 
                 Label(config.displayName, systemImage: "folder")
                     .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(CoralTheme.textSecondary)
                     .lineLimit(1)
             }
             .padding(.horizontal, 12)
@@ -183,7 +183,7 @@ struct CreateWorktreeDropdown: View {
             if let error = validationError {
                 Text(error)
                     .font(.caption)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(CoralTheme.red)
                     .padding(.horizontal, 12)
             }
         }

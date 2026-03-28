@@ -4,7 +4,7 @@ struct ProgressHeader: View {
     let title: String
     var subtitle: String? = nil
     var agentLabel: String? = nil
-    var accentColor: Color = .accentColor
+    var accentColor: Color = CoralTheme.coralPrimary
     var showSpinner: Bool = true
     var statusDotSession: Session? = nil
 
@@ -24,7 +24,7 @@ struct ProgressHeader: View {
                     if let subtitle {
                         Text(subtitle)
                             .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(CoralTheme.textSecondary)
                     }
                 }
 
@@ -36,16 +36,16 @@ struct ProgressHeader: View {
                         .fontWeight(.medium)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
-                        .background(.secondary.opacity(0.1))
+                        .background(CoralTheme.textSecondary.opacity(0.12))
                         .clipShape(Capsule())
                 }
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
-            .background(.bar)
+            .background(CoralTheme.bgSurface.opacity(0.65))
+            .background(.ultraThinMaterial)
 
-            CoralTheme.accentGradient(accentColor)
-                .frame(height: 1)
+            CoralTheme.accentDivider
         }
     }
 }

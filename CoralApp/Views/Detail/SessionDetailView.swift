@@ -13,15 +13,14 @@ struct SessionDetailView: View {
             // Header bar
             sessionHeader
 
-            // Accent gradient line
-            CoralTheme.accentGradient(.accentColor)
-                .frame(height: 1)
+            // Accent gradient divider
+            CoralTheme.accentDivider
 
             // Waiting-for-input banner
             if session.waitingForInput {
                 HStack(spacing: 8) {
                     Image(systemName: "exclamationmark.bubble.fill")
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(CoralTheme.amber)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(session.waitingSummary ?? "Waiting for input")
                             .font(.callout)
@@ -36,7 +35,7 @@ struct SessionDetailView: View {
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
-                .background(.orange.opacity(0.1))
+                .background(CoralTheme.amber.opacity(0.1))
             }
 
             // Terminal area
@@ -47,12 +46,12 @@ struct SessionDetailView: View {
                         isTerminated: $isLocalTerminated
                     )
                     .id(localTerminalGeneration)
-                    .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                     .overlay(
-                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
                             .strokeBorder(.white.opacity(0.06), lineWidth: 0.5)
                     )
-                    .shadow(color: .black.opacity(0.3), radius: 8, y: 2)
+                    .shadow(color: .black.opacity(0.4), radius: 12, y: 3)
                     .padding(6)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
@@ -84,6 +83,14 @@ struct SessionDetailView: View {
         }
     }
 
+    private var agentBadgeColor: Color {
+        switch session.agentType {
+        case "terminal": return CoralTheme.teal
+        case "gemini": return CoralTheme.magenta
+        default: return CoralTheme.textSecondary
+        }
+    }
+
     private var sessionHeader: some View {
         HStack {
             StatusDot(session: session)
@@ -100,7 +107,7 @@ struct SessionDetailView: View {
                 if let summary = session.summary, !summary.isEmpty {
                     Text(summary)
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(CoralTheme.textSecondary)
                         .lineLimit(1)
                 }
             }
@@ -110,7 +117,10 @@ struct SessionDetailView: View {
             if let branch = session.branch, !branch.isEmpty {
                 Label(branch, systemImage: "arrow.triangle.branch")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(CoralTheme.blueAccent)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(CoralTheme.blueAccent.opacity(0.12), in: Capsule())
             }
 
             Text(session.agentType.capitalized)
@@ -118,29 +128,31 @@ struct SessionDetailView: View {
                 .fontWeight(.medium)
                 .padding(.horizontal, 6)
                 .padding(.vertical, 2)
-                .background(.secondary.opacity(0.1))
+                .background(agentBadgeColor.opacity(0.12))
+                .foregroundStyle(agentBadgeColor)
                 .clipShape(Capsule())
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .background(.bar)
+        .background(CoralTheme.bgSurface.opacity(0.65))
+        .background(.ultraThinMaterial)
     }
 
     private var sleepingOverlay: some View {
         VStack(spacing: 12) {
             Image(systemName: "moon.zzz.fill")
                 .font(.largeTitle)
-                .foregroundStyle(.blue.opacity(0.6))
+                .foregroundStyle(CoralTheme.blueAccent.opacity(0.6))
             Text("Session Sleeping")
                 .font(.headline)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(CoralTheme.textSecondary)
             Text("Will resume when needed")
                 .font(.caption)
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(CoralTheme.textTertiary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(.ultraThinMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         .padding(6)
         .accessibilityLabel("Session is sleeping, will resume when needed")
     }
@@ -149,14 +161,14 @@ struct SessionDetailView: View {
         VStack(spacing: 12) {
             Image(systemName: "checkmark.circle.fill")
                 .font(.largeTitle)
-                .foregroundStyle(.green.opacity(0.8))
+                .foregroundStyle(CoralTheme.green.opacity(0.8))
             Text("Task Complete")
                 .font(.headline)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(CoralTheme.textSecondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(.ultraThinMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         .padding(6)
         .accessibilityLabel("Task complete, session has ended")
     }
@@ -165,21 +177,21 @@ struct SessionDetailView: View {
         VStack(spacing: 12) {
             Image(systemName: "rectangle.badge.xmark")
                 .font(.largeTitle)
-                .foregroundStyle(.orange)
+                .foregroundStyle(CoralTheme.amber)
             Text("Terminal Disconnected")
                 .font(.headline)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(CoralTheme.textSecondary)
             Button("Reattach") {
                 isLocalTerminated = false
                 localTerminalGeneration += 1
             }
             .buttonStyle(.borderedProminent)
-            .tint(.orange)
+            .tint(CoralTheme.coralPrimary)
             .controlSize(.regular)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(.ultraThinMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         .padding(6)
         .accessibilityLabel("Terminal disconnected")
         .accessibilityHint("Activate to reattach")

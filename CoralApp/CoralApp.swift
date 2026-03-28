@@ -24,6 +24,8 @@ struct CoralApp: App {
                     LoadingView(serverManager: serverManager)
                 }
             }
+            .preferredColorScheme(.dark)
+            .tint(CoralTheme.coralPrimary)
             .frame(minWidth: 900, minHeight: 600)
         }
         .windowToolbarStyle(.unifiedCompact)

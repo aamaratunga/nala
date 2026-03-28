@@ -10,7 +10,7 @@ struct WorktreeDeletionProgressView: View {
             ProgressHeader(
                 title: "Removing \(state.shortFolderPath)",
                 subtitle: state.repoPath.isEmpty ? nil : "from repo \(state.shortRepoPath)",
-                accentColor: .red
+                accentColor: CoralTheme.red
             )
 
             // Dark terminal background with vertically centered content
@@ -32,7 +32,7 @@ struct WorktreeDeletionProgressView: View {
                     VStack(spacing: 12) {
                         Text("Operation failed")
                             .font(.system(.callout, design: .monospaced))
-                            .foregroundStyle(.red.opacity(0.8))
+                            .foregroundStyle(CoralTheme.red.opacity(0.8))
 
                         HStack(spacing: 16) {
                             Button("Dismiss") {
@@ -44,6 +44,7 @@ struct WorktreeDeletionProgressView: View {
                                 store.retryWorktreeDeletion(state: state)
                             }
                             .buttonStyle(.borderedProminent)
+                            .tint(CoralTheme.coralPrimary)
                         }
                     }
                     .padding(.top, 16)

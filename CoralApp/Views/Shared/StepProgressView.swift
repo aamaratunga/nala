@@ -37,7 +37,7 @@ struct StepProgressList<Step: ProgressStep>: View {
             if case .failed(let message) = status {
                 Text(message)
                     .font(.caption)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(CoralTheme.red)
                     .lineLimit(2)
             }
         }
@@ -48,29 +48,29 @@ struct StepProgressList<Step: ProgressStep>: View {
         switch status {
         case .pending:
             Image(systemName: "circle")
-                .foregroundStyle(.white.opacity(0.3))
+                .foregroundStyle(CoralTheme.textTertiary)
         case .inProgress:
             ProgressView()
                 .controlSize(.small)
         case .completed:
             Image(systemName: "checkmark.circle.fill")
-                .foregroundStyle(.green)
+                .foregroundStyle(CoralTheme.green)
         case .skipped:
             Image(systemName: "minus.circle.fill")
-                .foregroundStyle(.gray)
+                .foregroundStyle(CoralTheme.textTertiary)
         case .failed:
             Image(systemName: "xmark.circle.fill")
-                .foregroundStyle(.red)
+                .foregroundStyle(CoralTheme.red)
         }
     }
 
     private func stepTextColor(_ status: StepStatus) -> Color {
         switch status {
-        case .pending: .white.opacity(0.4)
-        case .inProgress: .white
-        case .completed: .green.opacity(0.8)
-        case .skipped: .gray
-        case .failed: .red
+        case .pending: CoralTheme.textTertiary
+        case .inProgress: CoralTheme.textPrimary
+        case .completed: CoralTheme.green.opacity(0.8)
+        case .skipped: CoralTheme.textTertiary
+        case .failed: CoralTheme.red
         }
     }
 }

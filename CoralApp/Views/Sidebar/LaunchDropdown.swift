@@ -89,7 +89,7 @@ struct LaunchDropdown: View {
     private func sectionView(title: String, icon: String, items: [LaunchItem], agentType: String) -> some View {
         Label(title, systemImage: icon)
             .font(.subheadline.weight(.semibold))
-            .foregroundStyle(.secondary)
+            .foregroundStyle(CoralTheme.textSecondary)
             .padding(.horizontal, 12)
             .padding(.vertical, 4)
 
@@ -104,15 +104,15 @@ struct LaunchDropdown: View {
                 HStack(spacing: 8) {
                     Text("\(item.id)")
                         .font(.caption.monospacedDigit())
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(CoralTheme.textTertiary)
                         .frame(width: 18, alignment: .trailing)
 
                     if item.isOther {
                         Image(systemName: "folder.badge.plus")
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(CoralTheme.textSecondary)
                     } else {
                         Image(systemName: "folder")
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(CoralTheme.textSecondary)
                     }
 
                     Text(item.label)

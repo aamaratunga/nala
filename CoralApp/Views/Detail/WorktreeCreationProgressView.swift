@@ -32,7 +32,7 @@ struct WorktreeCreationProgressView: View {
                     VStack(spacing: 12) {
                         Text("Operation failed")
                             .font(.system(.callout, design: .monospaced))
-                            .foregroundStyle(.red.opacity(0.8))
+                            .foregroundStyle(CoralTheme.red.opacity(0.8))
 
                         HStack(spacing: 16) {
                             Button("Dismiss") {
@@ -44,6 +44,7 @@ struct WorktreeCreationProgressView: View {
                                 store.retryWorktreeCreation(state: state)
                             }
                             .buttonStyle(.borderedProminent)
+                            .tint(CoralTheme.coralPrimary)
                         }
                     }
                     .padding(.top, 16)

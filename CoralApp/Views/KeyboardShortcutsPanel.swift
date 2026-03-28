@@ -41,14 +41,14 @@ struct KeyboardShortcutsPanel: View {
                     VStack(alignment: .leading, spacing: 8) {
                         Label(group.title, systemImage: group.icon)
                             .font(.headline)
-                            .foregroundStyle(.primary)
+                            .foregroundStyle(CoralTheme.textPrimary)
 
                         VStack(spacing: 2) {
                             ForEach(group.shortcuts) { shortcut in
                                 HStack {
                                     Text(shortcut.description)
                                         .font(.callout)
-                                        .foregroundStyle(.secondary)
+                                        .foregroundStyle(CoralTheme.textSecondary)
 
                                     Spacer()
 
@@ -57,13 +57,13 @@ struct KeyboardShortcutsPanel: View {
                                             if key == "–" {
                                                 Text("–")
                                                     .font(.callout)
-                                                    .foregroundStyle(.tertiary)
+                                                    .foregroundStyle(CoralTheme.textTertiary)
                                             } else {
                                                 Text(key)
                                                     .font(.system(.callout, design: .monospaced))
                                                     .padding(.horizontal, 6)
                                                     .padding(.vertical, 2)
-                                                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 4))
+                                                    .background(CoralTheme.bgSurface, in: RoundedRectangle(cornerRadius: 4))
                                             }
                                         }
                                     }

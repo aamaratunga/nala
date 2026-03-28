@@ -23,7 +23,7 @@ struct SessionLaunchProgressView: View {
             ProgressHeader(
                 title: headerTitle,
                 agentLabel: agentLabel,
-                accentColor: .blue
+                accentColor: CoralTheme.coralPrimary
             )
 
             // Dark terminal background with vertically centered content
@@ -39,7 +39,7 @@ struct SessionLaunchProgressView: View {
 
                 Text("Starting session\u{2026}")
                     .font(.system(.body, design: .monospaced))
-                    .foregroundStyle(.white.opacity(0.6))
+                    .foregroundStyle(CoralTheme.textSecondary)
 
                 if showTimeout {
                     VStack(spacing: 8) {
