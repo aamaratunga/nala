@@ -51,7 +51,9 @@ struct ContentView: View {
                 // is false), focus its terminal.  The async lets SwiftUI
                 // create the terminal view first on initial visit.
                 if !store.sidebarFocused, let tmuxName {
+                    let expectedId = newId
                     DispatchQueue.main.async {
+                        guard store.selectedSessionId == expectedId else { return }
                         guard let window = NSApp.keyWindow,
                               let tv = LocalTerminalView.viewsBySession.object(forKey: tmuxName as NSString)
                         else { return }

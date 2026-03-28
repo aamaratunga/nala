@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 // MARK: - SidebarItem
@@ -162,6 +163,7 @@ struct SessionListView: View {
                             sessionRow(for: session, in: folderPath)
                         }
                     }
+                    .background(SidebarTableViewConfigurator())
                 }
             }
             .animation(.spring(response: 0.3, dampingFraction: 0.75), value: flatItems.map(\.id))
@@ -595,6 +597,29 @@ struct SessionListView: View {
                 showingDeleteConfirmation = true
             }
         }
+    }
+
+    // MARK: - NSTableView Focus Override
+
+    /// Prevents the `NSTableView` backing SwiftUI's `List` from claiming
+    /// first responder on click, which would steal focus from the terminal.
+    private struct SidebarTableViewConfigurator: NSViewRepresentable {
+        func makeNSView(context: Context) -> NSView {
+            let view = NSView(frame: .zero)
+            DispatchQueue.main.async {
+                var current: NSView? = view
+                while let parent = current?.superview {
+                    if let tableView = parent as? NSTableView {
+                        tableView.refusesFirstResponder = true
+                        return
+                    }
+                    current = parent
+                }
+            }
+            return view
+        }
+
+        func updateNSView(_ nsView: NSView, context: Context) {}
     }
 
     @ViewBuilder
