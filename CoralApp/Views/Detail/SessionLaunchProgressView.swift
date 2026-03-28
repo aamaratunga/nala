@@ -18,15 +18,11 @@ struct SessionLaunchProgressView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            header
-
-            // Blue accent gradient line
-            LinearGradient(
-                colors: [.blue.opacity(0.6), .blue.opacity(0)],
-                startPoint: .leading,
-                endPoint: .trailing
+            ProgressHeader(
+                title: headerTitle,
+                agentLabel: agentLabel,
+                accentColor: .blue
             )
-            .frame(height: 1)
 
             // Dark terminal background with vertically centered content
             VStack(spacing: 20) {
@@ -36,7 +32,8 @@ struct SessionLaunchProgressView: View {
                     try await DotLottieFile.named("Loading_Hand")
                 }
                 .playing(loopMode: .loop)
-                .frame(width: 200, height: 200)
+                .frame(maxWidth: 200, maxHeight: 200)
+                .aspectRatio(1, contentMode: .fit)
 
                 Text("Starting session\u{2026}")
                     .font(.system(.body, design: .monospaced))
@@ -45,32 +42,7 @@ struct SessionLaunchProgressView: View {
                 Spacer()
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Color(red: 0.031, green: 0.043, blue: 0.063))
+            .background(CoralTheme.terminalBackground)
         }
-    }
-
-    // MARK: - Header
-
-    private var header: some View {
-        HStack {
-            ProgressView()
-                .controlSize(.small)
-
-            Text(headerTitle)
-                .font(.headline)
-
-            Spacer()
-
-            Text(agentLabel)
-                .font(.caption)
-                .fontWeight(.medium)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .background(.secondary.opacity(0.1))
-                .clipShape(Capsule())
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(.bar)
     }
 }

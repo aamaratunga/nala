@@ -19,15 +19,11 @@ final class WorktreeDeletionState: Identifiable {
         return path
     }
 
-    enum Step: String, CaseIterable {
+    enum Step: String, CaseIterable, ProgressStep {
         case killingSessions = "Killing sessions"
         case runningPreDeleteScript = "Running pre-delete script"
         case removingWorktree = "Removing worktree"
         case deletingBranch = "Deleting branch"
-    }
-
-    enum StepStatus: Equatable {
-        case pending, inProgress, completed, skipped, failed(String)
     }
 
     var stepStatuses: [Step: StepStatus]

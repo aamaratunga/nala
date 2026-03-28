@@ -14,12 +14,8 @@ struct SessionDetailView: View {
             sessionHeader
 
             // Accent gradient line
-            LinearGradient(
-                colors: [.accentColor.opacity(0.6), .accentColor.opacity(0)],
-                startPoint: .leading,
-                endPoint: .trailing
-            )
-            .frame(height: 1)
+            CoralTheme.accentGradient(.accentColor)
+                .frame(height: 1)
 
             // Terminal area
             ZStack {
@@ -38,7 +34,7 @@ struct SessionDetailView: View {
                     .padding(6)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
-                    Color(red: 0.031, green: 0.043, blue: 0.063)
+                    CoralTheme.terminalBackground
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
 
@@ -51,7 +47,7 @@ struct SessionDetailView: View {
                     detachedOverlay
                 }
             }
-            .background(Color(red: 0.031, green: 0.043, blue: 0.063))
+            .background(CoralTheme.terminalBackground)
         }
         .onChange(of: session.tmuxSession) { _, newTarget in
             // Session restarted — force recreate PTY to attach to new tmux target

@@ -47,6 +47,9 @@
 		F6A1181753693D8D454B94B8 /* CoralWebSocket.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53E64546468C05F7E4BF2D28 /* CoralWebSocket.swift */; };
 		F6F18E778D6F789A5D6F5D60 /* KeyboardShortcutsPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F8032BD7132A73B2DC4483B /* KeyboardShortcutsPanel.swift */; };
 		F90E39C0FAE95502F742B2CC /* SessionRestartProgressView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8A78A043F1C75CEB205F05E /* SessionRestartProgressView.swift */; };
+		1A2B3C4D5E6F7A8B9C0D1E2F /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A3B4C5D6E7F8A9B0C1D2E3F /* Theme.swift */; };
+		3C4D5E6F7A8B9C0D1E2F3A4B /* ProgressHeader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C5D6E7F8A9B0C1D2E3F4A5B /* ProgressHeader.swift */; };
+		5E6F7A8B9C0D1E2F3A4B5C6D /* StepProgressView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E7F8A9B0C1D2E3F4A5B6C7D /* StepProgressView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -101,6 +104,9 @@
 		F19764FC0B07B9BA69CE9F57 /* Loading_Hand.lottie */ = {isa = PBXFileReference; path = Loading_Hand.lottie; sourceTree = "<group>"; };
 		F8A78A043F1C75CEB205F05E /* SessionRestartProgressView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionRestartProgressView.swift; sourceTree = "<group>"; };
 		FADC0D7A2D747C4BBD5FC948 /* LocalTerminalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalTerminalView.swift; sourceTree = "<group>"; };
+		2A3B4C5D6E7F8A9B0C1D2E3F /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
+		4C5D6E7F8A9B0C1D2E3F4A5B /* ProgressHeader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProgressHeader.swift; sourceTree = "<group>"; };
+		6E7F8A9B0C1D2E3F4A5B6C7D /* StepProgressView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StepProgressView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -151,7 +157,9 @@
 			isa = PBXGroup;
 			children = (
 				6E264D0341BAFD453D0E785C /* LoadingView.swift */,
+				4C5D6E7F8A9B0C1D2E3F4A5B /* ProgressHeader.swift */,
 				32DE040A2413C63DC90B0FD0 /* StatusDot.swift */,
+				6E7F8A9B0C1D2E3F4A5B6C7D /* StepProgressView.swift */,
 			);
 			path = Shared;
 			sourceTree = "<group>";
@@ -214,6 +222,7 @@
 			children = (
 				CC357D9F795A7AB0C43066C3 /* CoralApp.swift */,
 				32085BEFAF7A53294BA4BEE0 /* Info.plist */,
+				2A3B4C5D6E7F8A9B0C1D2E3F /* Theme.swift */,
 				F3F46F80D722F65780143A5A /* Models */,
 				ED1ABDD30D1E5E763DB86810 /* Resources */,
 				FFB2F82903B0C316CF7A7D4F /* Services */,
@@ -394,6 +403,9 @@
 				823EB02BF7BB2173A140B584 /* WorktreeDeletionState.swift in Sources */,
 				F6F18E778D6F789A5D6F5D60 /* KeyboardShortcutsPanel.swift in Sources */,
 				7938CE871BB35BF93A33DB6F /* TerminalLauncher.swift in Sources */,
+				1A2B3C4D5E6F7A8B9C0D1E2F /* Theme.swift in Sources */,
+				3C4D5E6F7A8B9C0D1E2F3A4B /* ProgressHeader.swift in Sources */,
+				5E6F7A8B9C0D1E2F3A4B5C6D /* StepProgressView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

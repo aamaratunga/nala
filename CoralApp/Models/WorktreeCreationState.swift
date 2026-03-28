@@ -19,14 +19,10 @@ final class WorktreeCreationState: Identifiable {
         return path
     }
 
-    enum Step: String, CaseIterable {
+    enum Step: String, CaseIterable, ProgressStep {
         case creatingWorktree = "Creating worktree"
         case runningSetupScript = "Running setup script"
         case launchingAgent = "Launching agent"
-    }
-
-    enum StepStatus: Equatable {
-        case pending, inProgress, completed, skipped, failed(String)
     }
 
     var stepStatuses: [Step: StepStatus]

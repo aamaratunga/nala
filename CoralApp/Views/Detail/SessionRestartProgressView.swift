@@ -13,15 +13,10 @@ struct SessionRestartProgressView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            header
-
-            // Orange accent gradient line
-            LinearGradient(
-                colors: [.orange.opacity(0.6), .orange.opacity(0)],
-                startPoint: .leading,
-                endPoint: .trailing
+            ProgressHeader(
+                title: "Restarting \(state.originalSession.displayLabel)",
+                accentColor: .orange
             )
-            .frame(height: 1)
 
             // Dark terminal background with vertically centered content
             VStack(spacing: 20) {
@@ -31,7 +26,8 @@ struct SessionRestartProgressView: View {
                     try await DotLottieFile.named("Loading_Hand")
                 }
                 .playing(loopMode: .loop)
-                .frame(width: 200, height: 200)
+                .frame(maxWidth: 200, maxHeight: 200)
+                .aspectRatio(1, contentMode: .fit)
 
                 Text(phaseText)
                     .font(.system(.body, design: .monospaced))
@@ -40,24 +36,7 @@ struct SessionRestartProgressView: View {
                 Spacer()
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Color(red: 0.031, green: 0.043, blue: 0.063))
+            .background(CoralTheme.terminalBackground)
         }
-    }
-
-    // MARK: - Header
-
-    private var header: some View {
-        HStack {
-            ProgressView()
-                .controlSize(.small)
-
-            Text("Restarting \(state.originalSession.displayLabel)")
-                .font(.headline)
-
-            Spacer()
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(.bar)
     }
 }
