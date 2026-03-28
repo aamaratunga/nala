@@ -95,6 +95,14 @@ struct ContentView: View {
                 Text("'\(session.displayLabel)' is still running. Kill it?")
             }
         }
+        .alert("Error", isPresented: Binding(
+            get: { store.lastError != nil },
+            set: { if !$0 { store.lastError = nil } }
+        )) {
+            Button("OK") { store.lastError = nil }
+        } message: {
+            Text(store.lastError ?? "")
+        }
         .onAppear { installShortcutMonitor() }
         .onDisappear { removeShortcutMonitor() }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { notification in

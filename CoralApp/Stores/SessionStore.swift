@@ -37,6 +37,7 @@ final class SessionStore {
     var renamingSessionId: String?
     var sidebarFocused = false
     var sidebarVisibility: NavigationSplitViewVisibility = .all
+    var lastError: String?
 
     /// Active worktree creation states, keyed by placeholder session ID.
     var activeCreations: [String: WorktreeCreationState] = [:]
@@ -262,6 +263,17 @@ final class SessionStore {
         folderStatus[path] = status
     }
 
+    // MARK: - Error Alerts
+
+    func showErrorAlert(title: String, message: String?) {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = message ?? "An unknown error occurred."
+        alert.alertStyle = .critical
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
+    }
+
     // MARK: - Connection
 
     /// Computed list of repo configs that have both required fields set.
@@ -420,13 +432,7 @@ final class SessionStore {
         }
         activeLaunches.removeValue(forKey: state.id)
         reconcileOrder()
-
-        let alert = NSAlert()
-        alert.messageText = "Session Launch Failed"
-        alert.informativeText = state.error ?? "An unknown error occurred."
-        alert.alertStyle = .critical
-        alert.addButton(withTitle: "OK")
-        alert.runModal()
+        showErrorAlert(title: "Session Launch Failed", message: state.error)
     }
 
     // MARK: - Optimistic Kill
@@ -505,13 +511,7 @@ final class SessionStore {
 
     private func handleRestartFailure(state: SessionRestartState) {
         activeRestarts.removeValue(forKey: state.id)
-
-        let alert = NSAlert()
-        alert.messageText = "Session Restart Failed"
-        alert.informativeText = state.error ?? "An unknown error occurred."
-        alert.alertStyle = .critical
-        alert.addButton(withTitle: "OK")
-        alert.runModal()
+        showErrorAlert(title: "Session Restart Failed", message: state.error)
     }
 
     // MARK: - Move Handlers
@@ -577,6 +577,7 @@ final class SessionStore {
                     sessions[idx].displayName = originalName
                 }
                 logger.error("Failed to rename session: \(error)")
+                lastError = "Rename failed: \(error.localizedDescription)"
             }
         }
     }
@@ -1023,13 +1024,7 @@ final class SessionStore {
     /// Cleans up after a failed deletion attempt.
     private func handleDeletionFailure(state: WorktreeDeletionState) {
         activeDeletions.removeValue(forKey: state.folderPath)
-
-        let alert = NSAlert()
-        alert.messageText = "Worktree Deletion Failed"
-        alert.informativeText = state.error ?? "An unknown error occurred."
-        alert.alertStyle = .critical
-        alert.addButton(withTitle: "OK")
-        alert.runModal()
+        showErrorAlert(title: "Worktree Deletion Failed", message: state.error)
     }
 
     // MARK: - Async Worktree Creation
@@ -1146,14 +1141,7 @@ final class SessionStore {
         }
         activeCreations.removeValue(forKey: state.id)
         reconcileOrder()
-
-        // Show error alert
-        let alert = NSAlert()
-        alert.messageText = "Worktree Creation Failed"
-        alert.informativeText = state.error ?? "An unknown error occurred."
-        alert.alertStyle = .critical
-        alert.addButton(withTitle: "OK")
-        alert.runModal()
+        showErrorAlert(title: "Worktree Creation Failed", message: state.error)
     }
 
     // MARK: - REST Fallback
