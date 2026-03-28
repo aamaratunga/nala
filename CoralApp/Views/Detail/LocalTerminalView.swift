@@ -170,8 +170,10 @@ struct LocalTerminalView: NSViewRepresentable {
             }
         }
 
-        // Font — prefer MesloLGS Nerd Font for icon glyphs
-        if let nerdFont = NSFont(name: "MesloLGS Nerd Font Mono", size: 16) {
+        // Font — prefer JetBrains Mono per DESIGN.md, fall back to MesloLGS Nerd Font (icon glyphs)
+        if let jbMono = NSFont(name: "JetBrains Mono", size: 16) {
+            tv.font = jbMono
+        } else if let nerdFont = NSFont(name: "MesloLGS Nerd Font Mono", size: 16) {
             tv.font = nerdFont
         } else {
             tv.font = NSFont.monospacedSystemFont(ofSize: 16, weight: .medium)

@@ -158,12 +158,16 @@ struct SessionListView: View {
                         CreateWorktreeDropdown()
                     }
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(CoralTheme.bgSurface)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .frame(minHeight: 44)
+                .background(CoralTheme.bgSurface.opacity(0.65))
+                .background(.ultraThinMaterial)
 
-                Divider()
-                    .overlay(CoralTheme.textTertiary.opacity(0.3))
+                // Coral-tinted divider (matches detail header divider)
+                Rectangle()
+                    .fill(CoralTheme.coralPrimary.opacity(0.2))
+                    .frame(height: 1)
 
                 if !store.isConnected {
                     HStack(spacing: 8) {
@@ -244,7 +248,8 @@ struct SessionListView: View {
                 .listStyle(.sidebar)
                 .scrollContentBackground(.hidden)
             }
-            .background(CoralTheme.bgSurface)
+            .background(CoralTheme.bgSurface.opacity(0.75))
+            .background(.ultraThinMaterial)
         }
         .onChange(of: hasActiveAgents) { _, active in
             if active {

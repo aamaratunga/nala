@@ -13,8 +13,10 @@ struct SessionDetailView: View {
             // Header bar
             sessionHeader
 
-            // Accent gradient divider
-            CoralTheme.accentDivider
+            // Coral-tinted divider (matches sidebar header divider)
+            Rectangle()
+                .fill(CoralTheme.coralPrimary.opacity(0.2))
+                .frame(height: 1)
 
             // Waiting-for-input banner
             if session.waitingForInput {
@@ -132,8 +134,9 @@ struct SessionDetailView: View {
                 .foregroundStyle(agentBadgeColor)
                 .clipShape(Capsule())
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .frame(minHeight: 44)
         .background(CoralTheme.bgSurface.opacity(0.65))
         .background(.ultraThinMaterial)
     }

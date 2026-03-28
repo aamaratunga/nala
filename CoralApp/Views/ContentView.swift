@@ -16,7 +16,6 @@ struct ContentView: View {
         NavigationSplitView(columnVisibility: $store.sidebarVisibility) {
             SessionListView()
                 .navigationSplitViewColumnWidth(min: 220, ideal: 280, max: 400)
-                .background(CoralTheme.bgSurface)
         } detail: {
             ZStack {
                 // Keep visited session views alive so terminal state persists
@@ -77,6 +76,7 @@ struct ContentView: View {
                 visitedSessionIds = visitedSessionIds.filter { currentIds.contains($0) }
             }
         }
+        .toolbarBackground(CoralTheme.bgSurface, for: .windowToolbar)
         .inspector(isPresented: $store.showingShortcutsPanel) {
             KeyboardShortcutsPanel()
         }
