@@ -18,6 +18,9 @@ final class CoralWebSocket {
     private var urlSession: URLSession
     private var port: Int
     private var generation = 0
+    private var reconnectDelay: TimeInterval = 3.0
+    private static let maxReconnectDelay: TimeInterval = 30.0
+    var reconnectAttempt: Int = 0
     private let logger = Logger(subsystem: "com.coral.app", category: "CoralWebSocket")
 
     var onFullUpdate: (([Session]) -> Void)?
@@ -33,10 +36,18 @@ final class CoralWebSocket {
         generation += 1
         let currentGen = generation
 
+        // Cancel previous task to prevent duplicate connections
+        webSocketTask?.cancel(with: .goingAway, reason: nil)
+
         let url = URL(string: "ws://127.0.0.1:\(port)/ws/coral")!
         let task = urlSession.webSocketTask(with: url)
         webSocketTask = task
         task.resume()
+
+        // Reset backoff on new connection
+        reconnectDelay = 3.0
+        reconnectAttempt = 0
+
         logger.info("Connecting to \(url)")
         receiveLoop(gen: currentGen)
     }
@@ -105,9 +116,12 @@ final class CoralWebSocket {
     // MARK: - Reconnect
 
     private func scheduleReconnect(gen: Int) {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
+        let delay = reconnectDelay
+        reconnectDelay = min(reconnectDelay * 2, Self.maxReconnectDelay)
+        reconnectAttempt += 1
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
             guard let self, gen == self.generation else { return }
-            self.logger.info("Reconnecting…")
+            self.logger.info("Reconnecting after \(delay)s (attempt \(self.reconnectAttempt))...")
             self.connect()
         }
     }

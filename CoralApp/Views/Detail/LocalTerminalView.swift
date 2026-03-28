@@ -72,6 +72,12 @@ final class CoralTerminalView: LocalProcessTerminalView {
         // OSC 52 starts with: ESC ] 5 2 ;
         let osc52Start: [UInt8] = [0x1b, 0x5d, 0x35, 0x32, 0x3b]
 
+        // Drop oversized buffer to prevent unbounded growth
+        if pendingOSC52.count > 1_048_576 {
+            pendingOSC52.removeAll()
+            return
+        }
+
         // Prepend any leftover partial from the previous flush
         let scanData: [UInt8]
         if !pendingOSC52.isEmpty {
@@ -145,6 +151,10 @@ struct LocalTerminalView: NSViewRepresentable {
         keyOptions: .strongMemory, valueOptions: .weakMemory
     )
 
+    private static func shellEscape(_ s: String) -> String {
+        "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
     func makeNSView(context: Context) -> CoralTerminalView {
         let tv = CoralTerminalView(frame: .zero)
         tv.sessionName = sessionName
@@ -188,13 +198,14 @@ struct LocalTerminalView: NSViewRepresentable {
         // - terminal-features: tells tmux that xterm-256color supports clipboard
         //   (the system terminfo lacks the Ms capability)
         // All other copy-mode bindings come from the user's tmux.conf.
+        let escaped = Self.shellEscape(sessionName)
         tv.startProcess(
             executable: "/bin/zsh",
             args: ["-l", "-c", """
                 tmux set -s set-clipboard on \\; \
                 set -as terminal-features 'xterm-256color:clipboard' \\; \
-                set -t \(sessionName) mouse on \
-                && tmux attach -t \(sessionName)
+                set -t \(escaped) mouse on \
+                && tmux attach -t \(escaped)
                 """]
         )
 

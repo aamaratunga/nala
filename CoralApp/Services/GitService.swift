@@ -184,10 +184,7 @@ enum GitService {
             process.standardOutput = stdoutPipe
             process.standardError = stderrPipe
 
-            do {
-                try process.run()
-                process.waitUntilExit()
-
+            process.terminationHandler = { process in
                 let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
                 let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
                 let stdout = String(data: stdoutData, encoding: .utf8) ?? ""
@@ -200,6 +197,10 @@ enum GitService {
                     logger.warning("Git \(label) failed (\(process.terminationStatus)): \(stderr)")
                 }
                 continuation.resume(returning: result)
+            }
+
+            do {
+                try process.run()
             } catch {
                 logger.error("Failed to run \(label): \(error)")
                 continuation.resume(returning: CommandResult(exitCode: -1, stdout: "", stderr: error.localizedDescription))

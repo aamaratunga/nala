@@ -13,14 +13,14 @@ struct APIClient {
     // MARK: - Sessions
 
     func fetchLiveSessions() async throws -> [Session] {
-        let url = baseURL.appendingPathComponent("/api/sessions/live")
+        let url = baseURL.appendingPathComponent("api/sessions/live")
         let (data, _) = try await URLSession.shared.data(from: url)
-        return try JSONDecoder().decode([Session].self, from: data)
+        return try coralJSONDecoder.decode([Session].self, from: data)
     }
 
     func sendCommand(sessionName: String, command: String, agentType: String? = nil, sessionId: String? = nil) async throws {
         let encodedName = sessionName.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? sessionName
-        let url = baseURL.appendingPathComponent("/api/sessions/live/\(encodedName)/send")
+        let url = baseURL.appendingPathComponent("api/sessions/live/\(encodedName)/send")
 
         var body: [String: Any] = ["command": command]
         if let agentType { body["agent_type"] = agentType }
@@ -38,7 +38,7 @@ struct APIClient {
     }
 
     func launchAgent(_ req: LaunchRequest) async throws -> LaunchResponse {
-        let url = baseURL.appendingPathComponent("/api/sessions/launch")
+        let url = baseURL.appendingPathComponent("api/sessions/launch")
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -47,17 +47,17 @@ struct APIClient {
 
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-            if let errorBody = try? JSONDecoder().decode(ErrorResponse.self, from: data) {
+            if let errorBody = try? coralJSONDecoder.decode(ErrorResponse.self, from: data) {
                 throw APIError.serverError(errorBody.error)
             }
             throw APIError.requestFailed
         }
-        return try JSONDecoder().decode(LaunchResponse.self, from: data)
+        return try coralJSONDecoder.decode(LaunchResponse.self, from: data)
     }
 
     func killSession(sessionName: String, agentType: String? = nil, sessionId: String? = nil) async throws {
         let encodedName = sessionName.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? sessionName
-        let url = baseURL.appendingPathComponent("/api/sessions/live/\(encodedName)/kill")
+        let url = baseURL.appendingPathComponent("api/sessions/live/\(encodedName)/kill")
 
         var body: [String: Any] = [:]
         if let agentType { body["agent_type"] = agentType }
@@ -76,7 +76,7 @@ struct APIClient {
 
     func restartSession(sessionName: String, agentType: String? = nil, sessionId: String? = nil) async throws {
         let encodedName = sessionName.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? sessionName
-        let url = baseURL.appendingPathComponent("/api/sessions/live/\(encodedName)/restart")
+        let url = baseURL.appendingPathComponent("api/sessions/live/\(encodedName)/restart")
 
         var body: [String: Any] = [:]
         if let agentType { body["agent_type"] = agentType }
@@ -95,7 +95,7 @@ struct APIClient {
 
     func acknowledgeSession(sessionName: String, sessionId: String? = nil) async throws {
         let encodedName = sessionName.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? sessionName
-        var components = URLComponents(url: baseURL.appendingPathComponent("/api/sessions/live/\(encodedName)/acknowledge"), resolvingAgainstBaseURL: false)!
+        var components = URLComponents(url: baseURL.appendingPathComponent("api/sessions/live/\(encodedName)/acknowledge"), resolvingAgainstBaseURL: false)!
         if let sessionId {
             components.queryItems = [URLQueryItem(name: "session_id", value: sessionId)]
         }
@@ -111,7 +111,7 @@ struct APIClient {
 
     func sendKeys(sessionName: String, keys: [String], agentType: String? = nil, sessionId: String? = nil) async throws {
         let encodedName = sessionName.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? sessionName
-        let url = baseURL.appendingPathComponent("/api/sessions/live/\(encodedName)/keys")
+        let url = baseURL.appendingPathComponent("api/sessions/live/\(encodedName)/keys")
 
         var body: [String: Any] = ["keys": keys]
         if let agentType { body["agent_type"] = agentType }
@@ -132,7 +132,7 @@ struct APIClient {
 
     func setDisplayName(sessionName: String, sessionId: String, displayName: String) async throws {
         let encodedName = sessionName.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? sessionName
-        let url = baseURL.appendingPathComponent("/api/sessions/live/\(encodedName)/display-name")
+        let url = baseURL.appendingPathComponent("api/sessions/live/\(encodedName)/display-name")
 
         let body: [String: Any] = ["session_id": sessionId, "display_name": displayName]
 
@@ -150,11 +150,11 @@ struct APIClient {
     // MARK: - Filesystem
 
     func listDirectory(path: String = "~") async throws -> DirectoryListing {
-        var components = URLComponents(url: baseURL.appendingPathComponent("/api/filesystem/list"), resolvingAgainstBaseURL: false)!
+        var components = URLComponents(url: baseURL.appendingPathComponent("api/filesystem/list"), resolvingAgainstBaseURL: false)!
         components.queryItems = [URLQueryItem(name: "path", value: path)]
 
         let (data, _) = try await URLSession.shared.data(from: components.url!)
-        return try JSONDecoder().decode(DirectoryListing.self, from: data)
+        return try coralJSONDecoder.decode(DirectoryListing.self, from: data)
     }
 }
 

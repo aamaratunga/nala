@@ -3,7 +3,7 @@ import AppKit
 
 struct ContentView: View {
     @Environment(SessionStore.self) private var store
-    @State private var visitedSessionIds: Set<String> = []
+    @State private var visitedSessionIds: [String] = []
     @State private var shortcutMonitor: Any?
 
     var body: some View {
@@ -41,7 +41,13 @@ struct ContentView: View {
             }
             .onChange(of: store.selectedSessionId) { _, newId in
                 if let id = newId {
-                    visitedSessionIds.insert(id)
+                    visitedSessionIds.removeAll { $0 == id }
+                    visitedSessionIds.append(id)
+                    // Evict oldest if over limit
+                    let maxVisited = 5
+                    if visitedSessionIds.count > maxVisited {
+                        visitedSessionIds.removeFirst(visitedSessionIds.count - maxVisited)
+                    }
                 }
                 let tmuxName = store.sessions
                     .first(where: { $0.id == newId })?.tmuxSession
@@ -63,7 +69,7 @@ struct ContentView: View {
             }
             .onChange(of: store.sessions) { _, newSessions in
                 let currentIds = Set(newSessions.map(\.id))
-                visitedSessionIds = visitedSessionIds.intersection(currentIds)
+                visitedSessionIds = visitedSessionIds.filter { currentIds.contains($0) }
             }
         }
         .inspector(isPresented: $store.showingShortcutsPanel) {
