@@ -300,6 +300,10 @@ struct LocalTerminalView: NSViewRepresentable {
                     return event
                 }
 
+                // Only process events from our terminal's window — prevents
+                // consuming clicks in the Settings window or other auxiliaries.
+                guard event.window === tv.window else { return event }
+
                 switch event.type {
                 case .leftMouseDown:
                     // Only intercept events targeting our terminal view
@@ -411,6 +415,9 @@ struct LocalTerminalView: NSViewRepresentable {
                       let tv = self.terminalView else {
                     return event
                 }
+
+                // Only process events from our terminal's window
+                guard event.window === tv.window else { return event }
 
                 // Only intercept events targeting our terminal view
                 guard let window = tv.window,

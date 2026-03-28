@@ -6,6 +6,10 @@ struct ContentView: View {
     @State private var visitedSessionIds: [String] = []
     @State private var shortcutMonitor: Any?
 
+    /// Window number of the main app window, used to scope event handlers
+    /// so they don't interfere with the Settings window or other auxiliaries.
+    static var mainWindowNumber: Int = -1
+
     var body: some View {
         @Bindable var store = store
 
@@ -109,11 +113,16 @@ struct ContentView: View {
         } message: {
             Text(store.lastError ?? "")
         }
-        .onAppear { installShortcutMonitor() }
+        .onAppear {
+            ContentView.mainWindowNumber = NSApp.keyWindow?.windowNumber
+                ?? NSApp.windows.first?.windowNumber ?? -1
+            installShortcutMonitor()
+        }
         .onDisappear { removeShortcutMonitor() }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { notification in
             guard let window = notification.object as? NSWindow,
-                  window === NSApp.keyWindow else { return }
+                  window === NSApp.keyWindow,
+                  window.windowNumber == ContentView.mainWindowNumber else { return }
             // Small delay so this runs AFTER AppKit finishes its own
             // first-responder restoration, overriding it reliably.
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
@@ -136,6 +145,12 @@ struct ContentView: View {
     /// Installs a consolidated local event monitor for all custom keyboard shortcuts.
     private func installShortcutMonitor() {
         shortcutMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [store] event in
+            // Only handle shortcuts in the main app window (not Settings, etc.)
+            if let eventWindow = event.window,
+               eventWindow.windowNumber != ContentView.mainWindowNumber {
+                return event
+            }
+
             let mods = event.modifierFlags.intersection([.shift, .command, .control, .option])
 
             // Determine focus context from the responder chain
