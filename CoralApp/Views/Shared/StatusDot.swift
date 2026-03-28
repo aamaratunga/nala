@@ -3,9 +3,15 @@ import SwiftUI
 struct StatusDot: View {
     let session: Session
 
+    @State private var glowActive = false
+
     private var isStale: Bool {
         guard session.working, let staleness = session.stalenessSeconds else { return false }
         return staleness > 300
+    }
+
+    private var isActivelyWorking: Bool {
+        session.working && !isStale && !session.done && !session.stuck && !session.waitingForInput
     }
 
     var body: some View {
@@ -13,42 +19,64 @@ struct StatusDot: View {
             .fill(color)
             .frame(width: 8, height: 8)
             .opacity(isStale ? 0.5 : 1.0)
-            .accessibilityLabel("Status: \(accessibilityStatus)")
-            .overlay {
-                if session.working && !isStale && !session.done && !session.stuck && !session.waitingForInput {
-                    Circle()
-                        .stroke(color.opacity(0.4), lineWidth: 1.5)
-                        .frame(width: 14, height: 14)
-                        .scaleEffect(pulseScale)
-                        .opacity(pulseOpacity)
-                        .animation(
-                            .easeInOut(duration: 1.5).repeatForever(autoreverses: true),
-                            value: session.working
-                        )
-                }
+            .shadow(
+                color: glowColor.opacity(glowActive ? primaryGlowOpacity : primaryGlowOpacity * 0.5),
+                radius: primaryGlowRadius
+            )
+            .shadow(
+                color: glowColor.opacity(glowActive ? secondaryGlowOpacity : secondaryGlowOpacity * 0.5),
+                radius: secondaryGlowRadius
+            )
+            .animation(
+                isActivelyWorking
+                    ? .easeInOut(duration: 2).repeatForever(autoreverses: true)
+                    : .default,
+                value: glowActive
+            )
+            .onChange(of: isActivelyWorking, initial: true) { _, active in
+                glowActive = active
             }
+            .accessibilityLabel("Status: \(accessibilityStatus)")
     }
 
     private var color: Color {
         if session.done {
-            return .green
+            return CoralTheme.green
         } else if session.stuck {
-            return .red
+            return CoralTheme.red
         } else if session.waitingForInput {
-            return .orange
+            return CoralTheme.amber
         } else if session.working {
-            return .blue
+            return CoralTheme.teal
         } else {
-            return .gray
+            return CoralTheme.textTertiary
         }
     }
 
-    private var pulseScale: CGFloat {
-        session.working ? 1.0 : 0.8
+    private var glowColor: Color { color }
+
+    private var primaryGlowOpacity: Double {
+        if session.done { return 0.2 }
+        if session.stuck { return 0.2 }
+        if session.waitingForInput { return 0.2 }
+        if session.working { return 0.4 }
+        return 0
     }
 
-    private var pulseOpacity: Double {
-        session.working ? 0.0 : 0.5
+    private var primaryGlowRadius: CGFloat {
+        if session.done || session.stuck || session.waitingForInput { return 4 }
+        if session.working { return 6 }
+        return 0
+    }
+
+    private var secondaryGlowOpacity: Double {
+        if session.working && !session.done && !session.stuck && !session.waitingForInput { return 0.15 }
+        return 0
+    }
+
+    private var secondaryGlowRadius: CGFloat {
+        if session.working && !session.done && !session.stuck && !session.waitingForInput { return 16 }
+        return 0
     }
 
     private var accessibilityStatus: String {

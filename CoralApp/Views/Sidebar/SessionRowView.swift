@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SessionRowView: View {
     let session: Session
+    var isSelected: Bool = false
     var isEditing: Bool = false
     var onRename: (String) -> Void = { _ in }
     var onCancelRename: () -> Void = {}
@@ -52,7 +53,7 @@ struct SessionRowView: View {
                 if let status = session.status, !status.isEmpty {
                     Text(status)
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(CoralTheme.textSecondary)
                         .lineLimit(2)
                 }
             }
@@ -62,51 +63,16 @@ struct SessionRowView: View {
             if let staleness = session.stalenessSeconds, staleness > 300, session.working {
                 Text(formatStaleness(staleness))
                     .font(.caption2)
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(CoralTheme.textTertiary)
             }
 
             agentBadge
         }
-        .padding(.vertical, 3)
-        .padding(.horizontal, 5)
-        .background(rowBackground)
-        .overlay(alignment: .leading) {
-            accentBar
-        }
+        .padding(.vertical, 8)
+        .padding(.horizontal, 14)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(session.displayLabel), \(session.agentType)")
         .accessibilityHint(isEditing ? "Editing name" : "Double-tap to rename")
-    }
-
-    // MARK: - Row Highlight
-
-    @ViewBuilder
-    private var rowBackground: some View {
-        if let color = rowHighlightColor {
-            RoundedRectangle(cornerRadius: 6)
-                .fill(color.opacity(0.12))
-        }
-    }
-
-    @ViewBuilder
-    private var accentBar: some View {
-        if let color = rowHighlightColor {
-            color
-                .frame(width: 3)
-                .clipShape(UnevenRoundedRectangle(
-                    topLeadingRadius: 6,
-                    bottomLeadingRadius: 6,
-                    bottomTrailingRadius: 0,
-                    topTrailingRadius: 0
-                ))
-        }
-    }
-
-    private var rowHighlightColor: Color? {
-        if session.waitingForInput { return .orange }
-        if session.stuck { return .red }
-        if session.done { return .green }
-        return nil
     }
 
     // MARK: - Agent Badge
@@ -117,13 +83,17 @@ struct SessionRowView: View {
             .fontWeight(.medium)
             .padding(.horizontal, 5)
             .padding(.vertical, 1)
-            .background(agentColor.opacity(0.15))
+            .background(agentColor.opacity(0.12))
             .foregroundStyle(agentColor)
             .clipShape(Capsule())
     }
 
     private var agentColor: Color {
-        session.agentType == "terminal" ? .teal : .secondary
+        switch session.agentType {
+        case "terminal": return CoralTheme.teal
+        case "gemini": return CoralTheme.magenta
+        default: return CoralTheme.textSecondary
+        }
     }
 
     private func formatStaleness(_ seconds: Double) -> String {

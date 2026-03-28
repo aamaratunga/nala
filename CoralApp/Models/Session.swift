@@ -22,21 +22,21 @@ enum FolderStatus: String, CaseIterable, Codable, Equatable {
 
     var icon: String {
         switch self {
-        case .done:       return "checkmark.circle.fill"
-        case .inReview:   return "eye.circle.fill"
-        case .inProgress: return "play.circle.fill"
-        case .backlog:    return "tray.circle.fill"
-        case .canceled:   return "xmark.circle.fill"
+        case .done:       return "✅"
+        case .inReview:   return "👀"
+        case .inProgress: return "🔥"
+        case .backlog:    return "📋"
+        case .canceled:   return "❌"
         }
     }
 
     var color: Color {
         switch self {
-        case .done:       return .green
-        case .inReview:   return .purple
-        case .inProgress: return .blue
-        case .backlog:    return .gray
-        case .canceled:   return .gray
+        case .done:       return CoralTheme.green
+        case .inReview:   return CoralTheme.magenta
+        case .inProgress: return CoralTheme.coralPrimary
+        case .backlog:    return CoralTheme.textTertiary
+        case .canceled:   return CoralTheme.textTertiary
         }
     }
 

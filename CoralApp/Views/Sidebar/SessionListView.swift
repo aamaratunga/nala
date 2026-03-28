@@ -24,6 +24,7 @@ struct SessionListView: View {
     @State private var dragCleanupTask: Task<Void, Never>?
     @State private var pendingWorktreeDeletion: String?
     @State private var showingDeleteConfirmation = false
+    @State private var glowActive = false
 
     private var anyFolderExpanded: Bool {
         store.folderOrder.contains { store.folderExpansion[$0] ?? true }
@@ -31,6 +32,10 @@ struct SessionListView: View {
 
     private var anySectionExpanded: Bool {
         FolderStatus.allCases.contains { store.sectionExpansion[$0] ?? true }
+    }
+
+    private var hasActiveAgents: Bool {
+        store.sessions.contains { $0.working && !$0.done && !$0.stuck && !$0.waitingForInput }
     }
 
     private func toggleAllFolders() {
@@ -71,155 +76,182 @@ struct SessionListView: View {
     var body: some View {
         @Bindable var store = store
 
-        VStack(spacing: 0) {
-            // Sidebar header with toggle and add buttons
-            HStack(spacing: 12) {
-                Menu {
-                    Button {
-                        toggleAllSections()
-                    } label: {
-                        Label(
-                            anySectionExpanded ? "Collapse Sections" : "Expand Sections",
-                            systemImage: anySectionExpanded ? "rectangle.compress.vertical" : "rectangle.expand.vertical"
-                        )
-                    }
-
-                    Button {
-                        toggleAllFolders()
-                    } label: {
-                        Label(
-                            anyFolderExpanded ? "Collapse Folders" : "Expand Folders",
-                            systemImage: anyFolderExpanded ? "folder.badge.minus" : "folder.badge.plus"
-                        )
-                    }
-                } label: {
-                    Image(systemName: "slider.horizontal.3")
-                        .foregroundStyle(.secondary)
-                }
-                .menuStyle(.borderlessButton)
-                .menuIndicator(.hidden)
-                .fixedSize()
-                .help("Expand/Collapse options")
-
-                Spacer()
-
-                Button {
-                    store.showingLaunchSheet = true
-                } label: {
-                    Image(systemName: "sparkles")
-                        .foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
-                .help("Launch new agent (⌘N)")
-                .popover(isPresented: $store.showingLaunchSheet, arrowEdge: .bottom) {
-                    LaunchDropdown(mode: .agent)
-                }
-
-                Button {
-                    store.showingTerminalLaunchSheet = true
-                } label: {
-                    Image(systemName: "terminal")
-                        .foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
-                .help("Launch new terminal (⌘T)")
-                .popover(isPresented: $store.showingTerminalLaunchSheet, arrowEdge: .bottom) {
-                    LaunchDropdown(mode: .terminal)
-                }
-
-                Button {
-                    store.showingCreateWorktreeSheet = true
-                } label: {
-                    Image(systemName: "arrow.triangle.branch")
-                        .foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
-                .help("New worktree (⌥⌘N)")
-                .popover(isPresented: $store.showingCreateWorktreeSheet, arrowEdge: .bottom) {
-                    CreateWorktreeDropdown()
-                }
+        ZStack {
+            // Ambient sidebar glow — breathes when agents are active
+            if hasActiveAgents {
+                RadialGradient(
+                    colors: [CoralTheme.coralPrimary.opacity(glowActive ? 0.06 : 0.02), .clear],
+                    center: .init(x: 0.7, y: 0.3),
+                    startRadius: 0,
+                    endRadius: 200
+                )
+                .ignoresSafeArea()
+                .animation(.easeInOut(duration: 4).repeatForever(autoreverses: true), value: glowActive)
+                .onAppear { glowActive = true }
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
 
-            Divider()
+            VStack(spacing: 0) {
+                // Sidebar header with toggle and add buttons
+                HStack(spacing: 12) {
+                    Menu {
+                        Button {
+                            toggleAllSections()
+                        } label: {
+                            Label(
+                                anySectionExpanded ? "Collapse Sections" : "Expand Sections",
+                                systemImage: anySectionExpanded ? "rectangle.compress.vertical" : "rectangle.expand.vertical"
+                            )
+                        }
 
-            if !store.isConnected {
-                HStack(spacing: 8) {
-                    Image(systemName: "wifi.exclamationmark")
-                        .foregroundStyle(.orange)
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text("Server disconnected")
-                            .font(.callout)
-                            .fontWeight(.medium)
-                        Text("Reconnecting\u{2026} (attempt \(store.reconnectAttempt))")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                        Button {
+                            toggleAllFolders()
+                        } label: {
+                            Label(
+                                anyFolderExpanded ? "Collapse Folders" : "Expand Folders",
+                                systemImage: anyFolderExpanded ? "folder.badge.minus" : "folder.badge.plus"
+                            )
+                        }
+                    } label: {
+                        Image(systemName: "slider.horizontal.3")
+                            .foregroundStyle(CoralTheme.textSecondary)
                     }
+                    .menuStyle(.borderlessButton)
+                    .menuIndicator(.hidden)
+                    .fixedSize()
+                    .help("Expand/Collapse options")
+
                     Spacer()
-                    Button("Retry") {
-                        store.forceReconnect()
+
+                    Button {
+                        store.showingLaunchSheet = true
+                    } label: {
+                        Image(systemName: "sparkles")
+                            .foregroundStyle(CoralTheme.textSecondary)
                     }
-                    .controlSize(.small)
+                    .buttonStyle(.plain)
+                    .help("Launch new agent (⌘N)")
+                    .popover(isPresented: $store.showingLaunchSheet, arrowEdge: .bottom) {
+                        LaunchDropdown(mode: .agent)
+                    }
+
+                    Button {
+                        store.showingTerminalLaunchSheet = true
+                    } label: {
+                        Image(systemName: "terminal")
+                            .foregroundStyle(CoralTheme.textSecondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Launch new terminal (⌘T)")
+                    .popover(isPresented: $store.showingTerminalLaunchSheet, arrowEdge: .bottom) {
+                        LaunchDropdown(mode: .terminal)
+                    }
+
+                    Button {
+                        store.showingCreateWorktreeSheet = true
+                    } label: {
+                        Image(systemName: "arrow.triangle.branch")
+                            .foregroundStyle(CoralTheme.textSecondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("New worktree (⌥⌘N)")
+                    .popover(isPresented: $store.showingCreateWorktreeSheet, arrowEdge: .bottom) {
+                        CreateWorktreeDropdown()
+                    }
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
-                .background(.orange.opacity(0.08))
-            }
+                .background(CoralTheme.bgSurface)
 
-            List {
-                if store.sessions.isEmpty && store.discoveredFolders.isEmpty {
-                    VStack(spacing: 16) {
-                        Image(systemName: "bolt.slash")
-                            .font(.system(size: 32))
-                            .foregroundStyle(.tertiary)
+                Divider()
+                    .overlay(CoralTheme.textTertiary.opacity(0.3))
 
-                        Text("No Active Sessions")
-                            .font(.headline)
-                            .foregroundStyle(.secondary)
-
-                        VStack(spacing: 8) {
-                            Button {
-                                store.showingLaunchSheet = true
-                            } label: {
-                                Label("Launch Agent", systemImage: "sparkles")
-                                    .frame(maxWidth: 180)
-                            }
-                            .controlSize(.large)
-                            .buttonStyle(.borderedProminent)
-
-                            Button {
-                                store.showingTerminalLaunchSheet = true
-                            } label: {
-                                Label("Open Terminal", systemImage: "terminal")
-                                    .frame(maxWidth: 180)
-                            }
-                            .controlSize(.large)
-                            .buttonStyle(.bordered)
+                if !store.isConnected {
+                    HStack(spacing: 8) {
+                        Image(systemName: "wifi.exclamationmark")
+                            .foregroundStyle(CoralTheme.amber)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text("Server disconnected")
+                                .font(.callout)
+                                .fontWeight(.medium)
+                            Text("Reconnecting\u{2026} (attempt \(store.reconnectAttempt))")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
                         }
-
-                        Text("\u{2318}N agent  \u{00B7}  \u{2318}T terminal  \u{00B7}  \u{2325}\u{2318}N worktree")
-                            .font(.caption)
-                            .foregroundStyle(.tertiary)
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .listRowSeparator(.hidden)
-                } else {
-                    ForEach(flatItems) { item in
-                        switch item {
-                        case .sectionHeader(let status):
-                            sectionHeaderRow(for: status)
-                        case .folder(let group):
-                            folderRow(for: group)
-                        case .session(let session, let folderPath):
-                            sessionRow(for: session, in: folderPath)
+                        Spacer()
+                        Button("Retry") {
+                            store.forceReconnect()
                         }
+                        .controlSize(.small)
                     }
-                    .background(SidebarTableViewConfigurator())
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(CoralTheme.amber.opacity(0.08))
                 }
+
+                List {
+                    if store.sessions.isEmpty && store.discoveredFolders.isEmpty {
+                        VStack(spacing: 16) {
+                            Image(systemName: "bolt.slash")
+                                .font(.system(size: 32))
+                                .foregroundStyle(.tertiary)
+
+                            Text("No Active Sessions")
+                                .font(.headline)
+                                .foregroundStyle(.secondary)
+
+                            VStack(spacing: 8) {
+                                Button {
+                                    store.showingLaunchSheet = true
+                                } label: {
+                                    Label("Launch Agent", systemImage: "sparkles")
+                                        .frame(maxWidth: 180)
+                                }
+                                .controlSize(.large)
+                                .buttonStyle(.borderedProminent)
+                                .tint(CoralTheme.coralPrimary)
+
+                                Button {
+                                    store.showingTerminalLaunchSheet = true
+                                } label: {
+                                    Label("Open Terminal", systemImage: "terminal")
+                                        .frame(maxWidth: 180)
+                                }
+                                .controlSize(.large)
+                                .buttonStyle(.bordered)
+                            }
+
+                            Text("\u{2318}N agent  \u{00B7}  \u{2318}T terminal  \u{00B7}  \u{2325}\u{2318}N worktree")
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .listRowSeparator(.hidden)
+                    } else {
+                        ForEach(flatItems) { item in
+                            switch item {
+                            case .sectionHeader(let status):
+                                sectionHeaderRow(for: status)
+                            case .folder(let group):
+                                folderRow(for: group)
+                            case .session(let session, let folderPath):
+                                sessionRow(for: session, in: folderPath)
+                            }
+                        }
+                        .background(SidebarTableViewConfigurator())
+                    }
+                }
+                .animation(.spring(response: 0.3, dampingFraction: 0.75), value: flatItems.map(\.id))
+                .listStyle(.sidebar)
+                .scrollContentBackground(.hidden)
             }
-            .animation(.spring(response: 0.3, dampingFraction: 0.75), value: flatItems.map(\.id))
-            .listStyle(.sidebar)
+            .background(CoralTheme.bgSurface)
+        }
+        .onChange(of: hasActiveAgents) { _, active in
+            if active {
+                glowActive = true
+            } else {
+                glowActive = false
+            }
         }
         .onChange(of: store.selectedSessionId) { _, newId in
             // Cancel rename if selection moves to a different session
@@ -261,11 +293,11 @@ struct SessionListView: View {
                 } label: {
                     HStack(spacing: 4) {
                         Circle()
-                            .fill(store.isConnected ? .green : .red)
+                            .fill(store.isConnected ? CoralTheme.green : CoralTheme.red)
                             .frame(width: 6, height: 6)
                         Text(store.isConnected ? "Connected" : "Disconnected")
                             .font(.caption2)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(CoralTheme.textSecondary)
                     }
                 }
                 .buttonStyle(.plain)
@@ -293,29 +325,28 @@ struct SessionListView: View {
             HStack(spacing: 7) {
                 Image(systemName: "chevron.right")
                     .font(.caption)
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(CoralTheme.textTertiary)
                     .rotationEffect(.degrees(isExpanded ? 90 : 0))
                     .animation(.easeInOut(duration: 0.2), value: isExpanded)
                     .frame(width: 14)
 
-                Image(systemName: status.icon)
+                Text(status.icon)
                     .font(.title3)
-                    .foregroundStyle(status.color)
 
                 Text(status.displayName)
                     .font(.title3)
                     .fontWeight(.semibold)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(CoralTheme.textSecondary)
 
                 Spacer()
 
                 if !isExpanded {
                     Text("\(folderCount)")
                         .font(.caption2)
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(CoralTheme.textTertiary)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 1)
-                        .background(.quaternary.opacity(0.5), in: Capsule())
+                        .background(CoralTheme.textTertiary.opacity(0.3), in: Capsule())
                 }
             }
         }
@@ -341,13 +372,12 @@ struct SessionListView: View {
         HStack(spacing: 6) {
             Image(systemName: "chevron.right")
                 .font(.caption2)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(CoralTheme.textSecondary)
                 .rotationEffect(.degrees(isExpanded ? 90 : 0))
                 .animation(.easeInOut(duration: 0.2), value: isExpanded)
                 .frame(width: 12)
 
-            Image(systemName: "folder")
-                .foregroundStyle(.secondary)
+            Text("📁")
 
             Text(group.label)
                 .lineLimit(1)
@@ -359,16 +389,16 @@ struct SessionListView: View {
             if totalChanged > 0 {
                 Label("\(totalChanged)", systemImage: "doc.badge.plus")
                     .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(CoralTheme.textSecondary)
             }
 
             if group.sessions.count > 0 {
                 Text("\(group.sessions.count)")
                     .font(.caption2)
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(CoralTheme.textTertiary)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 1)
-                    .background(.quaternary.opacity(0.5), in: Capsule())
+                    .background(CoralTheme.textTertiary.opacity(0.3), in: Capsule())
             }
         }
         .padding(.vertical, 10)
@@ -417,8 +447,18 @@ struct SessionListView: View {
         .padding(.horizontal, 5)
         .padding(.leading, 36)
         .background(
-            RoundedRectangle(cornerRadius: 6)
-                .fill(isSelected ? Color.primary.opacity(0.08) : Color.clear)
+            Group {
+                if isSelected {
+                    LinearGradient(
+                        colors: [CoralTheme.coralPrimary.opacity(0.18), CoralTheme.coralPrimary.opacity(0.06)],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                } else {
+                    Color.clear
+                }
+            }
         )
         .opacity(0.75)
         .contentShape(Rectangle())
@@ -449,8 +489,18 @@ struct SessionListView: View {
         .padding(.horizontal, 5)
         .padding(.leading, 36)
         .background(
-            RoundedRectangle(cornerRadius: 6)
-                .fill(isSelected ? Color.primary.opacity(0.08) : Color.clear)
+            Group {
+                if isSelected {
+                    LinearGradient(
+                        colors: [CoralTheme.coralPrimary.opacity(0.18), CoralTheme.coralPrimary.opacity(0.06)],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                } else {
+                    Color.clear
+                }
+            }
         )
         .opacity(0.75)
         .contentShape(Rectangle())
@@ -481,8 +531,18 @@ struct SessionListView: View {
         .padding(.horizontal, 5)
         .padding(.leading, 36)
         .background(
-            RoundedRectangle(cornerRadius: 6)
-                .fill(isSelected ? Color.primary.opacity(0.08) : Color.clear)
+            Group {
+                if isSelected {
+                    LinearGradient(
+                        colors: [CoralTheme.coralPrimary.opacity(0.18), CoralTheme.coralPrimary.opacity(0.06)],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                } else {
+                    Color.clear
+                }
+            }
         )
         .opacity(0.75)
         .contentShape(Rectangle())
@@ -494,12 +554,23 @@ struct SessionListView: View {
         }
     }
 
+    private func sessionHighlightColor(_ session: Session) -> Color? {
+        if session.waitingForInput { return CoralTheme.amber }
+        if session.stuck { return CoralTheme.red }
+        if session.done { return CoralTheme.green }
+        if session.working && !session.done && !session.stuck && !session.waitingForInput {
+            return CoralTheme.teal
+        }
+        return nil
+    }
+
     @ViewBuilder
     private func realSessionRow(for session: Session, in folderPath: String) -> some View {
         let isSelected = store.selectedSessionId == session.id
         let isEditing = store.renamingSessionId == session.id
         SessionRowView(
             session: session,
+            isSelected: isSelected,
             isEditing: isEditing,
             onRename: { newName in
                 store.renamingSessionId = nil
@@ -511,9 +582,50 @@ struct SessionListView: View {
         )
             .padding(.leading, 36)
             .background(
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(isSelected ? Color.primary.opacity(0.08) : Color.clear)
+                Group {
+                    if isSelected, let color = sessionHighlightColor(session) {
+                        LinearGradient(
+                            colors: [color.opacity(0.18), color.opacity(0.06)],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                    } else if isSelected {
+                        LinearGradient(
+                            colors: [CoralTheme.coralPrimary.opacity(0.18), CoralTheme.coralPrimary.opacity(0.06)],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                    } else if let color = sessionHighlightColor(session) {
+                        LinearGradient(
+                            colors: [color.opacity(0.18), color.opacity(0.04)],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                    } else {
+                        Color.clear
+                    }
+                }
             )
+            .overlay(alignment: .leading) {
+                if let color = sessionHighlightColor(session) {
+                    LinearGradient(
+                        colors: [color, color.opacity(0.5)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                    .frame(width: 3)
+                    .shadow(color: color.opacity(0.4), radius: 4)
+                    .clipShape(UnevenRoundedRectangle(
+                        topLeadingRadius: 8,
+                        bottomLeadingRadius: 8,
+                        bottomTrailingRadius: 0,
+                        topTrailingRadius: 0
+                    ))
+                }
+            }
             .opacity(draggingSessionId == session.id ? 0.35 : 1)
             .contentShape(Rectangle())
             .listRowInsets(EdgeInsets(top: -1, leading: 0, bottom: -1, trailing: 8))
@@ -594,7 +706,7 @@ struct SessionListView: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
-        .shadow(color: .black.opacity(0.15), radius: 6, y: 2)
+        .shadow(color: CoralTheme.coralPrimary.opacity(0.15), radius: 6, y: 2)
         .onAppear { draggingSessionId = session.id }
     }
 
