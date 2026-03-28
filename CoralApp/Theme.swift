@@ -2,8 +2,8 @@ import SwiftUI
 import SwiftTerm
 
 enum CoralTheme {
-    // Terminal background (SwiftUI)
-    static let terminalBackground = SwiftUI.Color(red: 0.031, green: 0.043, blue: 0.063)
+    // Terminal background (SwiftUI) — must match terminalNSBackground exactly
+    static let terminalBackground = SwiftUI.Color(red: 0.051, green: 0.067, blue: 0.090)
 
     // Terminal colors (AppKit)
     static let terminalNSBackground = NSColor(red: 0.051, green: 0.067, blue: 0.090, alpha: 1.0)

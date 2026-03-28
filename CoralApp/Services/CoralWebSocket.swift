@@ -44,10 +44,6 @@ final class CoralWebSocket {
         webSocketTask = task
         task.resume()
 
-        // Reset backoff on new connection
-        reconnectDelay = 3.0
-        reconnectAttempt = 0
-
         logger.info("Connecting to \(url)")
         receiveLoop(gen: currentGen)
     }
@@ -67,6 +63,9 @@ final class CoralWebSocket {
 
             switch result {
             case .success(let message):
+                // Reset backoff on successful message (not on connect attempt)
+                self.reconnectDelay = 3.0
+                self.reconnectAttempt = 0
                 self.handleMessage(message)
                 self.receiveLoop(gen: gen)
 
