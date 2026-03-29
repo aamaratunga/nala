@@ -31,13 +31,28 @@ struct CoralApp: App {
         .windowToolbarStyle(.unifiedCompact)
         .commands {
             CommandGroup(replacing: .newItem) {
+                Button("Command Palette") {
+                    withAnimation(.easeOut(duration: 0.15)) {
+                        sessionStore.showCommandPalette = true
+                    }
+                }
+                .keyboardShortcut("k")
+
+                Divider()
+
                 Button("New Agent…") {
-                    sessionStore.showingLaunchSheet = true
+                    sessionStore.pendingPaletteMode = .newAgent
+                    withAnimation(.easeOut(duration: 0.15)) {
+                        sessionStore.showCommandPalette = true
+                    }
                 }
                 .keyboardShortcut("n")
 
                 Button("New Terminal…") {
-                    sessionStore.showingTerminalLaunchSheet = true
+                    sessionStore.pendingPaletteMode = .newTerminal
+                    withAnimation(.easeOut(duration: 0.15)) {
+                        sessionStore.showCommandPalette = true
+                    }
                 }
                 .keyboardShortcut("t")
 

@@ -30,12 +30,18 @@ final class SessionStore {
     var showingTerminalLaunchSheet = false
     var showingCreateWorktreeSheet = false
     var showingShortcutsPanel = false
+    var showCommandPalette = false
+    /// Set before showing palette to control initial mode (consumed by CommandPaletteView on appear).
+    var pendingPaletteMode: PaletteMode?
     var isConnected = false
 
     var pendingKillSession: Session?
     var showingKillConfirmation = false
     var renamingSessionId: String?
     var sidebarFocused = false
+
+    /// Tracks when each session was last focused (selected), for command palette recency sort.
+    var lastFocusedTimestamps: [String: Date] = [:]
     var sidebarVisibility: NavigationSplitViewVisibility = .all
     var lastError: String?
 

@@ -16,6 +16,7 @@ struct KeyboardShortcutsPanel: View {
 
     private let groups: [ShortcutGroup] = [
         ShortcutGroup(title: "General", icon: "keyboard", shortcuts: [
+            Shortcut(description: "Command Palette", keys: ["⌘", "K"]),
             Shortcut(description: "Show Shortcuts", keys: ["⌘", "/"]),
             Shortcut(description: "New Agent", keys: ["⌘", "N"]),
             Shortcut(description: "New Terminal", keys: ["⌘", "T"]),
