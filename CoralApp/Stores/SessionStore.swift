@@ -488,6 +488,7 @@ final class SessionStore {
         let status = folderStatus[resolvedDir] ?? .inProgress
         sectionExpansion[status] = true
 
+        guard !ServerManager.isTestHost else { return }
         Task { await performLaunch(state: state) }
     }
 
@@ -573,6 +574,7 @@ final class SessionStore {
     func restartSession(_ session: Session) {
         let state = SessionRestartState(originalSession: session)
         activeRestarts[session.id] = state
+        guard !ServerManager.isTestHost else { return }
         Task { await performRestart(state: state) }
     }
 
@@ -1023,6 +1025,7 @@ final class SessionStore {
         let status = folderStatus[folderPath] ?? .inProgress
         sectionExpansion[status] = true
 
+        guard !ServerManager.isTestHost else { return }
         Task { await performWorktreeDeletion(state: state) }
     }
 
@@ -1187,6 +1190,7 @@ final class SessionStore {
         let status = folderStatus[worktreePath] ?? .inProgress
         sectionExpansion[status] = true
 
+        guard !ServerManager.isTestHost else { return }
         Task { await performWorktreeCreation(state: state, config: config) }
     }
 
