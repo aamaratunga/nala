@@ -733,4 +733,81 @@ final class SessionStoreTests: XCTestCase {
         // Name should not change
         XCTAssertEqual(store.sessions[0].displayName, "Keep Me")
     }
+
+    // MARK: - Recent Browse Paths
+
+    func testAddRecentBrowsePathInsertsAtFront() {
+        let store = makeStore()
+        store.recentBrowsePaths = ["/old/path"]
+
+        store.addRecentBrowsePath("/new/path")
+
+        XCTAssertEqual(store.recentBrowsePaths.first, "/new/path")
+        XCTAssertEqual(store.recentBrowsePaths.count, 2)
+    }
+
+    func testRecentBrowsePathsDeduplicates() {
+        let store = makeStore()
+        store.recentBrowsePaths = ["/a", "/b", "/c"]
+
+        store.addRecentBrowsePath("/b")
+
+        // /b should move to front, not be duplicated
+        XCTAssertEqual(store.recentBrowsePaths, ["/b", "/a", "/c"])
+    }
+
+    func testRecentBrowsePathsMaxTwenty() {
+        let store = makeStore()
+        store.recentBrowsePaths = (1...20).map { "/path/\($0)" }
+        XCTAssertEqual(store.recentBrowsePaths.count, 20)
+
+        store.addRecentBrowsePath("/new")
+
+        XCTAssertEqual(store.recentBrowsePaths.count, 20)
+        XCTAssertEqual(store.recentBrowsePaths.first, "/new")
+        // The last item should have been evicted
+        XCTAssertFalse(store.recentBrowsePaths.contains("/path/20"))
+    }
+
+    func testAddRecentBrowsePathPersists() {
+        let store = makeStore()
+        store.addRecentBrowsePath("/persisted/path")
+
+        let saved = UserDefaults.standard.stringArray(forKey: "coral.recentBrowsePaths")
+        XCTAssertNotNil(saved)
+        XCTAssertTrue(saved?.contains("/persisted/path") ?? false)
+    }
+
+    // MARK: - Browse Root
+
+    func testBrowseRootDefaultsToEmpty() {
+        UserDefaults.standard.removeObject(forKey: "coral.browseRoot")
+        let store = makeStore()
+        XCTAssertEqual(store.browseRoot, "")
+    }
+
+    func testBrowseRootPersistsToUserDefaults() {
+        let store = makeStore()
+        store.browseRoot = "/Users/test/src"
+
+        let saved = UserDefaults.standard.string(forKey: "coral.browseRoot")
+        XCTAssertEqual(saved, "/Users/test/src")
+    }
+
+    func testBrowseRootLoadsOnConnect() {
+        UserDefaults.standard.set("/Users/test/projects", forKey: "coral.browseRoot")
+        let store = makeStore()
+        // loadSavedOrder is called inside connect(), which reads persisted defaults
+        store.connect(port: 0)
+        XCTAssertEqual(store.browseRoot, "/Users/test/projects")
+    }
+
+    func testBrowseRootClearPersistsEmpty() {
+        let store = makeStore()
+        store.browseRoot = "/some/path"
+        store.browseRoot = ""
+
+        let saved = UserDefaults.standard.string(forKey: "coral.browseRoot")
+        XCTAssertEqual(saved, "")
+    }
 }

@@ -8,6 +8,9 @@ extension Notification.Name {
     static let paletteMoveUp = Notification.Name("paletteMoveUp")
     static let paletteMoveDown = Notification.Name("paletteMoveDown")
     static let paletteSwitchMode = Notification.Name("paletteSwitchMode")
+    static let paletteEscapePressed = Notification.Name("paletteEscapePressed")
+    static let paletteTabPressed = Notification.Name("paletteTabPressed")
+    static let paletteBackspaceEmpty = Notification.Name("paletteBackspaceEmpty")
 }
 
 struct ContentView: View {
@@ -332,12 +335,15 @@ struct ContentView: View {
     /// Handle key events when the command palette is open.
     /// Returns nil to consume, or the event to pass through.
     private static func handlePaletteKeyEvent(_ event: NSEvent, mods: NSEvent.ModifierFlags, store: SessionStore) -> NSEvent? {
-        // Escape: close palette and restore focus
+        // Escape: let the palette decide behavior (close, clear, or go back)
         if event.keyCode == 53 {
-            withAnimation(.easeIn(duration: 0.1)) {
-                store.showCommandPalette = false
-            }
-            restoreFocusAfterPalette(store: store)
+            NotificationCenter.default.post(name: .paletteEscapePressed, object: nil)
+            return nil
+        }
+
+        // Tab: drill down in browse mode (intercepted before TextField gets it)
+        if event.keyCode == 48 && mods.isEmpty {
+            NotificationCenter.default.post(name: .paletteTabPressed, object: nil)
             return nil
         }
 
@@ -368,7 +374,7 @@ struct ContentView: View {
             return nil
         }
 
-        // ⌘N: Switch to New Agent mode (or open palette in that mode)
+        // ⌘N: Switch to New Agent mode
         if event.keyCode == 45 && mods == .command {
             NotificationCenter.default.post(name: .paletteSwitchMode, object: PaletteMode.newAgent)
             return nil
@@ -377,6 +383,18 @@ struct ContentView: View {
         // ⌘T: Switch to New Terminal mode
         if event.keyCode == 17 && mods == .command {
             NotificationCenter.default.post(name: .paletteSwitchMode, object: PaletteMode.newTerminal)
+            return nil
+        }
+
+        // ⌥⌘N: Switch to New Worktree mode
+        if event.keyCode == 45 && mods == [.command, .option] {
+            NotificationCenter.default.post(name: .paletteSwitchMode, object: PaletteMode.newWorktree)
+            return nil
+        }
+
+        // Backspace on empty: pop mode back to switchSession
+        if event.keyCode == 51 && CommandPaletteView.currentQueryIsEmpty && !CommandPaletteView.currentModeIsSwitchSession {
+            NotificationCenter.default.post(name: .paletteBackspaceEmpty, object: nil)
             return nil
         }
 

@@ -123,40 +123,34 @@ struct SessionListView: View {
                     Spacer()
 
                     Button {
-                        store.showingLaunchSheet = true
+                        store.pendingPaletteMode = .newAgent
+                        withAnimation(.easeOut(duration: 0.15)) { store.showCommandPalette = true }
                     } label: {
                         Image(systemName: "sparkles")
                             .foregroundStyle(CoralTheme.textSecondary)
                     }
                     .buttonStyle(.plain)
                     .help("Launch new agent (⌘N)")
-                    .popover(isPresented: $store.showingLaunchSheet, arrowEdge: .bottom) {
-                        LaunchDropdown(mode: .agent)
-                    }
 
                     Button {
-                        store.showingTerminalLaunchSheet = true
+                        store.pendingPaletteMode = .newTerminal
+                        withAnimation(.easeOut(duration: 0.15)) { store.showCommandPalette = true }
                     } label: {
                         Image(systemName: "terminal")
                             .foregroundStyle(CoralTheme.textSecondary)
                     }
                     .buttonStyle(.plain)
                     .help("Launch new terminal (⌘T)")
-                    .popover(isPresented: $store.showingTerminalLaunchSheet, arrowEdge: .bottom) {
-                        LaunchDropdown(mode: .terminal)
-                    }
 
                     Button {
-                        store.showingCreateWorktreeSheet = true
+                        store.pendingPaletteMode = .newWorktree
+                        withAnimation(.easeOut(duration: 0.15)) { store.showCommandPalette = true }
                     } label: {
                         Image(systemName: "arrow.triangle.branch")
                             .foregroundStyle(CoralTheme.textSecondary)
                     }
                     .buttonStyle(.plain)
                     .help("New worktree (⌥⌘N)")
-                    .popover(isPresented: $store.showingCreateWorktreeSheet, arrowEdge: .bottom) {
-                        CreateWorktreeDropdown()
-                    }
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 10)
@@ -205,7 +199,8 @@ struct SessionListView: View {
 
                             VStack(spacing: 8) {
                                 Button {
-                                    store.showingLaunchSheet = true
+                                    store.pendingPaletteMode = .newAgent
+                                    withAnimation(.easeOut(duration: 0.15)) { store.showCommandPalette = true }
                                 } label: {
                                     Label("Launch Agent", systemImage: "sparkles")
                                         .frame(maxWidth: 180)
@@ -215,7 +210,8 @@ struct SessionListView: View {
                                 .tint(CoralTheme.coralPrimary)
 
                                 Button {
-                                    store.showingTerminalLaunchSheet = true
+                                    store.pendingPaletteMode = .newTerminal
+                                    withAnimation(.easeOut(duration: 0.15)) { store.showCommandPalette = true }
                                 } label: {
                                     Label("Open Terminal", systemImage: "terminal")
                                         .frame(maxWidth: 180)

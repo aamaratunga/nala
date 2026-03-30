@@ -59,7 +59,10 @@ struct CoralApp: App {
                 Divider()
 
                 Button("New Worktree…") {
-                    sessionStore.showingCreateWorktreeSheet = true
+                    sessionStore.pendingPaletteMode = .newWorktree
+                    withAnimation(.easeOut(duration: 0.15)) {
+                        sessionStore.showCommandPalette = true
+                    }
                 }
                 .keyboardShortcut("n", modifiers: [.command, .option])
                 .disabled(sessionStore.validRepoConfigs.isEmpty)

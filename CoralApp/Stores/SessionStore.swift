@@ -26,9 +26,6 @@ struct StatusSection: Identifiable, Equatable {
 final class SessionStore {
     var sessions: [Session] = []
     var selectedSessionId: String?
-    var showingLaunchSheet = false
-    var showingTerminalLaunchSheet = false
-    var showingCreateWorktreeSheet = false
     var showingShortcutsPanel = false
     var showCommandPalette = false
     /// Set before showing palette to control initial mode (consumed by CommandPaletteView on appear).
@@ -105,6 +102,16 @@ final class SessionStore {
         }
     }
 
+    /// Recently browsed paths for the path finder, LRU max 20.
+    var recentBrowsePaths: [String] = [] {
+        didSet { if !isSuppressingPersistence { saveRecentBrowsePaths() } }
+    }
+
+    /// Configured starting directory for browse mode. Pre-fills the query field.
+    var browseRoot: String = "" {
+        didSet { if !isSuppressingPersistence { saveBrowseRoot() } }
+    }
+
     /// Subfolders discovered by scanning worktree folders. Cached to
     /// UserDefaults so the sidebar loads instantly on next launch.
     var discoveredFolders: Set<String> = []
@@ -134,6 +141,8 @@ final class SessionStore {
     private static let sectionExpansionKey = "coral.sectionExpansion"
     private static let repoConfigsKey = "coral.repoConfigs"
     private static let discoveredFoldersKey = "coral.discoveredFolders"
+    private static let recentBrowsePathsKey = "coral.recentBrowsePaths"
+    private static let browseRootKey = "coral.browseRoot"
 
     /// The currently selected session, if any.
     var selectedSession: Session? {
@@ -334,6 +343,17 @@ final class SessionStore {
         let folderPath = state.folderPath
         activeDeletions.removeValue(forKey: folderPath)
         beginWorktreeDeletion(folderPath: folderPath)
+    }
+
+    // MARK: - Recent Browse Paths
+
+    /// Add a path to the recent browse paths list (LRU, max 20).
+    func addRecentBrowsePath(_ path: String) {
+        recentBrowsePaths.removeAll { $0 == path }
+        recentBrowsePaths.insert(path, at: 0)
+        if recentBrowsePaths.count > 20 {
+            recentBrowsePaths = Array(recentBrowsePaths.prefix(20))
+        }
     }
 
     // MARK: - Connection
@@ -891,6 +911,9 @@ final class SessionStore {
         if let cached = defaults.stringArray(forKey: Self.discoveredFoldersKey) {
             discoveredFolders = Set(cached)
         }
+
+        recentBrowsePaths = defaults.stringArray(forKey: Self.recentBrowsePathsKey) ?? []
+        browseRoot = defaults.string(forKey: Self.browseRootKey) ?? ""
     }
 
     private func saveFolderOrder() {
@@ -933,6 +956,14 @@ final class SessionStore {
 
     private func saveDiscoveredFolders() {
         UserDefaults.standard.set(Array(discoveredFolders), forKey: Self.discoveredFoldersKey)
+    }
+
+    private func saveRecentBrowsePaths() {
+        UserDefaults.standard.set(recentBrowsePaths, forKey: Self.recentBrowsePathsKey)
+    }
+
+    private func saveBrowseRoot() {
+        UserDefaults.standard.set(browseRoot, forKey: Self.browseRootKey)
     }
 
     // MARK: - Worktree Helpers

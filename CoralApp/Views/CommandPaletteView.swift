@@ -3,16 +3,25 @@ import AppKit
 
 // MARK: - Palette Mode
 
+enum PathBrowseOrigin: Equatable {
+    case newAgent
+    case newTerminal
+}
+
 enum PaletteMode: Equatable {
     case switchSession
     case newAgent
     case newTerminal
+    case newWorktree
+    case browsePath(origin: PathBrowseOrigin)
 
     var label: String {
         switch self {
         case .switchSession: return "Switch"
         case .newAgent: return "New Agent"
         case .newTerminal: return "New Terminal"
+        case .newWorktree: return "New Worktree"
+        case .browsePath: return "Browse"
         }
     }
 
@@ -21,6 +30,8 @@ enum PaletteMode: Equatable {
         case .switchSession: return CoralTheme.coralPrimary
         case .newAgent: return CoralTheme.coralPrimary
         case .newTerminal: return CoralTheme.teal
+        case .newWorktree: return CoralTheme.coralPrimary
+        case .browsePath: return CoralTheme.blueAccent
         }
     }
 
@@ -29,6 +40,8 @@ enum PaletteMode: Equatable {
         case .switchSession: return "Search sessions..."
         case .newAgent: return "Select folder..."
         case .newTerminal: return "Select folder..."
+        case .newWorktree: return "Search repos..."
+        case .browsePath: return "Type a path..."
         }
     }
 }
@@ -39,12 +52,16 @@ private enum PaletteItem: Identifiable, Equatable {
     case session(Session, isCurrent: Bool)
     case folder(path: String, label: String)
     case action(ActionItem)
+    case repo(RepoConfig)
+    case pathResult(PathResult)
 
     var id: String {
         switch self {
         case .session(let s, _): return "session:\(s.id)"
         case .folder(let path, _): return "folder:\(path)"
         case .action(let a): return "action:\(a.id)"
+        case .repo(let r): return "repo:\(r.id)"
+        case .pathResult(let p): return "path:\(p.id)"
         }
     }
 }
@@ -124,10 +141,24 @@ private struct HighlightedText: View {
 
 struct CommandPaletteView: View {
     @Environment(SessionStore.self) private var store
+    @Environment(\.openSettings) private var openSettings
     @State private var query = ""
     @State private var selectedIndex = 0
     @State private var mode: PaletteMode = .switchSession
     @FocusState private var isSearchFocused: Bool
+
+    /// Shared state for NSEvent monitor: whether the query field is currently empty.
+    static var currentQueryIsEmpty = true
+    /// Shared state for NSEvent monitor: whether the current mode is .switchSession.
+    static var currentModeIsSwitchSession = true
+
+    // Worktree mode state
+    @State private var worktreeSelectedConfig: RepoConfig?
+    @State private var branchName = ""
+    @FocusState private var isBranchFocused: Bool
+
+    // Browse mode state
+    @State private var pathFinder = PathFinder()
 
     /// External binding for the initial mode to open with.
     var initialMode: PaletteMode = .switchSession
@@ -161,11 +192,42 @@ struct CommandPaletteView: View {
             }
             query = ""
             selectedIndex = 0
+            worktreeSelectedConfig = nil
+            branchName = ""
             isSearchFocused = true
+            CommandPaletteView.currentQueryIsEmpty = true
+            CommandPaletteView.currentModeIsSwitchSession = (mode == .switchSession)
         }
-        .onChange(of: mode) { _, _ in
-            query = ""
+        .onChange(of: store.pendingPaletteMode) { _, newPending in
+            // When the palette is already open and a sidebar/menu button sets a new mode
+            if let newPending {
+                mode = newPending
+                store.pendingPaletteMode = nil
+            }
+        }
+        .onChange(of: mode) { _, newMode in
             selectedIndex = 0
+            worktreeSelectedConfig = nil
+            branchName = ""
+            CommandPaletteView.currentModeIsSwitchSession = (newMode == .switchSession)
+            if case .browsePath = newMode, !store.browseRoot.isEmpty {
+                let root = store.browseRoot.hasSuffix("/") ? store.browseRoot : store.browseRoot + "/"
+                query = root
+                pathFinder.search(query: root, roots: store.folderOrder, recentPaths: store.recentBrowsePaths, browseRoot: store.browseRoot)
+            } else if case .browsePath = newMode {
+                query = ""
+                pathFinder.search(query: "", roots: store.folderOrder, recentPaths: store.recentBrowsePaths, browseRoot: store.browseRoot)
+            } else {
+                query = ""
+                pathFinder.cancel()
+            }
+        }
+        .onChange(of: query) { _, newQuery in
+            selectedIndex = 0
+            CommandPaletteView.currentQueryIsEmpty = newQuery.isEmpty
+            if case .browsePath = mode {
+                pathFinder.search(query: newQuery, roots: store.folderOrder, recentPaths: store.recentBrowsePaths, browseRoot: store.browseRoot)
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .paletteMoveUp)) { _ in
             moveSelection(by: -1)
@@ -174,12 +236,25 @@ struct CommandPaletteView: View {
             moveSelection(by: 1)
         }
         .onReceive(NotificationCenter.default.publisher(for: .paletteExecuteSelected)) { _ in
-            executeSelected()
+            if case .newWorktree = mode, worktreeSelectedConfig != nil {
+                createWorktree()
+            } else {
+                executeSelected()
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .paletteSwitchMode)) { notif in
             if let newMode = notif.object as? PaletteMode {
                 mode = newMode
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .paletteEscapePressed)) { _ in
+            handleEscape()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .paletteTabPressed)) { _ in
+            handleTab()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .paletteBackspaceEmpty)) { _ in
+            handleBackspaceEmpty()
         }
         .accessibilityAddTraits(.isModal)
         .accessibilityLabel("Command palette")
@@ -197,18 +272,20 @@ struct CommandPaletteView: View {
                 modeChip
             }
 
-            TextField(mode == .switchSession && store.sessions.isEmpty
-                      ? "Launch a session..."
-                      : mode.searchPlaceholder, text: $query)
-                .textFieldStyle(.plain)
-                .font(.title3)
-                .foregroundStyle(CoralTheme.textPrimary)
-                .focused($isSearchFocused)
-                .accessibilityAddTraits(.isSearchField)
-                .accessibilityLabel("Search")
-                .onChange(of: query) { _, _ in
-                    selectedIndex = 0
-                }
+            if case .newWorktree = mode, let config = worktreeSelectedConfig {
+                // Branch input mode within worktree
+                branchInputBar(config: config)
+            } else {
+                TextField(mode == .switchSession && store.sessions.isEmpty
+                          ? "Launch a session..."
+                          : mode.searchPlaceholder, text: $query)
+                    .textFieldStyle(.plain)
+                    .font(.title3)
+                    .foregroundStyle(CoralTheme.textPrimary)
+                    .focused($isSearchFocused)
+                    .accessibilityAddTraits(.isSearchField)
+                    .accessibilityLabel("Search")
+            }
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 16)
@@ -224,6 +301,45 @@ struct CommandPaletteView: View {
             .background(mode.chipColor, in: Capsule())
     }
 
+    // MARK: - Worktree Branch Input
+
+    private func branchInputBar(config: RepoConfig) -> some View {
+        HStack(spacing: 8) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    worktreeSelectedConfig = nil
+                    branchName = ""
+                    isSearchFocused = true
+                }
+            } label: {
+                Image(systemName: "chevron.left")
+                    .font(.caption)
+                    .foregroundStyle(CoralTheme.textSecondary)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Back to repo list")
+
+            Text(config.displayName)
+                .font(.callout)
+                .foregroundStyle(CoralTheme.textSecondary)
+                .lineLimit(1)
+
+            TextField("Branch name", text: $branchName)
+                .textFieldStyle(.plain)
+                .font(.title3)
+                .foregroundStyle(CoralTheme.textPrimary)
+                .focused($isBranchFocused)
+                .accessibilityLabel("Branch name")
+
+            if let error = BranchValidation.validate(branchName) {
+                Text(error)
+                    .font(.caption)
+                    .foregroundStyle(CoralTheme.red)
+                    .lineLimit(1)
+            }
+        }
+    }
+
     // MARK: - Results
 
     private var allItems: [PaletteItem] {
@@ -232,6 +348,10 @@ struct CommandPaletteView: View {
             return switchModeItems
         case .newAgent, .newTerminal:
             return folderModeItems
+        case .newWorktree:
+            return worktreeModeItems
+        case .browsePath:
+            return browsePathItems
         }
     }
 
@@ -278,11 +398,27 @@ struct CommandPaletteView: View {
         return items
     }
 
+    private var worktreeModeItems: [PaletteItem] {
+        guard worktreeSelectedConfig == nil else { return [] }
+
+        let configs = store.validRepoConfigs
+        var items: [PaletteItem] = configs.map { .repo($0) }
+        items.append(.action(ActionItem(id: "add-repository", label: "Add Repository...", icon: "plus.circle", shortcut: "")))
+        return items
+    }
+
+    private var browsePathItems: [PaletteItem] {
+        pathFinder.results.map { .pathResult($0) }
+    }
+
     private var filteredItems: [PaletteItem] {
         let items = allItems
         guard !query.isEmpty else { return items }
 
-        // Fuzzy filter sessions/folders, always keep actions
+        // Browse mode: PathFinder already handles filtering
+        if case .browsePath = mode { return items }
+
+        // Fuzzy filter sessions/folders/repos, always keep actions
         var scored: [(item: PaletteItem, score: Int, indices: [Int])] = []
         var actions: [PaletteItem] = []
 
@@ -312,6 +448,15 @@ struct CommandPaletteView: View {
                     scored.append((item, m.score, m.matchedIndices))
                 }
 
+            case .repo(let config):
+                if let m = fuzzyMatch(query: query, target: config.displayName) {
+                    scored.append((item, m.score, m.matchedIndices))
+                }
+
+            case .pathResult:
+                // Already filtered by PathFinder
+                scored.append((item, 0, []))
+
             case .action:
                 actions.append(item)
             }
@@ -323,56 +468,23 @@ struct CommandPaletteView: View {
 
     private var resultsList: some View {
         let items = filteredItems
-        let sessionItems = items.filter { if case .session = $0 { return true }; if case .folder = $0 { return true }; return false }
+        let contentItems = items.filter { if case .action = $0 { return false }; return true }
         let actionItems = items.filter { if case .action = $0 { return true }; return false }
-        let hasNoResults = sessionItems.isEmpty && mode == .switchSession && !query.isEmpty
 
         return ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(spacing: 0) {
-                    if store.sessions.isEmpty && mode == .switchSession && query.isEmpty {
-                        // Zero sessions state
-                        Text("No sessions running")
-                            .font(.callout)
-                            .foregroundStyle(CoralTheme.textTertiary)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 28)
-                    } else if hasNoResults {
-                        Text("No matching sessions")
-                            .font(.callout)
-                            .foregroundStyle(CoralTheme.textTertiary)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 28)
-                    } else if mode == .newAgent || mode == .newTerminal {
-                        if sessionItems.isEmpty && !query.isEmpty {
-                            Text("No matching folders")
-                                .font(.callout)
-                                .foregroundStyle(CoralTheme.textTertiary)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 28)
-                        } else {
-                            ForEach(Array(sessionItems.enumerated()), id: \.element.id) { index, item in
-                                folderRow(item: item, index: index)
-                                    .id(item.id)
-                            }
-                        }
+                    if case .newWorktree = mode, worktreeSelectedConfig != nil {
+                        // Branch input mode: no results list needed
+                        EmptyView()
+                    } else if case .browsePath = mode {
+                        browseResultsContent(items: contentItems, actionItems: actionItems)
+                    } else if case .newWorktree = mode {
+                        worktreeResultsContent(items: contentItems, actionItems: actionItems)
+                    } else if mode == .switchSession {
+                        switchResultsContent(items: contentItems, actionItems: actionItems)
                     } else {
-                        ForEach(Array(sessionItems.enumerated()), id: \.element.id) { index, item in
-                            sessionRow(item: item, index: index)
-                                .id(item.id)
-                        }
-                    }
-
-                    if !actionItems.isEmpty {
-                        Divider()
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 6)
-
-                        ForEach(Array(actionItems.enumerated()), id: \.element.id) { offset, item in
-                            let index = sessionItems.count + offset
-                            actionRow(item: item, index: index)
-                                .id(item.id)
-                        }
+                        folderResultsContent(items: contentItems, actionItems: actionItems)
                     }
                 }
                 .padding(.vertical, 6)
@@ -386,6 +498,173 @@ struct CommandPaletteView: View {
             }
             .accessibilityElement(children: .contain)
             .accessibilityLabel("Search results, \(items.count) items")
+        }
+    }
+
+    // MARK: - Results Content by Mode
+
+    @ViewBuilder
+    private func switchResultsContent(items: [PaletteItem], actionItems: [PaletteItem]) -> some View {
+        let hasNoResults = items.isEmpty && !query.isEmpty
+
+        if store.sessions.isEmpty && query.isEmpty {
+            Text("No sessions running")
+                .font(.callout)
+                .foregroundStyle(CoralTheme.textTertiary)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 28)
+        } else if hasNoResults {
+            Text("No matching sessions")
+                .font(.callout)
+                .foregroundStyle(CoralTheme.textTertiary)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 28)
+        } else {
+            ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                sessionRow(item: item, index: index)
+                    .id(item.id)
+            }
+        }
+
+        actionDividerAndRows(actionItems: actionItems, offset: items.count)
+    }
+
+    @ViewBuilder
+    private func folderResultsContent(items: [PaletteItem], actionItems: [PaletteItem]) -> some View {
+        if items.isEmpty && !query.isEmpty {
+            Text("No matching folders")
+                .font(.callout)
+                .foregroundStyle(CoralTheme.textTertiary)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 28)
+        } else {
+            ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                folderRow(item: item, index: index)
+                    .id(item.id)
+            }
+        }
+
+        actionDividerAndRows(actionItems: actionItems, offset: items.count)
+    }
+
+    @ViewBuilder
+    private func worktreeResultsContent(items: [PaletteItem], actionItems: [PaletteItem]) -> some View {
+        if items.isEmpty && query.isEmpty && store.validRepoConfigs.isEmpty {
+            VStack(spacing: 8) {
+                Text("No repositories configured")
+                    .font(.callout)
+                    .foregroundStyle(CoralTheme.textTertiary)
+                Text("Add a repository in Settings to create worktrees.")
+                    .font(.caption)
+                    .foregroundStyle(CoralTheme.textTertiary)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 28)
+        } else if items.isEmpty && !query.isEmpty {
+            Text("No matching repos")
+                .font(.callout)
+                .foregroundStyle(CoralTheme.textTertiary)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 28)
+        } else {
+            ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                repoRow(item: item, index: index)
+                    .id(item.id)
+            }
+        }
+
+        actionDividerAndRows(actionItems: actionItems, offset: items.count)
+    }
+
+    @ViewBuilder
+    private func browseResultsContent(items: [PaletteItem], actionItems: [PaletteItem]) -> some View {
+        if items.isEmpty && query.isEmpty {
+            if store.recentBrowsePaths.isEmpty {
+                Text("Type a path to get started")
+                    .font(.callout)
+                    .foregroundStyle(CoralTheme.textTertiary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 28)
+            } else {
+                // Show recent paths with section header
+                sectionHeader("Recent")
+                ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                    pathResultRow(item: item, index: index)
+                        .id(item.id)
+                }
+            }
+        } else if items.isEmpty && !query.isEmpty {
+            if pathFinder.isSearching {
+                Text("Searching...")
+                    .font(.callout)
+                    .foregroundStyle(CoralTheme.textTertiary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 28)
+            } else {
+                Text("No matching directories")
+                    .font(.callout)
+                    .foregroundStyle(CoralTheme.textTertiary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 28)
+            }
+        } else {
+            // Split into recent and other results
+            let recentItems = items.enumerated().filter {
+                if case .pathResult(let p) = $0.element { return p.isRecent }
+                return false
+            }
+            let otherItems = items.enumerated().filter {
+                if case .pathResult(let p) = $0.element { return !p.isRecent }
+                return false
+            }
+
+            if !recentItems.isEmpty {
+                sectionHeader("Recent")
+                ForEach(recentItems, id: \.element.id) { index, item in
+                    pathResultRow(item: item, index: index)
+                        .id(item.id)
+                }
+            }
+
+            if !otherItems.isEmpty {
+                if !recentItems.isEmpty {
+                    sectionHeader("Results")
+                }
+                ForEach(otherItems, id: \.element.id) { index, item in
+                    pathResultRow(item: item, index: index)
+                        .id(item.id)
+                }
+            }
+        }
+    }
+
+    // MARK: - Section Header
+
+    private func sectionHeader(_ title: String) -> some View {
+        Text(title)
+            .font(.caption)
+            .fontWeight(.medium)
+            .foregroundStyle(CoralTheme.textTertiary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 20)
+            .padding(.top, 8)
+            .padding(.bottom, 4)
+    }
+
+    // MARK: - Action Rows Helper
+
+    @ViewBuilder
+    private func actionDividerAndRows(actionItems: [PaletteItem], offset: Int) -> some View {
+        if !actionItems.isEmpty {
+            Divider()
+                .padding(.horizontal, 16)
+                .padding(.vertical, 6)
+
+            ForEach(Array(actionItems.enumerated()), id: \.element.id) { idx, item in
+                let index = offset + idx
+                actionRow(item: item, index: index)
+                    .id(item.id)
+            }
         }
     }
 
@@ -502,6 +781,102 @@ struct CommandPaletteView: View {
         )
     }
 
+    private func repoRow(item: PaletteItem, index: Int) -> some View {
+        guard case .repo(let config) = item else { return AnyView(EmptyView()) }
+        let isSelected = index == selectedIndex
+        let matchIndices = matchedIndices(for: config.displayName)
+
+        return AnyView(
+            HStack(spacing: 12) {
+                Image(systemName: "folder")
+                    .foregroundStyle(CoralTheme.textSecondary)
+                    .font(.callout)
+
+                if matchIndices.isEmpty {
+                    Text(config.displayName)
+                        .font(.callout)
+                        .foregroundStyle(CoralTheme.textPrimary)
+                        .lineLimit(1)
+                } else {
+                    HighlightedText(text: config.displayName, matchedIndices: Set(matchIndices))
+                        .lineLimit(1)
+                }
+
+                Spacer()
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 12)
+            .background(
+                Group {
+                    if isSelected {
+                        RoundedRectangle(cornerRadius: 8)
+                            .strokeBorder(CoralTheme.coralPrimary.opacity(0.5), lineWidth: 1.5)
+                    }
+                }
+            )
+            .contentShape(Rectangle())
+            .onTapGesture {
+                executeItem(item)
+            }
+            .onHover { hovering in
+                if hovering { selectedIndex = index }
+            }
+            .accessibilityLabel("Repository \(config.displayName)")
+        )
+    }
+
+    private func pathResultRow(item: PaletteItem, index: Int) -> some View {
+        guard case .pathResult(let result) = item else { return AnyView(EmptyView()) }
+        let isSelected = index == selectedIndex
+        let matchIndices = matchedIndices(for: result.displayName)
+
+        return AnyView(
+            HStack(spacing: 12) {
+                Image(systemName: result.isGitRepo ? "arrow.triangle.branch" : "folder")
+                    .foregroundStyle(result.isGitRepo ? CoralTheme.coralPrimary : CoralTheme.textSecondary)
+                    .font(.callout)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    if matchIndices.isEmpty {
+                        Text(result.displayName)
+                            .font(.callout)
+                            .foregroundStyle(CoralTheme.textPrimary)
+                            .lineLimit(1)
+                    } else {
+                        HighlightedText(text: result.displayName, matchedIndices: Set(matchIndices))
+                            .lineLimit(1)
+                    }
+
+                    Text(result.path)
+                        .font(.caption)
+                        .foregroundStyle(CoralTheme.textTertiary)
+                        .lineLimit(1)
+                        .truncationMode(.head)
+                }
+
+                Spacer()
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 10)
+            .background(
+                Group {
+                    if isSelected {
+                        RoundedRectangle(cornerRadius: 8)
+                            .strokeBorder(CoralTheme.coralPrimary.opacity(0.5), lineWidth: 1.5)
+                    }
+                }
+            )
+            .contentShape(Rectangle())
+            .onTapGesture {
+                executeItem(item)
+            }
+            .onHover { hovering in
+                if hovering { selectedIndex = index }
+            }
+            .accessibilityLabel("\(result.displayName), \(result.isGitRepo ? "git repository" : "directory")")
+        )
+    }
+
     private func actionRow(item: PaletteItem, index: Int) -> some View {
         guard case .action(let action) = item else { return AnyView(EmptyView()) }
         let isSelected = index == selectedIndex
@@ -549,9 +924,21 @@ struct CommandPaletteView: View {
 
     private var footerHints: some View {
         HStack(spacing: 16) {
-            hintLabel("↑↓", "navigate")
-            hintLabel("↵", "select")
-            hintLabel("esc", "close")
+            switch mode {
+            case .browsePath:
+                hintLabel("↑↓", "navigate")
+                hintLabel("↵", "select")
+                hintLabel("tab", "drill down")
+                hintLabel("⌫", "up")
+                hintLabel("esc", "close")
+            case .newWorktree where worktreeSelectedConfig != nil:
+                hintLabel("↵", "create")
+                hintLabel("esc", "back")
+            default:
+                hintLabel("↑↓", "navigate")
+                hintLabel("↵", "select")
+                hintLabel("esc", "close")
+            }
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 12)
@@ -570,18 +957,68 @@ struct CommandPaletteView: View {
         }
     }
 
-    // MARK: - Keyboard Handling
+    // MARK: - Escape Handling
 
-    /// Called from ContentView's event monitor to handle palette-specific keys.
-    /// Returns true if the event was consumed.
-    func handleKeyEvent(_ event: NSEvent) -> Bool {
-        // This is a design-time placeholder — actual key handling is in ContentView's monitor
-        return false
+    private func handleEscape() {
+        switch mode {
+        case .browsePath(let origin):
+            // Exit browse mode, return to the originating mode
+            mode = origin == .newAgent ? .newAgent : .newTerminal
+
+        case .newWorktree:
+            if worktreeSelectedConfig != nil {
+                if !branchName.isEmpty {
+                    // Clear branch text first
+                    branchName = ""
+                } else {
+                    // Back to repo selection
+                    worktreeSelectedConfig = nil
+                    isSearchFocused = true
+                }
+            } else {
+                closePalette()
+            }
+
+        default:
+            if !query.isEmpty {
+                query = ""
+            } else {
+                closePalette()
+            }
+        }
+    }
+
+    // MARK: - Backspace-on-Empty Handling
+
+    func handleBackspaceEmpty() {
+        switch mode {
+        case .newAgent, .newTerminal, .browsePath:
+            mode = .switchSession
+        default:
+            break
+        }
+    }
+
+    // MARK: - Tab Handling (Browse Mode Drill-Down)
+
+    private func handleTab() {
+        guard case .browsePath = mode else { return }
+
+        let items = filteredItems
+        guard selectedIndex >= 0 && selectedIndex < items.count else { return }
+
+        if case .pathResult(let result) = items[selectedIndex], result.isDirectory {
+            // Replace query with the selected directory path + "/"
+            query = result.path + "/"
+        }
     }
 
     // MARK: - Navigation
 
     func moveSelection(by delta: Int) {
+        // Skip selection movement when in worktree branch input
+        if case .newWorktree = mode, worktreeSelectedConfig != nil { return }
+
         let items = filteredItems
         guard !items.isEmpty else { return }
         let newIndex = selectedIndex + delta
@@ -612,6 +1049,25 @@ struct CommandPaletteView: View {
             store.showCommandPalette = false
             store.launchSession(agentType: agentType, in: path)
 
+        case .repo(let config):
+            // Select repo, transition to branch input
+            withAnimation(.easeInOut(duration: 0.15)) {
+                worktreeSelectedConfig = config
+                branchName = ""
+            }
+            // Focus the branch text field after a tick
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                isBranchFocused = true
+            }
+
+        case .pathResult(let result):
+            if case .browsePath(let origin) = mode {
+                let agentType = origin == .newAgent ? "claude" : "terminal"
+                store.addRecentBrowsePath(result.path)
+                store.showCommandPalette = false
+                store.launchSession(agentType: agentType, in: result.path)
+            }
+
         case .action(let action):
             switch action.id {
             case "new-agent":
@@ -621,22 +1077,16 @@ struct CommandPaletteView: View {
                 mode = .newTerminal
 
             case "new-worktree":
-                store.showCommandPalette = false
-                store.showingCreateWorktreeSheet = true
+                mode = .newWorktree
 
             case "browse-other":
-                let agentType = mode == .newAgent ? "claude" : "terminal"
+                let origin: PathBrowseOrigin = mode == .newAgent ? .newAgent : .newTerminal
+                mode = .browsePath(origin: origin)
+
+            case "add-repository":
                 store.showCommandPalette = false
-                DispatchQueue.main.async {
-                    let panel = NSOpenPanel()
-                    panel.canChooseFiles = false
-                    panel.canChooseDirectories = true
-                    panel.allowsMultipleSelection = false
-                    panel.message = "Select the project working directory"
-                    if panel.runModal() == .OK, let url = panel.url {
-                        store.launchSession(agentType: agentType, in: url.path)
-                    }
-                }
+                store.repoConfigs.append(RepoConfig())
+                openSettings()
 
             default:
                 break
@@ -644,7 +1094,25 @@ struct CommandPaletteView: View {
         }
     }
 
+    // MARK: - Worktree Creation
+
+    private func createWorktree() {
+        guard let config = worktreeSelectedConfig,
+              !branchName.isEmpty,
+              BranchValidation.validate(branchName) == nil else { return }
+
+        store.beginWorktreeCreation(config: config, branchName: branchName)
+        store.showCommandPalette = false
+    }
+
     // MARK: - Helpers
+
+    private func closePalette() {
+        withAnimation(.easeIn(duration: 0.1)) {
+            store.showCommandPalette = false
+        }
+        ContentView.restoreFocusAfterPalette(store: store)
+    }
 
     private func matchedIndices(for text: String) -> [Int] {
         guard !query.isEmpty else { return [] }

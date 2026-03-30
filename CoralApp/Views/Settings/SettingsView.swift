@@ -69,6 +69,24 @@ struct SettingsView: View {
             }
 
             Section {
+                HStack {
+                    TextField("e.g. /Users/you/src", text: $store.browseRoot)
+                        .textFieldStyle(.plain)
+
+                    if !store.browseRoot.isEmpty {
+                        Button("Clear") {
+                            store.browseRoot = ""
+                        }
+                    }
+                }
+            } header: {
+                Text("Browse")
+            } footer: {
+                Text("Default starting directory when browsing for folders. Leave empty to search common paths.")
+                    .foregroundStyle(.secondary)
+            }
+
+            Section {
                 Toggle("Needs Input", isOn: $needsInputEnabled)
                 Toggle("Done", isOn: $doneEnabled)
             } header: {
