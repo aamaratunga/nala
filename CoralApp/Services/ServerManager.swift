@@ -23,7 +23,17 @@ final class ServerManager {
 
     private(set) var mode: Mode = .external
 
+    /// True when the app is running as an XCTest host — skip server connection
+    /// to avoid making real API calls during unit tests.
+    static let isTestHost = NSClassFromString("XCTestCase") != nil
+
     init() {
+        // When running as a test host, don't connect to any server.
+        guard !Self.isTestHost else {
+            statusMessage = "Test host mode — server disabled"
+            return
+        }
+
         // Check for CORAL_PORT environment variable
         if let envPort = ProcessInfo.processInfo.environment["CORAL_PORT"],
            let p = Int(envPort) {

@@ -286,12 +286,14 @@ final class SessionStore {
     // MARK: - Error Alerts
 
     func showErrorAlert(title: String, message: String?) {
-        let alert = NSAlert()
-        alert.messageText = title
-        alert.informativeText = message ?? "An unknown error occurred."
-        alert.alertStyle = .critical
-        alert.addButton(withTitle: "OK")
-        alert.runModal()
+        Task { @MainActor in
+            let alert = NSAlert()
+            alert.messageText = title
+            alert.informativeText = message ?? "An unknown error occurred."
+            alert.alertStyle = .critical
+            alert.addButton(withTitle: "OK")
+            alert.runModal()
+        }
     }
 
     // MARK: - Dismiss / Retry Progress
