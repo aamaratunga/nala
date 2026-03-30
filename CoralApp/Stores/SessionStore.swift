@@ -119,12 +119,17 @@ final class SessionStore {
     private(set) var apiClient = APIClient()
     private var webSocket: CoralWebSocket?
     private let logger = Logger(subsystem: "com.coral.app", category: "SessionStore")
+    private let defaults: UserDefaults
     private var isSuppressingPersistence = false
     private var lastScannedWorktreePaths: Set<String> = []
     private var scanTask: Task<Void, Never>?
 
     /// Cache: workingDirectory → resolved git root (or self if not in a git repo).
     private var gitRootCache: [String: String] = [:]
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+    }
 
     /// Returns the git root for a working directory, falling back to the path itself.
     func groupingPath(for workingDirectory: String) -> String {
@@ -731,8 +736,14 @@ final class SessionStore {
     }
 
     func handleDiff(changed: [Session], removed: [String]) {
-        // Apply removals — but never remove placeholder sessions
-        if !removed.isEmpty {
+        // Guard against mass removal — if the server asks to remove all (or nearly all)
+        // sessions at once, it's likely a transient tmux failure rather than a real event.
+        // Skip the removals and wait for the next poll to self-correct.
+        let realSessionCount = sessions.filter({ !$0.isPlaceholder }).count
+        if !removed.isEmpty && removed.count >= realSessionCount && realSessionCount > 1 && changed.isEmpty {
+            logger.warning("Ignoring suspicious mass removal: \(removed.count) of \(realSessionCount) sessions")
+            // Still apply changes below (if any) and reconcile
+        } else if !removed.isEmpty {
             // Clear notification tracking and pending kills for removed sessions
             for id in removed {
                 NotificationManager.shared.clearSession(id)
@@ -874,7 +885,6 @@ final class SessionStore {
         isSuppressingPersistence = true
         defer { isSuppressingPersistence = false }
 
-        let defaults = UserDefaults.standard
         folderOrder = defaults.stringArray(forKey: Self.folderOrderKey) ?? []
 
         if let data = defaults.data(forKey: Self.sessionOrderKey),
@@ -917,24 +927,24 @@ final class SessionStore {
     }
 
     private func saveFolderOrder() {
-        UserDefaults.standard.set(folderOrder, forKey: Self.folderOrderKey)
+        defaults.set(folderOrder, forKey: Self.folderOrderKey)
     }
 
     private func saveSessionOrder() {
         if let data = try? JSONEncoder().encode(sessionOrder) {
-            UserDefaults.standard.set(data, forKey: Self.sessionOrderKey)
+            defaults.set(data, forKey: Self.sessionOrderKey)
         }
     }
 
     private func saveFolderExpansion() {
         if let data = try? JSONEncoder().encode(folderExpansion) {
-            UserDefaults.standard.set(data, forKey: Self.folderExpansionKey)
+            defaults.set(data, forKey: Self.folderExpansionKey)
         }
     }
 
     private func saveFolderStatus() {
         if let data = try? JSONEncoder().encode(folderStatus) {
-            UserDefaults.standard.set(data, forKey: Self.folderStatusKey)
+            defaults.set(data, forKey: Self.folderStatusKey)
         }
     }
 
@@ -944,26 +954,26 @@ final class SessionStore {
             result[pair.key.rawValue] = pair.value
         }
         if let data = try? JSONEncoder().encode(stringKeyed) {
-            UserDefaults.standard.set(data, forKey: Self.sectionExpansionKey)
+            defaults.set(data, forKey: Self.sectionExpansionKey)
         }
     }
 
     private func saveRepoConfigs() {
         if let data = try? JSONEncoder().encode(repoConfigs) {
-            UserDefaults.standard.set(data, forKey: Self.repoConfigsKey)
+            defaults.set(data, forKey: Self.repoConfigsKey)
         }
     }
 
     private func saveDiscoveredFolders() {
-        UserDefaults.standard.set(Array(discoveredFolders), forKey: Self.discoveredFoldersKey)
+        defaults.set(Array(discoveredFolders), forKey: Self.discoveredFoldersKey)
     }
 
     private func saveRecentBrowsePaths() {
-        UserDefaults.standard.set(recentBrowsePaths, forKey: Self.recentBrowsePathsKey)
+        defaults.set(recentBrowsePaths, forKey: Self.recentBrowsePathsKey)
     }
 
     private func saveBrowseRoot() {
-        UserDefaults.standard.set(browseRoot, forKey: Self.browseRootKey)
+        defaults.set(browseRoot, forKey: Self.browseRootKey)
     }
 
     // MARK: - Worktree Helpers

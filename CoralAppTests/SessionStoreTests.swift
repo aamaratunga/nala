@@ -3,8 +3,15 @@ import XCTest
 
 final class SessionStoreTests: XCTestCase {
 
+    private static let testSuiteName = "com.coral.app.tests"
+
     private func makeStore() -> SessionStore {
-        SessionStore()
+        SessionStore(defaults: UserDefaults(suiteName: Self.testSuiteName)!)
+    }
+
+    override func tearDown() {
+        super.tearDown()
+        UserDefaults.standard.removePersistentDomain(forName: Self.testSuiteName)
     }
 
     // MARK: - Full Update
@@ -773,7 +780,8 @@ final class SessionStoreTests: XCTestCase {
         let store = makeStore()
         store.addRecentBrowsePath("/persisted/path")
 
-        let saved = UserDefaults.standard.stringArray(forKey: "coral.recentBrowsePaths")
+        let testDefaults = UserDefaults(suiteName: Self.testSuiteName)!
+        let saved = testDefaults.stringArray(forKey: "coral.recentBrowsePaths")
         XCTAssertNotNil(saved)
         XCTAssertTrue(saved?.contains("/persisted/path") ?? false)
     }
@@ -781,7 +789,6 @@ final class SessionStoreTests: XCTestCase {
     // MARK: - Browse Root
 
     func testBrowseRootDefaultsToEmpty() {
-        UserDefaults.standard.removeObject(forKey: "coral.browseRoot")
         let store = makeStore()
         XCTAssertEqual(store.browseRoot, "")
     }
@@ -790,12 +797,14 @@ final class SessionStoreTests: XCTestCase {
         let store = makeStore()
         store.browseRoot = "/Users/test/src"
 
-        let saved = UserDefaults.standard.string(forKey: "coral.browseRoot")
+        let testDefaults = UserDefaults(suiteName: Self.testSuiteName)!
+        let saved = testDefaults.string(forKey: "coral.browseRoot")
         XCTAssertEqual(saved, "/Users/test/src")
     }
 
     func testBrowseRootLoadsOnConnect() {
-        UserDefaults.standard.set("/Users/test/projects", forKey: "coral.browseRoot")
+        let testDefaults = UserDefaults(suiteName: Self.testSuiteName)!
+        testDefaults.set("/Users/test/projects", forKey: "coral.browseRoot")
         let store = makeStore()
         // loadSavedOrder is called inside connect(), which reads persisted defaults
         store.connect(port: 0)
@@ -807,7 +816,8 @@ final class SessionStoreTests: XCTestCase {
         store.browseRoot = "/some/path"
         store.browseRoot = ""
 
-        let saved = UserDefaults.standard.string(forKey: "coral.browseRoot")
+        let testDefaults = UserDefaults(suiteName: Self.testSuiteName)!
+        let saved = testDefaults.string(forKey: "coral.browseRoot")
         XCTAssertEqual(saved, "")
     }
 }

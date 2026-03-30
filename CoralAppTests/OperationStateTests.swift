@@ -3,6 +3,17 @@ import XCTest
 
 final class OperationStateTests: XCTestCase {
 
+    private static let testSuiteName = "com.coral.app.tests.operations"
+
+    private func makeStore() -> SessionStore {
+        SessionStore(defaults: UserDefaults(suiteName: Self.testSuiteName)!)
+    }
+
+    override func tearDown() {
+        super.tearDown()
+        UserDefaults.standard.removePersistentDomain(forName: Self.testSuiteName)
+    }
+
     // MARK: - WorktreeCreationState (Task 7.2.1)
 
     func testCreationStateTransitions() {
@@ -67,7 +78,7 @@ final class OperationStateTests: XCTestCase {
     }
 
     func testCreationPlaceholderInStore() {
-        let store = SessionStore()
+        let store = makeStore()
         store.sessions = []
         var config = RepoConfig()
         config.repoPath = "/repos/my-repo"
@@ -172,7 +183,7 @@ final class OperationStateTests: XCTestCase {
     }
 
     func testDeletionStateInStore() {
-        let store = SessionStore()
+        let store = makeStore()
         let s1 = makeSession(name: "a", sessionId: "s1", workingDirectory: "/worktrees/old")
         let s2 = makeSession(name: "b", sessionId: "s2", workingDirectory: "/worktrees/old")
         store.sessions = [s1, s2]
@@ -217,7 +228,7 @@ final class OperationStateTests: XCTestCase {
     }
 
     func testRestartStateInStore() {
-        let store = SessionStore()
+        let store = makeStore()
         let s1 = makeSession(name: "agent-1", sessionId: "s1", workingDirectory: "/tmp")
         store.sessions = [s1]
         store.reconcileOrder()
