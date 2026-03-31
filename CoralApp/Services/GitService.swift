@@ -47,7 +47,7 @@ enum GitService {
         let args = ["-C", repoPath, "worktree", "add", worktreePath, "-b", branchName]
         logger.info("Creating worktree: repo=\(repoPath) folder=\(worktreeFolder) branch=\(branchName) target=\(worktreePath)")
         logger.debug("Command: git \(args.joined(separator: " "))")
-        let result = await runGit(args: args, label: "create worktree '\(branchName)'")
+        let result = await runGitWithRetry(args: args, label: "create worktree '\(branchName)'")
         if result.succeeded {
             logger.info("Worktree created at \(worktreePath)")
         } else {
@@ -73,7 +73,7 @@ enum GitService {
         if force { args.append("--force") }
         logger.info("Removing worktree: repo=\(repoPath) path=\(worktreePath) force=\(force)")
         logger.debug("Command: git \(args.joined(separator: " "))")
-        let result = await runGit(args: args, label: "remove worktree\(force ? " (force)" : "")")
+        let result = await runGitWithRetry(args: args, label: "remove worktree\(force ? " (force)" : "")")
         if result.succeeded {
             logger.info("Worktree removed: \(worktreePath)")
         } else {
@@ -159,6 +159,27 @@ enum GitService {
 
     private static func runGit(args: [String], label: String) async -> CommandResult {
         await runProcess(executablePath: "/usr/bin/git", args: args, environment: nil, label: label)
+    }
+
+    /// Runs a git command with retry on index lock contention (exponential backoff).
+    private static func runGitWithRetry(
+        args: [String],
+        label: String,
+        maxRetries: Int = 3,
+        baseDelay: TimeInterval = 1.0
+    ) async -> CommandResult {
+        let lockErrors = ["index.lock", "Unable to create", "lock file"]
+        for attempt in 0...maxRetries {
+            let result = await runGit(args: args, label: label)
+            if result.succeeded { return result }
+            let isLockError = lockErrors.contains { result.stderr.contains($0) }
+            if !isLockError || attempt == maxRetries { return result }
+            let delay = baseDelay * pow(2.0, Double(attempt))
+            logger.warning("Git lock contention (attempt \(attempt + 1)/\(maxRetries + 1)), retrying in \(delay)s: \(result.stderr)")
+            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+        }
+        // Unreachable, but satisfies the compiler
+        return await runGit(args: args, label: label)
     }
 
     private static func runProcess(
