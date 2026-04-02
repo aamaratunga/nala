@@ -63,6 +63,7 @@ struct Session: Identifiable, Equatable {
     var sleeping: Bool
     var waitingReason: String?
     var waitingSummary: String?
+    var latestEventSummary: String?
     var changedFileCount: Int
     var boardProject: String?
     var boardJobTitle: String?
@@ -94,6 +95,7 @@ struct Session: Identifiable, Equatable {
         sleeping: Bool = false,
         waitingReason: String? = nil,
         waitingSummary: String? = nil,
+        latestEventSummary: String? = nil,
         changedFileCount: Int = 0,
         boardProject: String? = nil,
         boardJobTitle: String? = nil,
@@ -119,6 +121,7 @@ struct Session: Identifiable, Equatable {
         self.sleeping = sleeping
         self.waitingReason = waitingReason
         self.waitingSummary = waitingSummary
+        self.latestEventSummary = latestEventSummary
         self.changedFileCount = changedFileCount
         self.boardProject = boardProject
         self.boardJobTitle = boardJobTitle
@@ -131,8 +134,35 @@ struct Session: Identifiable, Equatable {
     /// The label to show in the sidebar (matches web app fallback chain).
     var displayLabel: String {
         if let dn = displayName, !dn.isEmpty { return dn }
+        if let s = summary, !s.isEmpty { return s }
         if let job = boardJobTitle, !job.isEmpty { return job }
         return agentType == "terminal" ? "Terminal" : "Agent"
+    }
+
+    /// Activity subtitle shown below the name, with state-aware priority.
+    var effectiveSubtitle: String? {
+        if done { return "Completed" }
+        if stuck {
+            if let wr = waitingReason, !wr.isEmpty { return wr }
+            return "Stuck"
+        }
+        if waitingForInput {
+            if let ws = waitingSummary, !ws.isEmpty { return ws }
+            return "Waiting for input"
+        }
+        if sleeping { return "Sleeping" }
+        if let s = status, !s.isEmpty { return s }
+        if let event = latestEventSummary, !event.isEmpty { return event }
+        return nil
+    }
+
+    /// Color for the subtitle text, based on agent state.
+    var subtitleColor: Color {
+        if done { return CoralTheme.green }
+        if stuck { return CoralTheme.red }
+        if waitingForInput { return CoralTheme.amber }
+        if sleeping { return CoralTheme.textTertiary }
+        return CoralTheme.textSecondary
     }
 }
 
@@ -163,6 +193,7 @@ extension Session: Decodable {
         case sleeping
         case waitingReason = "waiting_reason"
         case waitingSummary = "waiting_summary"
+        case latestEventSummary = "latest_event_summary"
         case changedFileCount = "changed_file_count"
         case boardProject = "board_project"
         case boardJobTitle = "board_job_title"
@@ -191,6 +222,7 @@ extension Session: Decodable {
         sleeping = try c.decodeIfPresent(Bool.self, forKey: .sleeping) ?? false
         waitingReason = try c.decodeIfPresent(String.self, forKey: .waitingReason)
         waitingSummary = try c.decodeIfPresent(String.self, forKey: .waitingSummary)
+        latestEventSummary = try c.decodeIfPresent(String.self, forKey: .latestEventSummary)
         changedFileCount = try c.decodeIfPresent(Int.self, forKey: .changedFileCount) ?? 0
         boardProject = try c.decodeIfPresent(String.self, forKey: .boardProject)
         boardJobTitle = try c.decodeIfPresent(String.self, forKey: .boardJobTitle)
