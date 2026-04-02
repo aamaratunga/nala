@@ -47,14 +47,17 @@ struct SessionRowView: View {
                         Text(session.displayLabel)
                             .font(.headline)
                             .lineLimit(1)
+                            .contentTransition(.opacity)
+                            .animation(.easeInOut(duration: 0.2), value: session.displayLabel)
                     }
                 }
 
-                if let status = session.status, !status.isEmpty {
-                    Text(status)
+                if let activity = session.effectiveSubtitle, !activity.isEmpty {
+                    Text(activity)
                         .font(.caption)
-                        .foregroundStyle(CoralTheme.textSecondary)
-                        .lineLimit(2)
+                        .foregroundStyle(session.subtitleColor)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
                 }
             }
 
@@ -71,7 +74,7 @@ struct SessionRowView: View {
         .padding(.vertical, 8)
         .padding(.horizontal, 14)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(session.displayLabel), \(session.agentType)")
+        .accessibilityLabel("\(session.displayLabel), \(session.agentType), \(session.effectiveSubtitle ?? "idle")")
         .accessibilityHint(isEditing ? "Editing name" : "Double-tap to rename")
     }
 
