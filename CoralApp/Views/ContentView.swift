@@ -393,7 +393,8 @@ struct ContentView: View {
         }
 
         // Backspace on empty: pop mode back to switchSession
-        if event.keyCode == 51 && CommandPaletteView.currentQueryIsEmpty && !CommandPaletteView.currentModeIsSwitchSession {
+        // Skip when branch input is active — backspace must reach the branch TextField
+        if event.keyCode == 51 && CommandPaletteView.currentQueryIsEmpty && !CommandPaletteView.currentModeIsSwitchSession && !CommandPaletteView.isBranchInputActive {
             NotificationCenter.default.post(name: .paletteBackspaceEmpty, object: nil)
             return nil
         }

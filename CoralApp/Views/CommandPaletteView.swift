@@ -151,6 +151,8 @@ struct CommandPaletteView: View {
     static var currentQueryIsEmpty = true
     /// Shared state for NSEvent monitor: whether the current mode is .switchSession.
     static var currentModeIsSwitchSession = true
+    /// Shared state for NSEvent monitor: whether the branch name input is active (worktree mode).
+    static var isBranchInputActive = false
 
     // Worktree mode state
     @State private var worktreeSelectedConfig: RepoConfig?
@@ -197,6 +199,7 @@ struct CommandPaletteView: View {
             isSearchFocused = true
             CommandPaletteView.currentQueryIsEmpty = true
             CommandPaletteView.currentModeIsSwitchSession = (mode == .switchSession)
+            CommandPaletteView.isBranchInputActive = false
         }
         .onChange(of: store.pendingPaletteMode) { _, newPending in
             // When the palette is already open and a sidebar/menu button sets a new mode
@@ -210,6 +213,7 @@ struct CommandPaletteView: View {
             worktreeSelectedConfig = nil
             branchName = ""
             CommandPaletteView.currentModeIsSwitchSession = (newMode == .switchSession)
+            CommandPaletteView.isBranchInputActive = false
             if case .browsePath = newMode, !store.browseRoot.isEmpty {
                 let root = store.browseRoot.hasSuffix("/") ? store.browseRoot : store.browseRoot + "/"
                 query = root
@@ -311,6 +315,7 @@ struct CommandPaletteView: View {
                     branchName = ""
                     isSearchFocused = true
                 }
+                CommandPaletteView.isBranchInputActive = false
             } label: {
                 Image(systemName: "chevron.left")
                     .font(.caption)
@@ -973,6 +978,7 @@ struct CommandPaletteView: View {
                 } else {
                     // Back to repo selection
                     worktreeSelectedConfig = nil
+                    CommandPaletteView.isBranchInputActive = false
                     isSearchFocused = true
                 }
             } else {
@@ -1055,6 +1061,7 @@ struct CommandPaletteView: View {
                 worktreeSelectedConfig = config
                 branchName = ""
             }
+            CommandPaletteView.isBranchInputActive = true
             // Focus the branch text field after a tick
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                 isBranchFocused = true
