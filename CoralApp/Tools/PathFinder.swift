@@ -249,21 +249,15 @@ final class PathFinder {
             }
         }
 
-        // Search browse root (user-configured) or fall back to common development paths
+        // Search browse root (user-configured) or skip — the `roots` parameter
+        // (existing session folders) already provides search paths. Hardcoded home
+        // subdirectories were removed to avoid triggering macOS TCC permission prompts.
         let expandedBrowseRoot = expandTilde(browseRoot)
         let fallbackDirs: [String]
         if !expandedBrowseRoot.isEmpty {
             fallbackDirs = [expandedBrowseRoot]
         } else {
-            let homePath = NSHomeDirectory()
-            fallbackDirs = [
-                "\(homePath)/src",
-                "\(homePath)/Projects",
-                "\(homePath)/Developer",
-                "\(homePath)/Code",
-                "\(homePath)/repos",
-                "\(homePath)/workspace"
-            ]
+            fallbackDirs = []
         }
 
         for dir in fallbackDirs {
