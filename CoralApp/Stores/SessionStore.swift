@@ -20,8 +20,9 @@ struct StatusSection: Identifiable, Equatable {
     var id: String { status.rawValue }
 }
 
-/// Central observable store for live session state. Owns the WebSocket
-/// connection and merges diffs into a flat session list.
+/// Central observable store for live session state. Owns the native services
+/// (TmuxService, PulseParser, EventFileWatcher, GitService) and merges their
+/// output into a flat session list.
 @Observable
 final class SessionStore {
     var sessions: [Session] = []
@@ -31,6 +32,7 @@ final class SessionStore {
     /// Set before showing palette to control initial mode (consumed by CommandPaletteView on appear).
     var pendingPaletteMode: PaletteMode?
     var isConnected = false
+    var tmuxNotFound = false
 
     var pendingKillSession: Session?
     var showingKillConfirmation = false
@@ -54,9 +56,13 @@ final class SessionStore {
     /// Active session restart states, keyed by original session ID.
     var activeRestarts: [String: SessionRestartState] = [:]
 
-    /// Session IDs that were optimistically removed (pending server-side kill).
-    /// Prevents handleDiff from re-adding them before the removal diff arrives.
+    /// Session IDs that were optimistically removed (pending tmux kill).
+    /// Prevents polling from re-adding them before they actually disappear.
     private var pendingKills: Set<String> = []
+
+    /// Session IDs whose "done" state has been acknowledged by the user.
+    /// While in this set, EventFileWatcher's done=true is suppressed to false.
+    private var acknowledgedSessionIds: Set<String> = []
 
     // MARK: - Ordering State (persisted via UserDefaults)
 
@@ -116,13 +122,38 @@ final class SessionStore {
     /// UserDefaults so the sidebar loads instantly on next launch.
     var discoveredFolders: Set<String> = []
 
-    private(set) var apiClient = APIClient()
-    private var webSocket: CoralWebSocket?
+    // MARK: - Native Services
+
+    private var tmuxService: TmuxService?
+    private var pulseParser: PulseParser?
+    private var eventWatcher: EventFileWatcher?
+    private var gitPoller: GitService.GitStatePoller?
+    private var autoNamer: AutoNamer?
+    private var serviceTask: Task<Void, Never>?
+    private var stalenessTask: Task<Void, Never>?
+    private var gitPollTask: Task<Void, Never>?
+
+    /// Cached git state per repo path
+    private var gitStateCache: [String: GitService.GitStatus] = [:]
+
+    /// Collected activity summaries per session for auto-naming.
+    private var activityLog: [String: [String]] = [:]
+
+    /// Sessions explicitly renamed by the user (auto-naming won't touch these).
+    private var userRenamedSessions: Set<String> = []
+
+    /// Persisted display names (keyed by sessionId)
+    private static let displayNamesKey = "coral.displayNames"
+    private static let acknowledgedSessionsKey = "coral.acknowledgedSessions"
+
     private let logger = Logger(subsystem: "com.coral.app", category: "SessionStore")
     private let defaults: UserDefaults
     private var isSuppressingPersistence = false
     private var lastScannedWorktreePaths: Set<String> = []
     private var scanTask: Task<Void, Never>?
+
+    /// True when running as a test host — skip service connections.
+    static let isTestHost = NSClassFromString("XCTestCase") != nil
 
     /// Cache: workingDirectory → resolved git root (or self if not in a git repo).
     private var gitRootCache: [String: String] = [:]
@@ -363,7 +394,7 @@ final class SessionStore {
         }
     }
 
-    // MARK: - Connection
+    // MARK: - Native Service Lifecycle
 
     /// Computed list of repo configs that have both required fields set.
     var validRepoConfigs: [RepoConfig] {
@@ -425,43 +456,395 @@ final class SessionStore {
         }
     }
 
-    func connect(port: Int) {
-        apiClient = APIClient(port: port)
+    /// Start native services for session discovery and monitoring.
+    func startServices() {
         loadSavedOrder()
         scanWorktreeFolders()
 
-        let ws = CoralWebSocket(port: port)
-        webSocket = ws
+        guard !Self.isTestHost else { return }
 
-        ws.onFullUpdate = { [weak self] sessions in
-            self?.handleFullUpdate(sessions)
+        let tmux = TmuxService()
+        let pulse = PulseParser()
+        let events = EventFileWatcher()
+        let git = GitService.GitStatePoller()
+        let namer = AutoNamer()
+
+        tmuxService = tmux
+        if !tmux.tmuxAvailable {
+            tmuxNotFound = true
+            logger.error("tmux not found — sessions will not be discovered")
+        }
+        pulseParser = pulse
+        eventWatcher = events
+        gitPoller = git
+        autoNamer = namer
+
+        // Start consuming streams from all services
+        serviceTask = Task { [weak self] in
+            await withTaskGroup(of: Void.self) { group in
+                // TmuxService polling (1-second cadence)
+                group.addTask { [weak self] in
+                    for await update in tmux.updates(interval: 1.0) {
+                        guard let self else { return }
+                        await MainActor.run {
+                            self.handleTmuxUpdate(update)
+                        }
+                    }
+                }
+
+                // PulseParser updates
+                group.addTask { [weak self] in
+                    for await update in pulse.updates() {
+                        guard let self else { return }
+                        await MainActor.run {
+                            self.handlePulseUpdate(update)
+                        }
+                    }
+                }
+
+                // EventFileWatcher updates
+                group.addTask { [weak self] in
+                    for await update in events.updates() {
+                        guard let self else { return }
+                        await MainActor.run {
+                            self.handleAgentStateUpdate(update)
+                        }
+                    }
+                }
+
+                // GitService polling (5-second cadence)
+                group.addTask { [weak self] in
+                    for await update in git.updates() {
+                        guard let self else { return }
+                        await MainActor.run {
+                            self.handleGitStateUpdate(update)
+                        }
+                    }
+                }
+            }
         }
 
-        ws.onDiff = { [weak self] changed, removed in
-            self?.handleDiff(changed: changed, removed: removed)
+        // Staleness refresh (every 30 seconds)
+        stalenessTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 30_000_000_000) // 30s
+                guard let self else { return }
+                self.eventWatcher?.refreshStaleness()
+            }
         }
 
-        ws.onDisconnect = { [weak self] in
-            self?.isConnected = false
+        // Git polling cadence (every 5 seconds)
+        gitPollTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 5_000_000_000) // 5s
+                guard let self else { return }
+                await self.gitPoller?.pollOnce()
+            }
+        }
+    }
+
+    /// Stop all services. Called on app termination.
+    func stopServices() {
+        serviceTask?.cancel()
+        serviceTask = nil
+        stalenessTask?.cancel()
+        stalenessTask = nil
+        gitPollTask?.cancel()
+        gitPollTask = nil
+        tmuxService?.stop()
+        pulseParser?.stopAll()
+        eventWatcher?.stopAll()
+        gitPoller?.stop()
+    }
+
+    // MARK: - Agent State Application
+
+    /// Apply agent state fields to a session at the given index.
+    /// Handles acknowledgement clearing, done suppression, and auto-acknowledge.
+    private func applyAgentState(_ state: AgentState, toSessionAt idx: Int) {
+        let sessionId = sessions[idx].sessionId
+
+        // Auto-clear acknowledgement when agent becomes active again
+        if state.working && !state.done {
+            if acknowledgedSessionIds.remove(sessionId) != nil {
+                saveAcknowledgedSessions()
+            }
         }
 
-        ws.connect()
+        sessions[idx].working = state.working
+        sessions[idx].done = state.done
+        sessions[idx].waitingForInput = state.waitingForInput
+        sessions[idx].stuck = state.stuck
+        sessions[idx].sleeping = state.sleeping
+        sessions[idx].waitingReason = state.waitingReason
+        sessions[idx].waitingSummary = state.waitingSummary
+        if state.latestEventType != "prompt_submit" {
+            sessions[idx].latestEventSummary = state.latestEventSummary
+        }
+        if let lastTime = state.lastEventTime {
+            sessions[idx].stalenessSeconds = Date().timeIntervalSince(lastTime)
+        }
+
+        // Suppress done if acknowledged
+        if acknowledgedSessionIds.contains(sessionId) {
+            sessions[idx].done = false
+        }
+
+        // Auto-acknowledge if this session is currently selected
+        if sessions[idx].done && selectedSessionId == sessions[idx].id {
+            acknowledgedSessionIds.insert(sessionId)
+            sessions[idx].done = false
+            saveAcknowledgedSessions()
+        }
     }
 
-    var reconnectAttempt: Int {
-        webSocket?.reconnectAttempt ?? 0
+    // MARK: - Tmux Update Handler
+
+    func handleTmuxUpdate(_ update: TmuxUpdate) {
+        // Process removals
+        let removedNames = Set(update.removed)
+        if !removedNames.isEmpty {
+            for name in removedNames {
+                // Find the session ID for this tmux session name
+                if let session = sessions.first(where: { $0.name == name }) {
+                    NotificationManager.shared.clearSession(session.id)
+                    pendingKills.remove(session.id)
+                    pulseParser?.stopWatching(sessionName: name)
+                    eventWatcher?.stopWatching(sessionId: session.sessionId)
+                    autoNamer?.reset(sessionId: session.sessionId)
+                    activityLog.removeValue(forKey: session.sessionId)
+                    userRenamedSessions.remove(session.sessionId)
+                    acknowledgedSessionIds.remove(session.sessionId)
+                }
+            }
+
+            sessions.removeAll { session in
+                guard !session.isPlaceholder else { return false }
+                guard activeDeletions[session.workingDirectory] == nil
+                   && activeDeletions[groupingPath(for: session.workingDirectory)] == nil else { return false }
+                return removedNames.contains(session.name)
+            }
+
+            // Clear selection if needed
+            if let selectedId = selectedSessionId,
+               sessions.first(where: { $0.id == selectedId }) == nil {
+                let isInDeletingFolder = false // Already filtered above
+                let isBeingRestarted = activeRestarts[selectedId] != nil
+                if !isInDeletingFolder && !isBeingRestarted {
+                    selectedSessionId = nil
+                }
+            }
+        }
+
+        // Process additions and current state
+        for info in update.current {
+            let sessionId = info.sessionId
+            let compositeKey = sessionId
+
+            // Skip sessions that were optimistically killed
+            guard !pendingKills.contains(compositeKey) else { continue }
+
+            // Start watchers for new sessions
+            let logPath = "/tmp/coral_\(info.sessionName).log"
+            if pulseParser?.cachedResult(for: info.sessionName) == nil {
+                pulseParser?.startWatching(sessionName: info.sessionName, logPath: logPath)
+            }
+            if info.agentType == "claude", eventWatcher?.cachedState(for: sessionId) == nil {
+                eventWatcher?.startWatching(sessionId: sessionId)
+            }
+
+            // Build or update the session
+            let pulseState = pulseParser?.cachedResult(for: info.sessionName)
+            let agentState = eventWatcher?.cachedState(for: sessionId)
+            let gitState = gitStateCache[groupingPath(for: info.workingDirectory)]
+
+            let existingIdx = sessions.firstIndex(where: { $0.id == compositeKey })
+
+            if let idx = existingIdx {
+                // Update existing session in place
+                let old = sessions[idx]
+                sessions[idx].workingDirectory = info.workingDirectory
+                sessions[idx].logPath = logPath
+
+                if let pulse = pulseState {
+                    if let s = pulse.status { sessions[idx].status = s }
+                    if let s = pulse.summary { sessions[idx].summary = s }
+                }
+
+                if let state = agentState {
+                    applyAgentState(state, toSessionAt: idx)
+                }
+
+                if let git = gitState {
+                    sessions[idx].branch = git.branch
+                    sessions[idx].changedFileCount = git.dirtyFileCount
+                }
+
+                NotificationManager.shared.evaluateTransition(old: old, new: sessions[idx])
+            } else {
+                // New session
+                var session = Session(
+                    name: info.sessionName,
+                    agentType: info.agentType,
+                    sessionId: sessionId,
+                    tmuxSession: info.sessionName,
+                    workingDirectory: info.workingDirectory,
+                    logPath: logPath
+                )
+                session.displayName = loadDisplayName(for: sessionId)
+                session.commands = defaultCommands(for: info.agentType)
+
+                if let pulse = pulseState {
+                    session.status = pulse.status
+                    session.summary = pulse.summary
+                }
+
+                if let git = gitState {
+                    session.branch = git.branch
+                    session.changedFileCount = git.dirtyFileCount
+                }
+
+                sessions.append(session)
+
+                if let state = agentState {
+                    applyAgentState(state, toSessionAt: sessions.count - 1)
+                }
+
+                NotificationManager.shared.evaluateTransition(old: nil, new: sessions[sessions.count - 1])
+            }
+
+            // Check if this new session matches a finished launch placeholder
+            for (placeholderId, launch) in activeLaunches {
+                if let realId = launch.realSessionId, compositeKey == realId {
+                    replaceLaunchPlaceholder(placeholderId: placeholderId, realSessionId: compositeKey)
+                    break
+                }
+            }
+
+            // Check if this new session matches a finished worktree creation placeholder
+            for (placeholderId, creation) in activeCreations {
+                if creation.isFinished && info.workingDirectory == creation.worktreePath {
+                    replacePlaceholder(placeholderId: placeholderId, realSessionId: compositeKey)
+                    break
+                }
+            }
+
+            // Check if this new session matches a finished restart
+            for (originalId, restart) in activeRestarts {
+                if restart.isFinished && info.workingDirectory == restart.originalSession.workingDirectory {
+                    if selectedSessionId == originalId {
+                        selectedSessionId = compositeKey
+                    }
+                    activeRestarts.removeValue(forKey: originalId)
+                    break
+                }
+            }
+        }
+
+        // Ensure pipe-pane is configured (handles app restart while tmux persists)
+        Task {
+            for info in update.added {
+                await tmuxService?.ensurePipePane(session: info)
+            }
+        }
+
+        // Update git poller with current worktree paths
+        let worktreePaths = Set(update.current.map { groupingPath(for: $0.workingDirectory) })
+        gitPoller?.setPaths(worktreePaths)
+
+        reconcileOrder()
+        isConnected = true
     }
 
-    func forceReconnect() {
-        webSocket?.disconnect()
-        webSocket?.connect()
+    func handlePulseUpdate(_ update: PulseUpdate) {
+        // Find the session by tmux session name
+        guard let idx = sessions.firstIndex(where: { $0.name == update.sessionName }) else { return }
+        let old = sessions[idx]
+        if let status = update.result.status {
+            sessions[idx].status = status
+        }
+        if let summary = update.result.summary {
+            sessions[idx].summary = summary
+        }
+        NotificationManager.shared.evaluateTransition(old: old, new: sessions[idx])
     }
 
-    func disconnect() {
-        webSocket?.disconnect()
-        webSocket = nil
-        isConnected = false
+    func handleAgentStateUpdate(_ update: AgentStateUpdate) {
+        guard let idx = sessions.firstIndex(where: { $0.sessionId == update.sessionId }) else { return }
+        let old = sessions[idx]
+
+        applyAgentState(update.state, toSessionAt: idx)
+
+        NotificationManager.shared.evaluateTransition(old: old, new: sessions[idx])
+
+        // Auto-naming: collect activity and trigger when ready
+        if let summary = update.state.latestEventSummary, !summary.isEmpty {
+            let eventType = update.state.latestEventType ?? ""
+            // Capture both tool_use and prompt_submit events for naming context
+            if eventType == "tool_use" || eventType == "prompt_submit" {
+                let sessionId = update.sessionId
+                activityLog[sessionId, default: []].append(summary)
+
+                // Skip sessions the user explicitly renamed
+                if !userRenamedSessions.contains(sessionId),
+                   let namer = autoNamer,
+                   // Only count tool_use events for triggering (prompts alone aren't enough signal)
+                   eventType == "tool_use",
+                   namer.recordEvent(sessionId: sessionId) {
+                    let activities = activityLog[sessionId] ?? []
+                    let currentName = sessions[idx].displayName
+                    Task {
+                        if let name = await namer.generateName(activities: activities, currentName: currentName) {
+                            await MainActor.run { [weak self] in
+                                guard let self else { return }
+                                // Re-check: user may have renamed during the API call
+                                if let i = self.sessions.firstIndex(where: { $0.sessionId == sessionId }),
+                                   !self.userRenamedSessions.contains(sessionId) {
+                                    self.sessions[i].displayName = name
+                                    self.saveDisplayName(name, for: sessionId)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
+
+    func handleGitStateUpdate(_ update: GitService.GitStateUpdate) {
+        gitStateCache[update.repoPath] = update.status
+        // Update all sessions in this repo
+        for i in sessions.indices {
+            let path = groupingPath(for: sessions[i].workingDirectory)
+            if path == update.repoPath {
+                sessions[i].branch = update.status.branch
+                sessions[i].changedFileCount = update.status.dirtyFileCount
+            }
+        }
+    }
+
+    // MARK: - Default Commands
+
+    private func defaultCommands(for agentType: String) -> [SessionCommand] {
+        switch agentType {
+        case "claude":
+            return [
+                SessionCommand(name: "compact", description: "Compress conversation history"),
+                SessionCommand(name: "clear", description: "Clear conversation and start fresh"),
+                SessionCommand(name: "review", description: "Review code changes"),
+                SessionCommand(name: "cost", description: "Show token usage and cost"),
+                SessionCommand(name: "diff", description: "View changes made in session"),
+            ]
+        case "gemini":
+            return [
+                SessionCommand(name: "help", description: "Show available commands"),
+            ]
+        default:
+            return []
+        }
+    }
+
+    // MARK: - Session Launch (Native)
 
     func launchSession(agentType: String, in workingDir: String) {
         let state = SessionLaunchState(workingDirectory: workingDir, agentType: agentType)
@@ -488,7 +871,7 @@ final class SessionStore {
         let status = folderStatus[resolvedDir] ?? .inProgress
         sectionExpansion[status] = true
 
-        guard !ServerManager.isTestHost else { return }
+        guard !Self.isTestHost else { return }
         Task { await performLaunch(state: state) }
     }
 
@@ -497,19 +880,35 @@ final class SessionStore {
     }
 
     private func performLaunch(state: SessionLaunchState) async {
-        let request = LaunchRequest(workingDir: state.workingDirectory, agentType: state.agentType)
-        do {
-            let response = try await apiClient.launchAgent(request)
-            state.realSessionId = response.sessionId
-            state.isFinished = true
-            // If the real session already arrived via WS (unlikely), swap now
-            if sessions.contains(where: { $0.id == response.sessionId }) {
-                replaceLaunchPlaceholder(placeholderId: state.id, realSessionId: response.sessionId)
+        guard let tmux = tmuxService else {
+            await MainActor.run {
+                state.error = "TmuxService not available"
+                handleLaunchFailure(state: state)
             }
-            // Otherwise, handleDiff will do the swap when the session arrives
+            return
+        }
+
+        do {
+            let sessionName = try await tmux.createSession(
+                agentType: state.agentType,
+                workingDirectory: state.workingDirectory
+            )
+            // Extract session ID from session name (format: {type}-{uuid})
+            await MainActor.run {
+                if let parsed = TmuxService.parseSessionName(sessionName) {
+                    state.realSessionId = parsed.uuid
+                    state.isFinished = true
+                    // If the real session already arrived via polling (unlikely), swap now
+                    if sessions.contains(where: { $0.id == parsed.uuid }) {
+                        replaceLaunchPlaceholder(placeholderId: state.id, realSessionId: parsed.uuid)
+                    }
+                }
+            }
         } catch {
-            state.error = error.localizedDescription
-            handleLaunchFailure(state: state)
+            await MainActor.run {
+                state.error = error.localizedDescription
+                handleLaunchFailure(state: state)
+            }
         }
     }
 
@@ -532,6 +931,34 @@ final class SessionStore {
         activeLaunches.removeValue(forKey: state.id)
         reconcileOrder()
         showErrorAlert(title: "Session Launch Failed", message: state.error)
+    }
+
+    // MARK: - Session Kill (Native)
+
+    func killSession(_ session: Session) {
+        let snapshot = session
+        removeSessionOptimistically(session)
+
+        guard !Self.isTestHost else { return }
+        Task {
+            await tmuxService?.killSession(name: snapshot.name)
+        }
+    }
+
+    // MARK: - Send Keys / Command (Native)
+
+    func sendCommand(to session: Session, command: String) {
+        guard !Self.isTestHost else { return }
+        Task {
+            await tmuxService?.sendCommand(session: session.name, command: command)
+        }
+    }
+
+    func sendKeys(to session: Session, keys: [String]) {
+        guard !Self.isTestHost else { return }
+        Task {
+            await tmuxService?.sendKeys(session: session.name, keys: keys)
+        }
     }
 
     // MARK: - Optimistic Kill
@@ -569,51 +996,57 @@ final class SessionStore {
         reconcileOrder()
     }
 
-    // MARK: - Restart
+    // MARK: - Restart (Native)
 
     func restartSession(_ session: Session) {
         let state = SessionRestartState(originalSession: session)
         activeRestarts[session.id] = state
-        guard !ServerManager.isTestHost else { return }
+        guard !Self.isTestHost else { return }
         Task { await performRestart(state: state) }
     }
 
     private func performRestart(state: SessionRestartState) async {
         let session = state.originalSession
-
-        // Phase 1: Kill the session
-        state.phase = .killing
-        do {
-            try await apiClient.killSession(
-                sessionName: session.name,
-                agentType: session.agentType,
-                sessionId: session.sessionId
-            )
-        } catch {
-            state.error = error.localizedDescription
-            handleRestartFailure(state: state)
+        guard let tmux = tmuxService else {
+            await MainActor.run {
+                state.error = "TmuxService not available"
+                handleRestartFailure(state: state)
+            }
             return
         }
 
-        // Phase 2: Launch a new session
-        state.phase = .launching
-        let request = LaunchRequest(
-            workingDir: session.workingDirectory,
-            agentType: session.agentType,
-            displayName: session.displayName
-        )
-        do {
-            let response = try await apiClient.launchAgent(request)
-            state.isFinished = true
+        // Phase 1: Kill the session
+        await MainActor.run { state.phase = .killing }
+        await tmux.killSession(name: session.name)
 
-            // Transfer selection to the new session
-            if selectedSessionId == state.id {
-                selectedSessionId = response.sessionId
+        // Phase 2: Launch a new session
+        await MainActor.run { state.phase = .launching }
+        do {
+            let sessionName = try await tmux.createSession(
+                agentType: session.agentType,
+                workingDirectory: session.workingDirectory,
+                displayName: session.displayName
+            )
+            await MainActor.run {
+                state.isFinished = true
+
+                // Transfer selection and display name to the new session
+                if let parsed = TmuxService.parseSessionName(sessionName) {
+                    if selectedSessionId == state.id {
+                        selectedSessionId = parsed.uuid
+                    }
+                    // Preserve display name under the new session ID
+                    if let displayName = session.displayName {
+                        saveDisplayName(displayName, for: parsed.uuid)
+                    }
+                }
+                activeRestarts.removeValue(forKey: state.id)
             }
-            activeRestarts.removeValue(forKey: state.id)
         } catch {
-            state.error = error.localizedDescription
-            handleRestartFailure(state: state)
+            await MainActor.run {
+                state.error = error.localizedDescription
+                handleRestartFailure(state: state)
+            }
         }
     }
 
@@ -660,176 +1093,54 @@ final class SessionStore {
         folderOrder.move(fromOffsets: IndexSet(integer: fromIndex), toOffset: offset)
     }
 
-    // MARK: - Rename
+    // MARK: - Rename (Local Persistence)
 
     func renameSession(_ session: Session, to newName: String) {
         let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
         guard let idx = sessions.firstIndex(where: { $0.id == session.id }) else { return }
-        let originalName = sessions[idx].displayName
 
-        // Optimistic update
+        // Update immediately (no API call needed — persist to UserDefaults)
         sessions[idx].displayName = trimmed
-
-        Task {
-            do {
-                try await apiClient.setDisplayName(
-                    sessionName: session.name,
-                    sessionId: session.sessionId,
-                    displayName: trimmed
-                )
-            } catch {
-                // Rollback on failure
-                if let idx = sessions.firstIndex(where: { $0.id == session.id }) {
-                    sessions[idx].displayName = originalName
-                }
-                logger.error("Failed to rename session: \(error)")
-                lastError = "Rename failed: \(error.localizedDescription)"
-            }
-        }
+        saveDisplayName(trimmed, for: session.sessionId)
+        // Block auto-naming for this session — user chose a name explicitly
+        userRenamedSessions.insert(session.sessionId)
     }
 
-    // MARK: - Diff Merge (mirrors websocket.js logic)
+    // MARK: - Acknowledge Done State
 
-    func handleFullUpdate(_ newSessions: [Session]) {
-        // Preserve commands from existing sessions (WS doesn't send them)
-        let commandMap = Dictionary(
-            sessions.map { ($0.id, $0.commands) },
-            uniquingKeysWith: { _, last in last }
-        )
-
-        // Save active placeholder sessions before replacing (worktree creation + session launch)
-        let activePlaceholders = sessions.filter {
-            $0.isPlaceholder && (activeCreations[$0.id] != nil || activeLaunches[$0.id] != nil)
-        }
-
-        // Save sessions in folders being deleted before replacing
-        let deletingSessions = sessions.filter {
-            activeDeletions[$0.workingDirectory] != nil || activeDeletions[groupingPath(for: $0.workingDirectory)] != nil
-        }
-
-        // Deduplicate by id — the server may send the same session twice
-        var seen = Set<String>()
-        sessions = newSessions.compactMap { session in
-            guard seen.insert(session.id).inserted else { return nil }
-            var s = session
-            if s.commands.isEmpty, let existing = commandMap[s.id] {
-                s.commands = existing
-            }
-            return s
-        }
-
-        // Re-append placeholders that are still being created
-        for placeholder in activePlaceholders where !sessions.contains(where: { $0.id == placeholder.id }) {
-            sessions.append(placeholder)
-        }
-
-        // Re-append sessions in folders being deleted that got dropped
-        for session in deletingSessions where !sessions.contains(where: { $0.id == session.id }) {
-            sessions.append(session)
-        }
-
-        pendingKills.removeAll()
-        reconcileOrder()
-        isConnected = true
-        logger.info("Full update: \(self.sessions.count) sessions")
-
-        // Fetch commands via REST (WebSocket doesn't include them)
-        Task { await fetchCommands() }
+    func acknowledgeSession(_ sessionId: String) {
+        guard let idx = sessions.firstIndex(where: { $0.id == sessionId }),
+              sessions[idx].done else { return }
+        acknowledgedSessionIds.insert(sessions[idx].sessionId)
+        sessions[idx].done = false
+        saveAcknowledgedSessions()
     }
 
-    func handleDiff(changed: [Session], removed: [String]) {
-        // Guard against mass removal — if the server asks to remove all (or nearly all)
-        // sessions at once, it's likely a transient tmux failure rather than a real event.
-        // Skip the removals and wait for the next poll to self-correct.
-        let realSessionCount = sessions.filter({ !$0.isPlaceholder }).count
-        if !removed.isEmpty && removed.count >= realSessionCount && realSessionCount > 1 && changed.isEmpty {
-            logger.warning("Ignoring suspicious mass removal: \(removed.count) of \(realSessionCount) sessions")
-            // Still apply changes below (if any) and reconcile
-        } else if !removed.isEmpty {
-            // Clear notification tracking and pending kills for removed sessions
-            for id in removed {
-                NotificationManager.shared.clearSession(id)
-                pendingKills.remove(id)
-            }
+    // MARK: - Display Name Persistence (UserDefaults)
 
-            sessions.removeAll { session in
-                guard !session.isPlaceholder else { return false }
-                guard activeDeletions[session.workingDirectory] == nil
-                   && activeDeletions[groupingPath(for: session.workingDirectory)] == nil else { return false }
-                return removed.contains(session.sessionId) || removed.contains(session.name)
-            }
-            // Clear selection if the selected session was removed
-            // (but not if it's in a folder being deleted or being restarted)
-            if let selectedId = selectedSessionId,
-               removed.contains(selectedId) || sessions.first(where: { $0.id == selectedId }) == nil {
-                let isInDeletingFolder = sessions.first(where: { $0.id == selectedId })
-                    .map { activeDeletions[$0.workingDirectory] != nil || activeDeletions[groupingPath(for: $0.workingDirectory)] != nil } ?? false
-                let isBeingRestarted = activeRestarts[selectedId] != nil
-                if !isInDeletingFolder && !isBeingRestarted {
-                    selectedSessionId = nil
-                }
-            }
+    private func saveDisplayName(_ name: String, for sessionId: String) {
+        var names = defaults.dictionary(forKey: Self.displayNamesKey) as? [String: String] ?? [:]
+        names[sessionId] = name
+        defaults.set(names, forKey: Self.displayNamesKey)
+    }
+
+    private func loadDisplayName(for sessionId: String) -> String? {
+        let names = defaults.dictionary(forKey: Self.displayNamesKey) as? [String: String]
+        return names?[sessionId]
+    }
+
+    // MARK: - Acknowledged Sessions Persistence (UserDefaults)
+
+    private func saveAcknowledgedSessions() {
+        defaults.set(Array(acknowledgedSessionIds), forKey: Self.acknowledgedSessionsKey)
+    }
+
+    private func loadAcknowledgedSessions() {
+        if let saved = defaults.stringArray(forKey: Self.acknowledgedSessionsKey) {
+            acknowledgedSessionIds = Set(saved)
         }
-
-        // Apply changes — match by composite key (sessionId if present, else name)
-        // to mirror the JavaScript diff logic: `(s.session_id || s.name) === key`
-        for change in changed {
-            let changeKey = change.sessionId.isEmpty ? change.name : change.sessionId
-            let idx = sessions.firstIndex(where: {
-                let key = $0.sessionId.isEmpty ? $0.name : $0.sessionId
-                return key == changeKey
-            })
-
-            if let idx {
-                let oldSession = sessions[idx]
-                var updated = change
-                if updated.commands.isEmpty {
-                    updated.commands = oldSession.commands
-                }
-                sessions[idx] = updated
-                NotificationManager.shared.evaluateTransition(old: oldSession, new: updated)
-            } else {
-                // Don't re-add sessions that were optimistically killed
-                guard !pendingKills.contains(change.id) else { continue }
-                // Only append if not already present (guard against duplicates)
-                if !sessions.contains(where: { $0.id == change.id }) {
-                    sessions.append(change)
-                    NotificationManager.shared.evaluateTransition(old: nil, new: change)
-                }
-            }
-
-            // Check if this new session matches a finished worktree creation placeholder
-            for (placeholderId, creation) in activeCreations {
-                if creation.isFinished && change.workingDirectory == creation.worktreePath {
-                    replacePlaceholder(placeholderId: placeholderId, realSessionId: change.id)
-                    break
-                }
-            }
-
-            // Check if this new session matches a finished launch placeholder
-            for (placeholderId, launch) in activeLaunches {
-                if let realId = launch.realSessionId, change.id == realId {
-                    replaceLaunchPlaceholder(placeholderId: placeholderId, realSessionId: change.id)
-                    break
-                }
-            }
-
-            // Check if this new session matches a finished restart
-            for (originalId, restart) in activeRestarts {
-                if restart.isFinished && change.workingDirectory == restart.originalSession.workingDirectory {
-                    if selectedSessionId == originalId {
-                        selectedSessionId = change.id
-                    }
-                    activeRestarts.removeValue(forKey: originalId)
-                    break
-                }
-            }
-        }
-
-        reconcileOrder()
-        isConnected = true
     }
 
     // MARK: - Order Reconciliation
@@ -881,6 +1192,14 @@ final class SessionStore {
         for key in folderStatus.keys where !keepFolders.contains(key) {
             folderStatus.removeValue(forKey: key)
         }
+
+        // Prune stale acknowledged session IDs
+        let currentSessionIds = Set(sessions.map(\.sessionId))
+        let staleAcknowledged = acknowledgedSessionIds.subtracting(currentSessionIds)
+        if !staleAcknowledged.isEmpty {
+            acknowledgedSessionIds.subtract(staleAcknowledged)
+            saveAcknowledgedSessions()
+        }
     }
 
     // MARK: - Persistence
@@ -928,6 +1247,7 @@ final class SessionStore {
 
         recentBrowsePaths = defaults.stringArray(forKey: Self.recentBrowsePathsKey) ?? []
         browseRoot = defaults.string(forKey: Self.browseRootKey) ?? ""
+        loadAcknowledgedSessions()
     }
 
     private func saveFolderOrder() {
@@ -1025,7 +1345,7 @@ final class SessionStore {
         let status = folderStatus[folderPath] ?? .inProgress
         sectionExpansion[status] = true
 
-        guard !ServerManager.isTestHost else { return }
+        guard !Self.isTestHost else { return }
         Task { await performWorktreeDeletion(state: state) }
     }
 
@@ -1043,12 +1363,8 @@ final class SessionStore {
         } else {
             state.advance(to: .killingSessions)
             for session in sessionsInFolder {
-                logger.info("deleteWorktree: killing session \(session.name) (id=\(session.sessionId), type=\(session.agentType))")
-                try? await apiClient.killSession(
-                    sessionName: session.name,
-                    agentType: session.agentType,
-                    sessionId: session.sessionId
-                )
+                logger.info("deleteWorktree: killing session \(session.name)")
+                await tmuxService?.killSession(name: session.name)
             }
             state.completeCurrentStep()
         }
@@ -1190,7 +1506,7 @@ final class SessionStore {
         let status = folderStatus[worktreePath] ?? .inProgress
         sectionExpansion[status] = true
 
-        guard !ServerManager.isTestHost else { return }
+        guard !Self.isTestHost else { return }
         Task { await performWorktreeCreation(state: state, config: config) }
     }
 
@@ -1233,12 +1549,22 @@ final class SessionStore {
 
         // Step 3: Launch agent
         state.advance(to: .launchingAgent)
-        let request = LaunchRequest(workingDir: state.worktreePath, agentType: "claude")
+        guard let tmux = tmuxService else {
+            state.fail(at: .launchingAgent, message: "TmuxService not available")
+            handleCreationFailure(state: state, removeDiscoveredFolder: false)
+            return
+        }
+
         do {
-            let response = try await apiClient.launchAgent(request)
+            let sessionName = try await tmux.createSession(
+                agentType: "claude",
+                workingDirectory: state.worktreePath
+            )
             state.completeCurrentStep()
             state.isFinished = true
-            replacePlaceholder(placeholderId: state.id, realSessionId: response.sessionId)
+            if let parsed = TmuxService.parseSessionName(sessionName) {
+                replacePlaceholder(placeholderId: state.id, realSessionId: parsed.uuid)
+            }
         } catch {
             state.fail(at: .launchingAgent, message: error.localizedDescription)
             handleCreationFailure(state: state, removeDiscoveredFolder: false)
@@ -1270,23 +1596,21 @@ final class SessionStore {
         showErrorAlert(title: "Worktree Creation Failed", message: state.error)
     }
 
-    // MARK: - REST Fallback
+    // MARK: - List Directory (Native)
 
-    private func fetchCommands() async {
-        do {
-            let fullSessions = try await apiClient.fetchLiveSessions()
-            let commandMap = Dictionary(
-                fullSessions.map { ($0.id, $0.commands) },
-                uniquingKeysWith: { _, last in last }
-            )
-            for i in sessions.indices {
-                if let cmds = commandMap[sessions[i].id], !cmds.isEmpty {
-                    sessions[i].commands = cmds
-                }
-            }
-        } catch {
-            logger.warning("Failed to fetch commands: \(error)")
-        }
+    func listDirectory(at path: String) -> [String]? {
+        let fm = FileManager.default
+        let url = URL(fileURLWithPath: path)
+        guard let contents = try? fm.contentsOfDirectory(
+            at: url,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else { return nil }
+
+        return contents.compactMap { item in
+            let values = try? item.resourceValues(forKeys: [.isDirectoryKey])
+            return values?.isDirectory == true ? item.lastPathComponent : nil
+        }.sorted()
     }
 }
 

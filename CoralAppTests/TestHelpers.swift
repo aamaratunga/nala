@@ -1,6 +1,9 @@
 import Foundation
 @testable import Coral
 
+/// Shared JSON decoder for tests (Session uses custom CodingKeys, so plain JSONDecoder works)
+let coralJSONDecoder = JSONDecoder()
+
 /// Factory for creating `Session` values with sensible defaults.
 /// Only override the fields your test cares about.
 func makeSession(
@@ -19,8 +22,10 @@ func makeSession(
     done: Bool = false,
     working: Bool = false,
     stuck: Bool = false,
+    sleeping: Bool = false,
     waitingReason: String? = nil,
     waitingSummary: String? = nil,
+    latestEventSummary: String? = nil,
     changedFileCount: Int = 0,
     boardProject: String? = nil,
     boardJobTitle: String? = nil,
@@ -44,8 +49,10 @@ func makeSession(
         done: done,
         working: working,
         stuck: stuck,
+        sleeping: sleeping,
         waitingReason: waitingReason,
         waitingSummary: waitingSummary,
+        latestEventSummary: latestEventSummary,
         changedFileCount: changedFileCount,
         boardProject: boardProject,
         boardJobTitle: boardJobTitle,

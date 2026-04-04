@@ -12,7 +12,7 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
     private let center = UNUserNotificationCenter.current()
 
     /// Tracks the last notified state per session to prevent duplicate notifications
-    /// when the WebSocket re-sends the same state.
+    /// when the native services re-send the same state.
     private struct NotifiedState {
         var waitingForInput: Bool
         var done: Bool

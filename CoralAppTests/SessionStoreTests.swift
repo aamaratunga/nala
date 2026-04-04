@@ -14,159 +14,300 @@ final class SessionStoreTests: XCTestCase {
         UserDefaults.standard.removePersistentDomain(forName: Self.testSuiteName)
     }
 
-    // MARK: - Full Update
+    // MARK: - handleTmuxUpdate — Add / Remove
 
-    func testFullUpdateReplacesSessions() {
+    func testTmuxUpdateAddsNewSession() {
         let store = makeStore()
-        store.sessions = [makeSession(name: "old", sessionId: "old-1")]
+        let info = TmuxSessionInfo(
+            sessionName: "claude-abc12345-1234-1234-1234-123456789abc",
+            agentType: "claude",
+            sessionId: "abc12345-1234-1234-1234-123456789abc",
+            workingDirectory: "/tmp",
+            paneTarget: "claude-abc:0.0"
+        )
+        let update = TmuxUpdate(added: [info], removed: [], current: [info])
 
-        store.handleFullUpdate([
-            makeSession(name: "new-a", sessionId: "new-1", workingDirectory: "/tmp/a"),
-            makeSession(name: "new-b", sessionId: "new-2", workingDirectory: "/tmp/a"),
-        ])
-
-        XCTAssertEqual(store.sessions.count, 2)
-        XCTAssertEqual(store.sessions[0].sessionId, "new-1")
-        XCTAssertEqual(store.sessions[1].sessionId, "new-2")
-    }
-
-    func testFullUpdateDeduplicatesById() {
-        let store = makeStore()
-
-        store.handleFullUpdate([
-            makeSession(name: "agent-1", sessionId: "dup-1", workingDirectory: "/tmp"),
-            makeSession(name: "agent-1-copy", sessionId: "dup-1", workingDirectory: "/tmp"),
-        ])
+        store.handleTmuxUpdate(update)
 
         XCTAssertEqual(store.sessions.count, 1)
-        XCTAssertEqual(store.sessions[0].name, "agent-1")
-    }
-
-    func testFullUpdatePreservesExistingCommands() {
-        let store = makeStore()
-        let cmds = [SessionCommand(name: "test", description: "Run tests")]
-        store.sessions = [makeSession(sessionId: "s1", workingDirectory: "/tmp", commands: cmds)]
-
-        // Incoming session has no commands (as WebSocket payloads typically don't)
-        store.handleFullUpdate([
-            makeSession(sessionId: "s1", workingDirectory: "/tmp", commands: [])
-        ])
-
-        XCTAssertEqual(store.sessions[0].commands, cmds)
-    }
-
-    func testFullUpdateSetsIsConnected() {
-        let store = makeStore()
-        XCTAssertFalse(store.isConnected)
-
-        store.handleFullUpdate([makeSession(workingDirectory: "/tmp")])
-
+        XCTAssertEqual(store.sessions[0].sessionId, "abc12345-1234-1234-1234-123456789abc")
+        XCTAssertEqual(store.sessions[0].agentType, "claude")
         XCTAssertTrue(store.isConnected)
     }
 
-    // MARK: - Diff — Changes
-
-    func testDiffUpdatesExistingSessionByCompositeKey() {
+    func testTmuxUpdateRemovesSession() {
         let store = makeStore()
-        store.sessions = [makeSession(name: "a", sessionId: "s1", status: nil, workingDirectory: "/tmp")]
+        store.sessions = [makeSession(name: "claude-s1", sessionId: "s1", workingDirectory: "/tmp")]
+        store.reconcileOrder()
 
-        store.handleDiff(
-            changed: [makeSession(name: "a", sessionId: "s1", status: "Working", workingDirectory: "/tmp")],
-            removed: []
-        )
+        let update = TmuxUpdate(added: [], removed: ["claude-s1"], current: [])
+        store.handleTmuxUpdate(update)
 
-        XCTAssertEqual(store.sessions.count, 1)
-        XCTAssertEqual(store.sessions[0].status, "Working")
+        XCTAssertTrue(store.sessions.isEmpty)
     }
 
-    func testDiffMatchesByNameWhenSessionIdEmpty() {
+    func testTmuxUpdateClearsSelectionOnRemoval() {
         let store = makeStore()
-        store.sessions = [makeSession(name: "term-1", sessionId: "", workingDirectory: "/tmp")]
-
-        store.handleDiff(
-            changed: [makeSession(name: "term-1", sessionId: "", status: "Busy", workingDirectory: "/tmp")],
-            removed: []
-        )
-
-        XCTAssertEqual(store.sessions.count, 1)
-        XCTAssertEqual(store.sessions[0].status, "Busy")
-    }
-
-    func testDiffAppendsNewSession() {
-        let store = makeStore()
-        store.sessions = [makeSession(name: "a", sessionId: "s1", workingDirectory: "/tmp")]
-
-        store.handleDiff(
-            changed: [makeSession(name: "b", sessionId: "s2", workingDirectory: "/tmp")],
-            removed: []
-        )
-
-        XCTAssertEqual(store.sessions.count, 2)
-        XCTAssertEqual(store.sessions[1].sessionId, "s2")
-    }
-
-    func testDiffPreservesCommandsOnUpdate() {
-        let store = makeStore()
-        let cmds = [SessionCommand(name: "build", description: "Build it")]
-        store.sessions = [makeSession(sessionId: "s1", workingDirectory: "/tmp", commands: cmds)]
-
-        store.handleDiff(
-            changed: [makeSession(sessionId: "s1", workingDirectory: "/tmp", commands: [])],
-            removed: []
-        )
-
-        XCTAssertEqual(store.sessions[0].commands, cmds)
-    }
-
-    // MARK: - Diff — Removals
-
-    func testDiffRemovesBySessionId() {
-        let store = makeStore()
-        store.sessions = [
-            makeSession(name: "a", sessionId: "s1", workingDirectory: "/tmp"),
-            makeSession(name: "b", sessionId: "s2", workingDirectory: "/tmp"),
-        ]
-
-        store.handleDiff(changed: [], removed: ["s1"])
-
-        XCTAssertEqual(store.sessions.count, 1)
-        XCTAssertEqual(store.sessions[0].sessionId, "s2")
-    }
-
-    func testDiffRemovesByName() {
-        let store = makeStore()
-        store.sessions = [
-            makeSession(name: "term-1", sessionId: "", workingDirectory: "/tmp"),
-            makeSession(name: "agent-1", sessionId: "s1", workingDirectory: "/tmp"),
-        ]
-
-        store.handleDiff(changed: [], removed: ["term-1"])
-
-        XCTAssertEqual(store.sessions.count, 1)
-        XCTAssertEqual(store.sessions[0].name, "agent-1")
-    }
-
-    func testDiffClearsSelectionWhenSelectedRemoved() {
-        let store = makeStore()
-        store.sessions = [makeSession(sessionId: "s1", workingDirectory: "/tmp")]
+        store.sessions = [makeSession(name: "claude-s1", sessionId: "s1", workingDirectory: "/tmp")]
         store.selectedSessionId = "s1"
+        store.reconcileOrder()
 
-        store.handleDiff(changed: [], removed: ["s1"])
+        let update = TmuxUpdate(added: [], removed: ["claude-s1"], current: [])
+        store.handleTmuxUpdate(update)
 
         XCTAssertNil(store.selectedSessionId)
     }
 
-    func testDiffKeepsSelectionWhenOtherRemoved() {
+    func testTmuxUpdateSkipsPendingKills() {
         let store = makeStore()
-        store.sessions = [
-            makeSession(name: "a", sessionId: "s1", workingDirectory: "/tmp"),
-            makeSession(name: "b", sessionId: "s2", workingDirectory: "/tmp"),
-        ]
+        let s1 = makeSession(name: "claude-s1", sessionId: "s1", workingDirectory: "/tmp")
+        store.sessions = [s1]
+        store.reconcileOrder()
+
+        // Optimistically remove — adds to pendingKills
+        store.removeSessionOptimistically(s1)
+        XCTAssertTrue(store.sessions.isEmpty)
+
+        // Tmux update still reports s1 as current
+        let info = TmuxSessionInfo(
+            sessionName: "claude-s1", agentType: "claude",
+            sessionId: "s1", workingDirectory: "/tmp", paneTarget: "claude-s1:0.0"
+        )
+        let update = TmuxUpdate(added: [], removed: [], current: [info])
+        store.handleTmuxUpdate(update)
+
+        XCTAssertTrue(store.sessions.isEmpty, "Killed session should not be re-added by tmux update")
+    }
+
+    func testTmuxUpdatePreservesDisplayName() {
+        let store = makeStore()
+        store.sessions = [makeSession(name: "claude-s1", sessionId: "s1", displayName: "My Agent", workingDirectory: "/tmp")]
+        store.reconcileOrder()
+
+        let info = TmuxSessionInfo(
+            sessionName: "claude-s1", agentType: "claude",
+            sessionId: "s1", workingDirectory: "/tmp", paneTarget: "claude-s1:0.0"
+        )
+        let update = TmuxUpdate(added: [], removed: [], current: [info])
+        store.handleTmuxUpdate(update)
+
+        XCTAssertEqual(store.sessions[0].displayName, "My Agent")
+    }
+
+    func testTmuxUpdateReplacesLaunchPlaceholder() {
+        let store = makeStore()
+        store.sessions = []
+        store.reconcileOrder()
+
+        // Launch creates placeholder
+        store.launchSession(agentType: "claude", in: "/tmp")
+        let placeholderId = store.selectedSessionId!
+        let launchState = store.activeLaunches[placeholderId]!
+
+        // Simulate tmux session creation completing
+        launchState.realSessionId = "real-uuid-1234-1234-1234-123456789abc"
+        launchState.isFinished = true
+
+        // Tmux polling picks up the real session
+        let info = TmuxSessionInfo(
+            sessionName: "claude-real-uuid-1234-1234-1234-123456789abc",
+            agentType: "claude",
+            sessionId: "real-uuid-1234-1234-1234-123456789abc",
+            workingDirectory: "/tmp",
+            paneTarget: "claude-real:0.0"
+        )
+        let update = TmuxUpdate(added: [info], removed: [], current: [info])
+        store.handleTmuxUpdate(update)
+
+        // Placeholder should be gone
+        XCTAssertNil(store.sessions.first(where: { $0.isPlaceholder }))
+        XCTAssertEqual(store.sessions.count, 1)
+        XCTAssertEqual(store.sessions[0].sessionId, "real-uuid-1234-1234-1234-123456789abc")
+        // Selection should transfer
+        XCTAssertEqual(store.selectedSessionId, "real-uuid-1234-1234-1234-123456789abc")
+        XCTAssertNil(store.activeLaunches[placeholderId])
+    }
+
+    // MARK: - handlePulseUpdate
+
+    func testPulseUpdateSetsStatusAndSummary() {
+        let store = makeStore()
+        store.sessions = [makeSession(name: "claude-s1", sessionId: "s1", workingDirectory: "/tmp")]
+        store.reconcileOrder()
+
+        let update = PulseUpdate(
+            sessionName: "claude-s1",
+            result: PulseResult(status: "Implementing tests", summary: "Adding unit tests")
+        )
+        store.handlePulseUpdate(update)
+
+        XCTAssertEqual(store.sessions[0].status, "Implementing tests")
+        XCTAssertEqual(store.sessions[0].summary, "Adding unit tests")
+    }
+
+    func testPulseUpdateNoOpForUnknownSession() {
+        let store = makeStore()
+        store.sessions = [makeSession(name: "claude-s1", sessionId: "s1", workingDirectory: "/tmp")]
+
+        let update = PulseUpdate(
+            sessionName: "nonexistent",
+            result: PulseResult(status: "Stuff", summary: "Things")
+        )
+        // Should not crash
+        store.handlePulseUpdate(update)
+
+        XCTAssertNil(store.sessions[0].status)
+    }
+
+    // MARK: - handleAgentStateUpdate
+
+    func testAgentStateUpdatePropagatesAllFields() {
+        let store = makeStore()
+        store.sessions = [makeSession(sessionId: "s1", workingDirectory: "/tmp")]
+        store.reconcileOrder()
+
+        let now = Date()
+        let state = AgentState(
+            working: true,
+            done: false,
+            waitingForInput: false,
+            stuck: false,
+            sleeping: false,
+            lastEventTime: now,
+            latestEventType: "tool_use",
+            latestEventSummary: "Edited main.swift",
+            waitingReason: nil,
+            waitingSummary: nil
+        )
+        store.handleAgentStateUpdate(AgentStateUpdate(sessionId: "s1", state: state))
+
+        XCTAssertTrue(store.sessions[0].working)
+        XCTAssertFalse(store.sessions[0].done)
+        XCTAssertFalse(store.sessions[0].waitingForInput)
+        XCTAssertFalse(store.sessions[0].stuck)
+        XCTAssertFalse(store.sessions[0].sleeping)
+        XCTAssertEqual(store.sessions[0].latestEventSummary, "Edited main.swift")
+        XCTAssertNotNil(store.sessions[0].stalenessSeconds)
+    }
+
+    func testAgentStateUpdateSuppressesDoneIfAcknowledged() {
+        let store = makeStore()
+        store.sessions = [makeSession(sessionId: "s1", workingDirectory: "/tmp", done: true)]
+        store.reconcileOrder()
+
+        // Pre-acknowledge the session
+        store.acknowledgeSession("s1")
+        XCTAssertFalse(store.sessions[0].done)
+
+        // Agent reports done=true again
+        let state = AgentState(done: true, latestEventType: "stop", latestEventSummary: "Agent stopped")
+        store.handleAgentStateUpdate(AgentStateUpdate(sessionId: "s1", state: state))
+
+        // Should still be suppressed
+        XCTAssertFalse(store.sessions[0].done)
+    }
+
+    func testAgentStateUpdateAutoAcknowledgesSelectedSession() {
+        let store = makeStore()
+        store.sessions = [makeSession(sessionId: "s1", workingDirectory: "/tmp")]
+        store.reconcileOrder()
         store.selectedSessionId = "s1"
 
-        store.handleDiff(changed: [], removed: ["s2"])
+        let state = AgentState(done: true, latestEventType: "stop", latestEventSummary: "Done")
+        store.handleAgentStateUpdate(AgentStateUpdate(sessionId: "s1", state: state))
 
-        XCTAssertEqual(store.selectedSessionId, "s1")
+        // Auto-acknowledged: done should be cleared
+        XCTAssertFalse(store.sessions[0].done)
+
+        // Persisted in acknowledged set
+        let testDefaults = UserDefaults(suiteName: Self.testSuiteName)!
+        let saved = testDefaults.stringArray(forKey: "coral.acknowledgedSessions") ?? []
+        XCTAssertTrue(saved.contains("s1"))
+    }
+
+    func testAgentStateUpdateClearsAcknowledgementOnNewActivity() {
+        let store = makeStore()
+        store.sessions = [makeSession(sessionId: "s1", workingDirectory: "/tmp", done: true)]
+        store.reconcileOrder()
+
+        // Acknowledge
+        store.acknowledgeSession("s1")
+
+        // Agent becomes active again
+        let state = AgentState(working: true, done: false, latestEventType: "tool_use", latestEventSummary: "Read file.swift")
+        store.handleAgentStateUpdate(AgentStateUpdate(sessionId: "s1", state: state))
+
+        // Acknowledged set should be cleared for this session
+        let testDefaults = UserDefaults(suiteName: Self.testSuiteName)!
+        let saved = testDefaults.stringArray(forKey: "coral.acknowledgedSessions") ?? []
+        XCTAssertFalse(saved.contains("s1"), "Acknowledgement should clear on new activity")
+
+        // Now when it becomes done again, it should show as done
+        let doneState = AgentState(done: true, latestEventType: "stop", latestEventSummary: "Stopped")
+        store.handleAgentStateUpdate(AgentStateUpdate(sessionId: "s1", state: doneState))
+
+        // Not selected, so done should remain true
+        store.selectedSessionId = nil
+        XCTAssertTrue(store.sessions[0].done, "Done should not be suppressed after acknowledgement cleared")
+    }
+
+    func testAgentStateUpdateFiltersPromptSubmitFromEventSummary() {
+        let store = makeStore()
+        store.sessions = [makeSession(sessionId: "s1", workingDirectory: "/tmp", latestEventSummary: "Read main.swift")]
+        store.reconcileOrder()
+
+        let state = AgentState(
+            working: true,
+            latestEventType: "prompt_submit",
+            latestEventSummary: "User submitted prompt"
+        )
+        store.handleAgentStateUpdate(AgentStateUpdate(sessionId: "s1", state: state))
+
+        // latestEventSummary should NOT be updated for prompt_submit
+        XCTAssertEqual(store.sessions[0].latestEventSummary, "Read main.swift")
+    }
+
+    // MARK: - handleGitStateUpdate
+
+    func testGitStateUpdatePropagatesBranchAndDirtyCount() {
+        let store = makeStore()
+        store.sessions = [
+            makeSession(name: "a", sessionId: "s1", workingDirectory: "/repo"),
+            makeSession(name: "b", sessionId: "s2", workingDirectory: "/repo"),
+        ]
+        store.reconcileOrder()
+
+        let update = GitService.GitStateUpdate(
+            repoPath: "/repo",
+            status: GitService.GitStatus(branch: "feature/tests", dirtyFileCount: 5)
+        )
+        store.handleGitStateUpdate(update)
+
+        XCTAssertEqual(store.sessions[0].branch, "feature/tests")
+        XCTAssertEqual(store.sessions[0].changedFileCount, 5)
+        XCTAssertEqual(store.sessions[1].branch, "feature/tests")
+        XCTAssertEqual(store.sessions[1].changedFileCount, 5)
+    }
+
+    func testGitStateUpdateOnlyAffectsMatchingRepo() {
+        let store = makeStore()
+        store.sessions = [
+            makeSession(name: "a", sessionId: "s1", branch: "main", workingDirectory: "/repo-a"),
+            makeSession(name: "b", sessionId: "s2", branch: "main", workingDirectory: "/repo-b"),
+        ]
+        store.reconcileOrder()
+
+        let update = GitService.GitStateUpdate(
+            repoPath: "/repo-a",
+            status: GitService.GitStatus(branch: "feature/new", dirtyFileCount: 3)
+        )
+        store.handleGitStateUpdate(update)
+
+        XCTAssertEqual(store.sessions[0].branch, "feature/new")
+        XCTAssertEqual(store.sessions[0].changedFileCount, 3)
+        // repo-b should be unchanged
+        XCTAssertEqual(store.sessions[1].branch, "main")
+        XCTAssertEqual(store.sessions[1].changedFileCount, 0)
     }
 
     // MARK: - Order Reconciliation
@@ -516,51 +657,7 @@ final class SessionStoreTests: XCTestCase {
         XCTAssertEqual(store.folderStatus["/proj/alpha"], .inReview)
     }
 
-    // MARK: - Pending Kills (Task 7.1.1)
-
-    func testHandleDiffFiltersPendingKills() {
-        let store = makeStore()
-        let s1 = makeSession(name: "a", sessionId: "s1", workingDirectory: "/tmp")
-        let s2 = makeSession(name: "b", sessionId: "s2", workingDirectory: "/tmp")
-        store.sessions = [s1, s2]
-        store.reconcileOrder()
-
-        // Optimistically remove s1 — this adds "s1" to pendingKills
-        store.removeSessionOptimistically(s1)
-        XCTAssertEqual(store.sessions.count, 1)
-        XCTAssertEqual(store.sessions[0].sessionId, "s2")
-
-        // Now a diff arrives with s1 as a changed session — should NOT be re-added
-        store.handleDiff(
-            changed: [makeSession(name: "a", sessionId: "s1", status: "Working", workingDirectory: "/tmp")],
-            removed: []
-        )
-
-        XCTAssertEqual(store.sessions.count, 1, "Killed session should not be re-added by handleDiff")
-        XCTAssertEqual(store.sessions[0].sessionId, "s2")
-    }
-
-    func testPendingKillsClearedOnRemovalDiff() {
-        let store = makeStore()
-        let s1 = makeSession(name: "a", sessionId: "s1", workingDirectory: "/tmp")
-        store.sessions = [s1]
-        store.reconcileOrder()
-
-        store.removeSessionOptimistically(s1)
-        XCTAssertTrue(store.sessions.isEmpty)
-
-        // Server sends removal diff for s1 — clears pendingKills
-        store.handleDiff(changed: [], removed: ["s1"])
-
-        // Now if s1 reappears (e.g. same name relaunched), it should be added
-        store.handleDiff(
-            changed: [makeSession(name: "a-new", sessionId: "s1", workingDirectory: "/tmp")],
-            removed: []
-        )
-        XCTAssertEqual(store.sessions.count, 1, "Session should be added after pendingKills is cleared")
-    }
-
-    // MARK: - Launch Placeholder (Task 7.1.2)
+    // MARK: - Launch Placeholder
 
     func testLaunchSessionCreatesPlaceholder() {
         let store = makeStore()
@@ -586,39 +683,7 @@ final class SessionStoreTests: XCTestCase {
         XCTAssertNotNil(store.activeLaunches[placeholder!.id])
     }
 
-    func testLaunchPlaceholderReplacedByDiff() {
-        let store = makeStore()
-        store.sessions = []
-        store.reconcileOrder()
-
-        // Launch creates placeholder
-        store.launchSession(agentType: "claude", in: "/tmp")
-        let placeholderId = store.selectedSessionId!
-        let launchState = store.activeLaunches[placeholderId]!
-
-        // Simulate the API response arriving (set realSessionId on launch state)
-        launchState.realSessionId = "real-session-123"
-        launchState.isFinished = true
-
-        // Simulate WS diff with the real session matching the realSessionId
-        store.handleDiff(
-            changed: [makeSession(name: "claude-agent-1", sessionId: "real-session-123", workingDirectory: "/tmp")],
-            removed: []
-        )
-
-        // Placeholder should be gone, real session should exist
-        XCTAssertNil(store.sessions.first(where: { $0.isPlaceholder }), "Placeholder should be removed")
-        XCTAssertEqual(store.sessions.count, 1)
-        XCTAssertEqual(store.sessions[0].sessionId, "real-session-123")
-
-        // Selection should transfer to real session
-        XCTAssertEqual(store.selectedSessionId, "real-session-123")
-
-        // activeLaunches should be cleaned up
-        XCTAssertNil(store.activeLaunches[placeholderId])
-    }
-
-    // MARK: - Optimistic Kill (Task 7.1.3)
+    // MARK: - Optimistic Kill
 
     func testRemoveSessionOptimisticallyMovesSelection() {
         let store = makeStore()
@@ -665,28 +730,15 @@ final class SessionStoreTests: XCTestCase {
         store.sessions = [s1]
         store.reconcileOrder()
 
-        // Take a snapshot before kill
-        let snapshot = s1
-
         store.removeSessionOptimistically(s1)
         XCTAssertTrue(store.sessions.isEmpty)
 
-        // Restore (simulates API kill failure → undo)
-        store.restoreSession(snapshot)
+        store.restoreSession(s1)
         XCTAssertEqual(store.sessions.count, 1)
         XCTAssertEqual(store.sessions[0].id, "s1")
-
-        // After restore, handleDiff should be able to add the session again
-        // (pendingKills should be cleared by restoreSession)
-        store.handleDiff(
-            changed: [makeSession(name: "a", sessionId: "s1", status: "Updated", workingDirectory: "/tmp")],
-            removed: []
-        )
-        XCTAssertEqual(store.sessions.count, 1)
-        XCTAssertEqual(store.sessions[0].status, "Updated")
     }
 
-    // MARK: - Rename (Task 7.1.4)
+    // MARK: - Rename
 
     func testRenameSessionOptimisticUpdate() {
         let store = makeStore()
@@ -802,12 +854,12 @@ final class SessionStoreTests: XCTestCase {
         XCTAssertEqual(saved, "/Users/test/src")
     }
 
-    func testBrowseRootLoadsOnConnect() {
+    func testBrowseRootLoadsOnStartServices() {
         let testDefaults = UserDefaults(suiteName: Self.testSuiteName)!
         testDefaults.set("/Users/test/projects", forKey: "coral.browseRoot")
         let store = makeStore()
-        // loadSavedOrder is called inside connect(), which reads persisted defaults
-        store.connect(port: 0)
+        // startServices calls loadSavedOrder which reads persisted defaults
+        store.startServices()
         XCTAssertEqual(store.browseRoot, "/Users/test/projects")
     }
 
@@ -819,5 +871,78 @@ final class SessionStoreTests: XCTestCase {
         let testDefaults = UserDefaults(suiteName: Self.testSuiteName)!
         let saved = testDefaults.string(forKey: "coral.browseRoot")
         XCTAssertEqual(saved, "")
+    }
+
+    // MARK: - Acknowledge Done Sessions
+
+    func testAcknowledgeSessionClearsDone() {
+        let store = makeStore()
+        store.sessions = [makeSession(sessionId: "s1", workingDirectory: "/tmp", done: true)]
+        store.reconcileOrder()
+
+        store.acknowledgeSession("s1")
+
+        XCTAssertFalse(store.sessions[0].done, "Done should be cleared after acknowledgement")
+    }
+
+    func testAcknowledgeSessionPersists() {
+        let store = makeStore()
+        store.sessions = [makeSession(sessionId: "s1", workingDirectory: "/tmp", done: true)]
+        store.reconcileOrder()
+
+        store.acknowledgeSession("s1")
+
+        let testDefaults = UserDefaults(suiteName: Self.testSuiteName)!
+        let saved = testDefaults.stringArray(forKey: "coral.acknowledgedSessions") ?? []
+        XCTAssertTrue(saved.contains("s1"), "Acknowledged session ID should be persisted")
+    }
+
+    func testAcknowledgeNoOpWhenNotDone() {
+        let store = makeStore()
+        store.sessions = [makeSession(sessionId: "s1", workingDirectory: "/tmp", done: false, working: true)]
+        store.reconcileOrder()
+
+        store.acknowledgeSession("s1")
+
+        // Should not add to acknowledged set since session isn't done
+        let testDefaults = UserDefaults(suiteName: Self.testSuiteName)!
+        let saved = testDefaults.stringArray(forKey: "coral.acknowledgedSessions") ?? []
+        XCTAssertFalse(saved.contains("s1"), "Non-done session should not be acknowledged")
+    }
+
+    func testAcknowledgedSessionsLoadOnStartup() {
+        let testDefaults = UserDefaults(suiteName: Self.testSuiteName)!
+        testDefaults.set(["s1", "s2"], forKey: "coral.acknowledgedSessions")
+
+        let store = makeStore()
+        store.startServices() // triggers loadSavedOrder → loadAcknowledgedSessions
+
+        // Verify by checking that a done session with acknowledged ID is suppressed
+        store.sessions = [makeSession(sessionId: "s1", workingDirectory: "/tmp")]
+        store.reconcileOrder()
+
+        let state = AgentState(done: true, latestEventType: "stop", latestEventSummary: "Done")
+        store.handleAgentStateUpdate(AgentStateUpdate(sessionId: "s1", state: state))
+
+        XCTAssertFalse(store.sessions[0].done, "Done should be suppressed for pre-acknowledged session")
+    }
+
+    func testReconcilePrunesStaleAcknowledgedIds() {
+        let store = makeStore()
+        store.sessions = [makeSession(sessionId: "s1", workingDirectory: "/tmp")]
+        store.reconcileOrder()
+
+        // Manually acknowledge a session, then remove it
+        store.sessions = [makeSession(sessionId: "s1", workingDirectory: "/tmp", done: true)]
+        store.acknowledgeSession("s1")
+
+        // Now remove s1 and reconcile
+        store.sessions = [makeSession(sessionId: "s2", workingDirectory: "/tmp")]
+        store.reconcileOrder()
+
+        // s1 should be pruned from acknowledged set
+        let testDefaults = UserDefaults(suiteName: Self.testSuiteName)!
+        let saved = testDefaults.stringArray(forKey: "coral.acknowledgedSessions") ?? []
+        XCTAssertFalse(saved.contains("s1"), "Stale acknowledged ID should be pruned")
     }
 }

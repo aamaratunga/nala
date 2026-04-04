@@ -49,6 +49,12 @@ struct ContentView: View {
                         SessionRestartProgressView(state: restartState)
                     } else if let launchState = store.selectedLaunchState {
                         SessionLaunchProgressView(state: launchState)
+                    } else if store.tmuxNotFound {
+                        ContentUnavailableView {
+                            Label("tmux Not Found", systemImage: "exclamationmark.triangle")
+                        } description: {
+                            Text("Install tmux via Homebrew: brew install tmux")
+                        }
                     } else if store.selectedSession == nil {
                         ContentUnavailableView {
                             Label("No Session Selected", systemImage: "terminal")
@@ -126,19 +132,7 @@ struct ContentView: View {
                 if let session = store.pendingKillSession {
                     let snapshot = session
                     store.pendingKillSession = nil
-                    store.removeSessionOptimistically(session)
-                    Task {
-                        do {
-                            try await store.apiClient.killSession(
-                                sessionName: session.name,
-                                agentType: session.agentType,
-                                sessionId: session.sessionId
-                            )
-                        } catch {
-                            store.restoreSession(snapshot)
-                            store.lastError = "Failed to kill session: \(error.localizedDescription)"
-                        }
-                    }
+                    store.killSession(session)
                 }
             }
         } message: {

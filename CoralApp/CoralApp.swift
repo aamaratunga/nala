@@ -2,31 +2,29 @@ import SwiftUI
 
 @main
 struct CoralApp: App {
-    @State private var serverManager = ServerManager()
     @State private var sessionStore = SessionStore()
 
     var body: some Scene {
         WindowGroup {
-            Group {
-                if serverManager.isReady {
-                    ContentView()
-                        .environment(sessionStore)
-                        .onAppear {
-                            sessionStore.connect(port: serverManager.port)
-                            NotificationManager.shared.requestPermission()
-                        }
-                        .onReceive(NotificationCenter.default.publisher(
-                            for: NSApplication.didBecomeActiveNotification
-                        )) { _ in
-                            sessionStore.scanWorktreeFolders()
-                        }
-                } else {
-                    LoadingView(serverManager: serverManager)
+            ContentView()
+                .environment(sessionStore)
+                .onAppear {
+                    sessionStore.startServices()
+                    NotificationManager.shared.requestPermission()
                 }
-            }
-            .preferredColorScheme(.dark)
-            .tint(CoralTheme.coralPrimary)
-            .frame(minWidth: 900, minHeight: 600)
+                .onReceive(NotificationCenter.default.publisher(
+                    for: NSApplication.didBecomeActiveNotification
+                )) { _ in
+                    sessionStore.scanWorktreeFolders()
+                }
+                .onReceive(NotificationCenter.default.publisher(
+                    for: NSApplication.willTerminateNotification
+                )) { _ in
+                    sessionStore.stopServices()
+                }
+                .preferredColorScheme(.dark)
+                .tint(CoralTheme.coralPrimary)
+                .frame(minWidth: 900, minHeight: 600)
         }
         .windowToolbarStyle(.unifiedCompact)
         .commands {
@@ -75,14 +73,7 @@ struct CoralApp: App {
                             sessionStore.pendingKillSession = session
                             sessionStore.showingKillConfirmation = true
                         } else {
-                            sessionStore.removeSessionOptimistically(session)
-                            Task {
-                                try? await sessionStore.apiClient.killSession(
-                                    sessionName: session.name,
-                                    agentType: session.agentType,
-                                    sessionId: session.sessionId
-                                )
-                            }
+                            sessionStore.killSession(session)
                         }
                     }
                 }
@@ -93,11 +84,11 @@ struct CoralApp: App {
 
                 Button("Attach in Terminal") {
                     if let session = sessionStore.selectedSession {
-                        TerminalLauncher.attachOrPrompt(sessionName: session.tmuxSession)
+                        TerminalLauncher.attachOrPrompt(sessionName: session.name)
                     }
                 }
                 .keyboardShortcut("o")
-                .disabled(sessionStore.selectedSession?.hasTmuxTarget != true)
+                .disabled(sessionStore.selectedSession == nil)
             }
             CommandGroup(before: .sidebar) {
                 Button("Toggle Sidebar") {

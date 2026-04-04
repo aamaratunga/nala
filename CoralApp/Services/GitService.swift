@@ -155,6 +155,208 @@ enum GitService {
         )
     }
 
+    // MARK: - Session-Level Git State
+
+    struct GitStatus: Equatable {
+        var branch: String = ""
+        var dirtyFileCount: Int = 0
+        var aheadCount: Int = 0
+        var behindCount: Int = 0
+    }
+
+    struct WorktreeInfo: Equatable {
+        let path: String
+        let branch: String
+        let isHead: Bool
+    }
+
+    struct GitStateUpdate: Equatable {
+        let repoPath: String
+        let status: GitStatus
+    }
+
+    /// Environment variable to prevent index.lock contention during git polling.
+    private static let safeGitEnv = ["GIT_OPTIONAL_LOCKS": "0"]
+
+    /// Get git status for a repo path (branch, dirty files, ahead/behind).
+    static func gitStatus(repoPath: String) async -> GitStatus {
+        var status = GitStatus()
+
+        // Get branch name
+        let branchResult = await runProcess(
+            executablePath: "/usr/bin/git",
+            args: ["-C", repoPath, "rev-parse", "--abbrev-ref", "HEAD"],
+            environment: safeGitEnv,
+            label: "branch name"
+        )
+        if branchResult.succeeded {
+            status.branch = branchResult.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        // Get dirty file count
+        let porcelainResult = await runProcess(
+            executablePath: "/usr/bin/git",
+            args: ["-C", repoPath, "status", "--porcelain"],
+            environment: safeGitEnv,
+            label: "status porcelain"
+        )
+        if porcelainResult.succeeded {
+            status.dirtyFileCount = porcelainResult.stdout
+                .split(separator: "\n")
+                .filter { !$0.isEmpty }
+                .count
+        }
+
+        return status
+    }
+
+    /// Get branch name for a repo path.
+    static func branchName(repoPath: String) async -> String? {
+        let result = await runProcess(
+            executablePath: "/usr/bin/git",
+            args: ["-C", repoPath, "rev-parse", "--abbrev-ref", "HEAD"],
+            environment: safeGitEnv,
+            label: "branch name"
+        )
+        guard result.succeeded else { return nil }
+        return result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Get git diff summary for a repo path.
+    static func gitDiff(repoPath: String) async -> String? {
+        let result = await runProcess(
+            executablePath: "/usr/bin/git",
+            args: ["-C", repoPath, "diff", "--stat"],
+            environment: safeGitEnv,
+            label: "diff stat"
+        )
+        guard result.succeeded else { return nil }
+        return result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// List all worktrees for a repo.
+    static func worktreeList(repoPath: String) async -> [WorktreeInfo] {
+        let result = await runProcess(
+            executablePath: "/usr/bin/git",
+            args: ["-C", repoPath, "worktree", "list", "--porcelain"],
+            environment: safeGitEnv,
+            label: "worktree list"
+        )
+        guard result.succeeded else { return [] }
+        return parseWorktreeList(result.stdout)
+    }
+
+    /// Parse `git worktree list --porcelain` output into WorktreeInfo structs.
+    static func parseWorktreeList(_ output: String) -> [WorktreeInfo] {
+        var worktrees: [WorktreeInfo] = []
+        var currentPath = ""
+        var currentBranch = ""
+        var isHead = false
+
+        for line in output.split(separator: "\n", omittingEmptySubsequences: false) {
+            let str = String(line)
+            if str.hasPrefix("worktree ") {
+                // Save previous worktree if exists
+                if !currentPath.isEmpty {
+                    worktrees.append(WorktreeInfo(path: currentPath, branch: currentBranch, isHead: isHead))
+                }
+                currentPath = String(str.dropFirst("worktree ".count))
+                currentBranch = ""
+                isHead = false
+            } else if str.hasPrefix("branch ") {
+                let ref = String(str.dropFirst("branch ".count))
+                // Strip refs/heads/ prefix
+                currentBranch = ref.hasPrefix("refs/heads/")
+                    ? String(ref.dropFirst("refs/heads/".count))
+                    : ref
+            } else if str == "HEAD" {
+                isHead = true
+            } else if str.isEmpty && !currentPath.isEmpty {
+                worktrees.append(WorktreeInfo(path: currentPath, branch: currentBranch, isHead: isHead))
+                currentPath = ""
+                currentBranch = ""
+                isHead = false
+            }
+        }
+
+        // Don't forget the last entry
+        if !currentPath.isEmpty {
+            worktrees.append(WorktreeInfo(path: currentPath, branch: currentBranch, isHead: isHead))
+        }
+
+        return worktrees
+    }
+
+    /// Parse `git status --porcelain` output to count dirty files.
+    static func parsePorcelainStatus(_ output: String) -> Int {
+        output.split(separator: "\n")
+            .filter { !$0.isEmpty }
+            .count
+    }
+
+    // MARK: - Git State Polling
+
+    /// A polling coordinator that polls git status for a set of worktree paths.
+    final class GitStatePoller: @unchecked Sendable {
+        private var paths: Set<String> = []
+        private var continuationIndex = 0
+        private var continuations: [Int: AsyncStream<GitStateUpdate>.Continuation] = [:]
+        private let lock = NSLock()
+
+        func setPaths(_ newPaths: Set<String>) {
+            lock.lock()
+            paths = newPaths
+            lock.unlock()
+        }
+
+        func updates() -> AsyncStream<GitStateUpdate> {
+            AsyncStream { [weak self] continuation in
+                guard let self else {
+                    continuation.finish()
+                    return
+                }
+                lock.lock()
+                let id = continuationIndex
+                continuationIndex += 1
+                continuations[id] = continuation
+                lock.unlock()
+
+                continuation.onTermination = { [weak self] _ in
+                    guard let self else { return }
+                    self.lock.lock()
+                    self.continuations.removeValue(forKey: id)
+                    self.lock.unlock()
+                }
+            }
+        }
+
+        func pollOnce() async {
+            lock.lock()
+            let currentPaths = paths
+            lock.unlock()
+
+            for path in currentPaths {
+                let status = await GitService.gitStatus(repoPath: path)
+                let update = GitStateUpdate(repoPath: path, status: status)
+
+                lock.lock()
+                let conts = Array(continuations.values)
+                lock.unlock()
+
+                for c in conts {
+                    c.yield(update)
+                }
+            }
+        }
+
+        func stop() {
+            lock.lock()
+            for (_, c) in continuations { c.finish() }
+            continuations.removeAll()
+            lock.unlock()
+        }
+    }
+
     // MARK: - Process Helpers
 
     private static func runGit(args: [String], label: String) async -> CommandResult {
@@ -182,6 +384,25 @@ enum GitService {
         return await runGit(args: args, label: label)
     }
 
+    /// Thread-safe mutable data buffer for incremental pipe reads.
+    private final class LockedBuffer: @unchecked Sendable {
+        private var _data = Data()
+        private let lock = NSLock()
+
+        func append(_ new: Data) {
+            guard !new.isEmpty else { return }
+            lock.lock()
+            _data.append(new)
+            lock.unlock()
+        }
+
+        var data: Data {
+            lock.lock()
+            defer { lock.unlock() }
+            return _data
+        }
+    }
+
     private static func runProcess(
         executablePath: String,
         args: [String],
@@ -205,11 +426,29 @@ enum GitService {
             process.standardOutput = stdoutPipe
             process.standardError = stderrPipe
 
+            // Read pipe data incrementally to prevent deadlock when the child
+            // process fills the 64KB pipe buffer.
+            let stdoutBuf = LockedBuffer()
+            let stderrBuf = LockedBuffer()
+
+            stdoutPipe.fileHandleForReading.readabilityHandler = { handle in
+                let data = handle.availableData
+                if !data.isEmpty { stdoutBuf.append(data) }
+            }
+            stderrPipe.fileHandleForReading.readabilityHandler = { handle in
+                let data = handle.availableData
+                if !data.isEmpty { stderrBuf.append(data) }
+            }
+
             process.terminationHandler = { process in
-                let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-                let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-                let stdout = String(data: stdoutData, encoding: .utf8) ?? ""
-                let stderr = String(data: stderrData, encoding: .utf8) ?? ""
+                // Stop reading and drain remaining data
+                stdoutPipe.fileHandleForReading.readabilityHandler = nil
+                stderrPipe.fileHandleForReading.readabilityHandler = nil
+                stdoutBuf.append(stdoutPipe.fileHandleForReading.readDataToEndOfFile())
+                stderrBuf.append(stderrPipe.fileHandleForReading.readDataToEndOfFile())
+
+                let stdout = String(data: stdoutBuf.data, encoding: .utf8) ?? ""
+                let stderr = String(data: stderrBuf.data, encoding: .utf8) ?? ""
 
                 let result = CommandResult(exitCode: process.terminationStatus, stdout: stdout, stderr: stderr)
                 if result.succeeded {
@@ -223,6 +462,8 @@ enum GitService {
             do {
                 try process.run()
             } catch {
+                stdoutPipe.fileHandleForReading.readabilityHandler = nil
+                stderrPipe.fileHandleForReading.readabilityHandler = nil
                 logger.error("Failed to run \(label): \(error)")
                 continuation.resume(returning: CommandResult(exitCode: -1, stdout: "", stderr: error.localizedDescription))
             }

@@ -167,19 +167,10 @@ struct SessionListView: View {
                     HStack(spacing: 8) {
                         Image(systemName: "wifi.exclamationmark")
                             .foregroundStyle(CoralTheme.amber)
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text("Server disconnected")
-                                .font(.callout)
-                                .fontWeight(.medium)
-                            Text("Reconnecting\u{2026} (attempt \(store.reconnectAttempt))")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
+                        Text("Waiting for tmux sessions\u{2026}")
+                            .font(.callout)
+                            .fontWeight(.medium)
                         Spacer()
-                        Button("Retry") {
-                            store.forceReconnect()
-                        }
-                        .controlSize(.small)
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
@@ -263,12 +254,7 @@ struct SessionListView: View {
             if let id = newId,
                let session = store.sessions.first(where: { $0.id == id }),
                session.done {
-                Task {
-                    try? await store.apiClient.acknowledgeSession(
-                        sessionName: session.name,
-                        sessionId: session.sessionId
-                    )
-                }
+                store.acknowledgeSession(id)
             }
         }
         .alert("Delete Worktree?", isPresented: $showingDeleteConfirmation) {
@@ -289,20 +275,15 @@ struct SessionListView: View {
         .navigationTitle("Coral")
         .toolbar {
             ToolbarItem(placement: .status) {
-                Button {
-                    NSWorkspace.shared.open(store.apiClient.baseURL)
-                } label: {
-                    HStack(spacing: 4) {
-                        Circle()
-                            .fill(store.isConnected ? CoralTheme.green : CoralTheme.red)
-                            .frame(width: 6, height: 6)
-                        Text(store.isConnected ? "Connected" : "Disconnected")
-                            .font(.caption2)
-                            .foregroundStyle(CoralTheme.textSecondary)
-                    }
+                HStack(spacing: 4) {
+                    Circle()
+                        .fill(store.isConnected ? CoralTheme.green : CoralTheme.red)
+                        .frame(width: 6, height: 6)
+                    Text(store.isConnected ? "Connected" : "Disconnected")
+                        .font(.caption2)
+                        .foregroundStyle(CoralTheme.textSecondary)
                 }
-                .buttonStyle(.plain)
-                .help("Open web dashboard")
+                .help(store.isConnected ? "tmux polling active" : "Waiting for tmux sessions")
             }
         }
     }
@@ -781,20 +762,7 @@ struct SessionListView: View {
         }
 
         Button("Kill", role: .destructive) {
-            let snapshot = session
-            store.removeSessionOptimistically(session)
-            Task {
-                do {
-                    try await store.apiClient.killSession(
-                        sessionName: session.name,
-                        agentType: session.agentType,
-                        sessionId: session.sessionId
-                    )
-                } catch {
-                    store.restoreSession(snapshot)
-                    store.lastError = "Failed to kill session: \(error.localizedDescription)"
-                }
-            }
+            store.killSession(session)
         }
     }
 }
