@@ -67,6 +67,48 @@ final class AutoNamer: @unchecked Sendable {
         lock.unlock()
     }
 
+    /// Generate a session name from the user's initial prompt text.
+    /// Returns nil if `claude` CLI is not found, the call fails, or the prompt is too vague.
+    func generateNameFromPrompt(_ promptText: String) async -> String? {
+        guard let claude = claudePath else {
+            logger.info("Claude CLI not found, skipping prompt-based naming")
+            return nil
+        }
+
+        // Cap input length for Haiku
+        let truncated = String(promptText.prefix(500))
+
+        let prompt = """
+        You are a naming tool. Read the user's request and output a 2-4 word lowercase name.
+
+        Rules:
+        - Output ONLY the name, nothing else
+        - 2-4 words, lowercase, no quotes, no markdown, no explanation
+        - If the request is too vague to name, output: KEEP
+
+        User request:
+        \(truncated)
+
+        Name:
+        """
+
+        do {
+            let result = try await callClaude(claudePath: claude, prompt: prompt)
+            let cleaned = cleanName(result)
+            let upper = cleaned.uppercased()
+            if upper == "KEEP" || upper.hasPrefix("KEEP ") || upper.hasPrefix("KEEP.") ||
+               upper.hasPrefix("KEEP,") || upper.hasPrefix("KEEP-") || upper.hasPrefix("KEEP:") {
+                return nil
+            }
+            let wordCount = cleaned.split(separator: " ").count
+            if wordCount > 5 { return nil }
+            return cleaned.isEmpty ? nil : cleaned
+        } catch {
+            logger.warning("Prompt-based naming failed: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
     /// Generate a session name from recent activity summaries.
     /// If `currentName` is provided, only returns a new name if the focus has significantly shifted.
     /// Returns nil if `claude` CLI is not found, the call fails, or the focus hasn't changed enough.
@@ -82,24 +124,33 @@ final class AutoNamer: @unchecked Sendable {
         if let currentName, !currentName.isEmpty {
             // Re-naming: only change if focus shifted significantly
             prompt = """
-            An AI agent coding session is currently named "\(currentName)".
+            You are a naming tool. The current session name is "\(currentName)".
 
-            Based on the recent activities below, decide: has the agent's focus significantly \
-            shifted to a different task? If YES, return a new short name (3-6 words, lowercase). \
-            If the focus is roughly the same, return exactly "KEEP".
+            Read the activities and decide:
+            - If the focus changed, output a new 2-4 word lowercase name
+            - If the focus is the same, output: KEEP
+
+            Rules: output ONLY the name or KEEP. Nothing else. No explanation, no quotes, no markdown.
 
             Activities:
             \(activitiesText)
+
+            Output:
             """
         } else {
             // First naming
             prompt = """
-            Based on these recent coding activities from an AI agent session, generate a short name \
-            (3-6 words) that captures what the agent is working on. Return ONLY the name, nothing else. \
-            Use lowercase. Examples: "fix auth token refresh", "add user settings page", "refactor test helpers".
+            You are a naming tool. Read the activities and output a 2-4 word lowercase name.
+
+            Rules:
+            - Output ONLY the name, nothing else
+            - 2-4 words, lowercase, no quotes, no markdown, no explanation
+            - If unclear, output: KEEP
 
             Activities:
             \(activitiesText)
+
+            Name:
             """
         }
 
@@ -107,7 +158,13 @@ final class AutoNamer: @unchecked Sendable {
             let result = try await callClaude(claudePath: claude, prompt: prompt)
             let cleaned = cleanName(result)
             // If Haiku says keep, don't change
-            if cleaned.uppercased() == "KEEP" { return nil }
+            let upper = cleaned.uppercased()
+            if upper == "KEEP" || upper.hasPrefix("KEEP ") || upper.hasPrefix("KEEP.") ||
+               upper.hasPrefix("KEEP,") || upper.hasPrefix("KEEP-") || upper.hasPrefix("KEEP:") {
+                return nil
+            }
+            let wordCount = cleaned.split(separator: " ").count
+            if wordCount > 5 { return nil }
             return cleaned.isEmpty ? nil : cleaned
         } catch {
             logger.warning("Auto-naming failed: \(error.localizedDescription)")
@@ -165,6 +222,9 @@ final class AutoNamer: @unchecked Sendable {
     /// Strip quotes, trailing punctuation, and normalize whitespace.
     private func cleanName(_ raw: String) -> String {
         var name = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Strip markdown bold/italic markers
+        name = name.replacingOccurrences(of: "*", with: "")
+        name = name.replacingOccurrences(of: "_", with: "")
         // Remove surrounding quotes
         if (name.hasPrefix("\"") && name.hasSuffix("\"")) ||
            (name.hasPrefix("'") && name.hasSuffix("'")) {
@@ -177,8 +237,8 @@ final class AutoNamer: @unchecked Sendable {
         // Collapse whitespace
         name = name.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
         // Cap at reasonable length
-        if name.count > 60 {
-            name = String(name.prefix(60))
+        if name.count > 40 {
+            name = String(name.prefix(40))
         }
         return name
     }

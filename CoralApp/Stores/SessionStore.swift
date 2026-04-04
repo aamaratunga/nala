@@ -785,6 +785,27 @@ final class SessionStore {
                 let sessionId = update.sessionId
                 activityLog[sessionId, default: []].append(summary)
 
+                // Immediate naming from first prompt when session has no name yet
+                if eventType == "prompt_submit",
+                   sessions[idx].displayName == nil,
+                   !userRenamedSessions.contains(sessionId),
+                   let namer = autoNamer {
+                    let promptText = summary.hasPrefix("Prompt: ") ? String(summary.dropFirst(8)) : summary
+                    Task {
+                        if let name = await namer.generateNameFromPrompt(promptText) {
+                            await MainActor.run { [weak self] in
+                                guard let self else { return }
+                                if let i = self.sessions.firstIndex(where: { $0.sessionId == sessionId }),
+                                   !self.userRenamedSessions.contains(sessionId),
+                                   self.sessions[i].displayName == nil {
+                                    self.sessions[i].displayName = name
+                                    self.saveDisplayName(name, for: sessionId)
+                                }
+                            }
+                        }
+                    }
+                }
+
                 // Skip sessions the user explicitly renamed
                 if !userRenamedSessions.contains(sessionId),
                    let namer = autoNamer,
