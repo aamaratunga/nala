@@ -157,12 +157,11 @@ final class PathFinder {
                 guard fm.fileExists(atPath: fullPath, isDirectory: &isDir), isDir.boolValue else { continue }
 
                 if filter.isEmpty || fuzzyMatch(query: filter, target: name) != nil {
-                    let isGit = cachedIsGitRepo(at: fullPath, cache: &gitCache)
                     results.append(PathResult(
                         path: fullPath,
                         displayName: name,
                         isDirectory: true,
-                        isGitRepo: isGit,
+                        isGitRepo: cachedIsGitRepo(at: fullPath, cache: &gitCache),
                         isRecent: recentSet.contains(fullPath)
                     ))
                 }
@@ -188,7 +187,10 @@ final class PathFinder {
         var results: [PathResult] = []
         var seen = Set<String>()
 
-        let searchRoots = Array(Set(roots + recentPaths.compactMap { URL(fileURLWithPath: $0).deletingLastPathComponent().path }))
+        // Only walk parent dirs of recent paths (user-chosen). Roots (folderOrder)
+        // are already known directories — walking them is unnecessary and can trigger
+        // TCC prompts if a session was discovered on a network volume.
+        let searchRoots = Array(Set(recentPaths.compactMap { URL(fileURLWithPath: $0).deletingLastPathComponent().path }))
 
         for root in searchRoots {
             guard !Task.isCancelled else { return [] }
@@ -235,42 +237,41 @@ final class PathFinder {
             }
         }
 
-        // Then search roots (existing session folders)
+        // Match roots directly by their last path component — zero filesystem I/O.
+        // Roots are folderOrder entries (known session directories). Walking their
+        // subtrees is unnecessary and can trigger TCC prompts if a session was
+        // discovered on a network volume.
         for root in roots {
             guard !Task.isCancelled else { return [] }
-            guard fm.fileExists(atPath: root) else { continue }
-
-            let found = walkDirectory(root, depth: 0, maxDepth: maxDepth, fm: fm, filter: query, gitCache: &gitCache, recentSet: recentSet)
-            for result in found {
-                if !seen.contains(result.path) {
-                    seen.insert(result.path)
-                    results.append(result)
+            guard !seen.contains(root) else { continue }
+            let name = URL(fileURLWithPath: root).lastPathComponent
+            if fuzzyMatch(query: query, target: name) != nil {
+                if fm.fileExists(atPath: root) {
+                    seen.insert(root)
+                    let isGit = cachedIsGitRepo(at: root, cache: &gitCache)
+                    results.append(PathResult(
+                        path: root,
+                        displayName: name,
+                        isDirectory: true,
+                        isGitRepo: isGit,
+                        isRecent: false
+                    ))
                 }
             }
         }
 
-        // Search browse root (user-configured) or skip — the `roots` parameter
-        // (existing session folders) already provides search paths. Hardcoded home
-        // subdirectories were removed to avoid triggering macOS TCC permission prompts.
+        // Search browse root (user-configured) — walk its subtrees to discover
+        // project directories the user wants to launch agents in.
         let expandedBrowseRoot = expandTilde(browseRoot)
-        let fallbackDirs: [String]
         if !expandedBrowseRoot.isEmpty {
-            fallbackDirs = [expandedBrowseRoot]
-        } else {
-            fallbackDirs = []
-        }
-
-        for dir in fallbackDirs {
             guard !Task.isCancelled else { return [] }
-            guard fm.fileExists(atPath: dir) else { continue }
-            guard !roots.contains(dir) else { continue }
-
-            let depth = expandedBrowseRoot.isEmpty ? 1 : maxDepth
-            let found = walkDirectory(dir, depth: 0, maxDepth: depth, fm: fm, filter: query, gitCache: &gitCache, recentSet: recentSet)
-            for result in found {
-                if !seen.contains(result.path) {
-                    seen.insert(result.path)
-                    results.append(result)
+            if fm.fileExists(atPath: expandedBrowseRoot) && !roots.contains(expandedBrowseRoot) {
+                let found = walkDirectory(expandedBrowseRoot, depth: 0, maxDepth: maxDepth, fm: fm, filter: query, gitCache: &gitCache, recentSet: recentSet)
+                for result in found {
+                    if !seen.contains(result.path) {
+                        seen.insert(result.path)
+                        results.append(result)
+                    }
                 }
             }
         }
@@ -304,12 +305,11 @@ final class PathFinder {
                 guard fm.fileExists(atPath: fullPath, isDirectory: &isDir), isDir.boolValue else { continue }
 
                 if fuzzyMatch(query: filter, target: name) != nil {
-                    let isGit = cachedIsGitRepo(at: fullPath, cache: &gitCache)
                     results.append(PathResult(
                         path: fullPath,
                         displayName: name,
                         isDirectory: true,
-                        isGitRepo: isGit,
+                        isGitRepo: cachedIsGitRepo(at: fullPath, cache: &gitCache),
                         isRecent: recentSet.contains(fullPath)
                     ))
                 }

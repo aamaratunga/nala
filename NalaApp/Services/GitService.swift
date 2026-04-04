@@ -28,20 +28,9 @@ enum GitService {
 
     /// Walks up from `path` to find the nearest directory containing `.git`.
     /// Returns the git root path, or `nil` if no git repo is found.
-    /// Skips TCC-protected directories to avoid macOS permission prompts.
     static func findGitRoot(from path: String) -> String? {
-        let standardPath = URL(fileURLWithPath: path).standardized.path
-        if isInsideProtectedDirectory(standardPath) {
-            return nil
-        }
-
-        var current = URL(fileURLWithPath: standardPath)
+        var current = URL(fileURLWithPath: path).standardized
         while current.path != "/" {
-            // Stop walking if we've reached a protected directory boundary
-            if isInsideProtectedDirectory(current.path) {
-                current = current.deletingLastPathComponent()
-                continue
-            }
             let gitPath = current.appendingPathComponent(".git").path
             if FileManager.default.fileExists(atPath: gitPath) {
                 return current.path
@@ -49,23 +38,6 @@ enum GitService {
             current = current.deletingLastPathComponent()
         }
         return nil
-    }
-
-    /// Home subdirectories that require TCC consent for filesystem access.
-    private static let protectedDirectoryNames: Set<String> = [
-        "Desktop", "Documents", "Downloads", "Movies", "Music", "Pictures"
-    ]
-
-    /// Returns `true` if the path is inside a TCC-protected home subdirectory.
-    private static func isInsideProtectedDirectory(_ path: String) -> Bool {
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        for dir in protectedDirectoryNames {
-            let protected = "\(home)/\(dir)"
-            if path == protected || path.hasPrefix(protected + "/") {
-                return true
-            }
-        }
-        return false
     }
 
     // MARK: - Worktree Operations

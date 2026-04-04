@@ -171,8 +171,9 @@ final class PathFinderTests: XCTestCase {
 
         let results = await PathFinder.enumerateDirectories(
             matching: "myproj",
-            roots: [tmpDir.path],
-            recentPaths: []
+            roots: [],
+            recentPaths: [],
+            browseRoot: tmpDir.path
         )
 
         let names = results.map(\.displayName)
@@ -198,8 +199,9 @@ final class PathFinderTests: XCTestCase {
 
         let results = await PathFinder.enumerateDirectories(
             matching: "match",
-            roots: [tmpDir.path],
-            recentPaths: []
+            roots: [],
+            recentPaths: [],
+            browseRoot: tmpDir.path
         )
 
         // "match" at depth 1 should be found

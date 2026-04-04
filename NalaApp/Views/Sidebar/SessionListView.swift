@@ -710,7 +710,9 @@ struct SessionListView: View {
             }
         }
 
-        if GitService.isWorktree(path: path) && !store.isDeleting(folderPath: path) {
+        if store.repoConfigs.contains(where: { !$0.worktreeFolderPath.isEmpty && path.hasPrefix($0.worktreeFolderPath + "/") })
+            && GitService.isWorktree(path: path)
+            && !store.isDeleting(folderPath: path) {
             Divider()
 
             Button("Delete Worktree…", role: .destructive) {

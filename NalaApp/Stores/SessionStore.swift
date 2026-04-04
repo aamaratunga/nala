@@ -632,10 +632,13 @@ final class SessionStore {
             let existingIdx = sessions.firstIndex(where: { $0.id == compositeKey })
 
             if let idx = existingIdx {
-                // Update existing session in place
+                // Update existing session in place — intentionally do NOT update
+                // workingDirectory or logPath here. A session's working directory is
+                // set once on initial discovery and stays fixed. Updating it every
+                // poll cycle causes groupingPath() → findGitRoot() to walk the
+                // filesystem whenever an agent cd's to a new directory, which
+                // triggers TCC prompts for protected paths like /Volumes or ~/Music.
                 let old = sessions[idx]
-                sessions[idx].workingDirectory = info.workingDirectory
-                sessions[idx].logPath = logPath
 
                 if let pulse = pulseState {
                     if let s = pulse.status { sessions[idx].status = s }
