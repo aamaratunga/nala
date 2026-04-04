@@ -4,10 +4,6 @@ import SwiftUI
 struct NalaApp: App {
     @State private var sessionStore = SessionStore()
 
-    init() {
-        Self.migrateFromCoral()
-    }
-
     var body: some Scene {
         WindowGroup {
             ContentView()
@@ -113,54 +109,5 @@ struct NalaApp: App {
             SettingsView()
                 .environment(sessionStore)
         }
-    }
-
-    // MARK: - Migration from Coral
-
-    /// One-time migration from coral.* UserDefaults keys and ~/.coral/events/ directory.
-    private static func migrateFromCoral() {
-        let defaults = UserDefaults.standard
-        guard !defaults.bool(forKey: "nala.migrationComplete") else { return }
-
-        // Migrate UserDefaults keys
-        let keyMappings: [(old: String, new: String)] = [
-            ("coral.displayNames", "nala.displayNames"),
-            ("coral.acknowledgedSessions", "nala.acknowledgedSessions"),
-            ("coral.folderOrder", "nala.folderOrder"),
-            ("coral.sessionOrder", "nala.sessionOrder"),
-            ("coral.folderExpansion", "nala.folderExpansion"),
-            ("coral.folderStatus", "nala.folderStatus"),
-            ("coral.sectionExpansion", "nala.sectionExpansion"),
-            ("coral.repoConfigs", "nala.repoConfigs"),
-            ("coral.discoveredFolders", "nala.discoveredFolders"),
-            ("coral.recentBrowsePaths", "nala.recentBrowsePaths"),
-            ("coral.browseRoot", "nala.browseRoot"),
-            ("coral.terminalAppPath", "nala.terminalAppPath"),
-            ("coral.notifications.needsInput", "nala.notifications.needsInput"),
-            ("coral.notifications.done", "nala.notifications.done"),
-        ]
-
-        for mapping in keyMappings {
-            if let value = defaults.object(forKey: mapping.old),
-               defaults.object(forKey: mapping.new) == nil {
-                defaults.set(value, forKey: mapping.new)
-            }
-        }
-
-        // Migrate events directory
-        let fm = FileManager.default
-        let home = fm.homeDirectoryForCurrentUser.path
-        let oldEvents = "\(home)/.coral/events"
-        let newParent = "\(home)/.nala"
-        let newEvents = "\(newParent)/events"
-
-        if fm.fileExists(atPath: oldEvents) && !fm.fileExists(atPath: newEvents) {
-            try? fm.createDirectory(atPath: newParent, withIntermediateDirectories: true)
-            try? fm.moveItem(atPath: oldEvents, toPath: newEvents)
-            // Symlink for backward compat with coral-hook-* commands
-            try? fm.createSymbolicLink(atPath: oldEvents, withDestinationPath: newEvents)
-        }
-
-        defaults.set(true, forKey: "nala.migrationComplete")
     }
 }
