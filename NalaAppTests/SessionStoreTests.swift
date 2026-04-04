@@ -267,49 +267,6 @@ final class SessionStoreTests: XCTestCase {
         XCTAssertEqual(store.sessions[0].latestEventSummary, "Read main.swift")
     }
 
-    // MARK: - handleGitStateUpdate
-
-    func testGitStateUpdatePropagatesBranchAndDirtyCount() {
-        let store = makeStore()
-        store.sessions = [
-            makeSession(name: "a", sessionId: "s1", workingDirectory: "/repo"),
-            makeSession(name: "b", sessionId: "s2", workingDirectory: "/repo"),
-        ]
-        store.reconcileOrder()
-
-        let update = GitService.GitStateUpdate(
-            repoPath: "/repo",
-            status: GitService.GitStatus(branch: "feature/tests", dirtyFileCount: 5)
-        )
-        store.handleGitStateUpdate(update)
-
-        XCTAssertEqual(store.sessions[0].branch, "feature/tests")
-        XCTAssertEqual(store.sessions[0].changedFileCount, 5)
-        XCTAssertEqual(store.sessions[1].branch, "feature/tests")
-        XCTAssertEqual(store.sessions[1].changedFileCount, 5)
-    }
-
-    func testGitStateUpdateOnlyAffectsMatchingRepo() {
-        let store = makeStore()
-        store.sessions = [
-            makeSession(name: "a", sessionId: "s1", branch: "main", workingDirectory: "/repo-a"),
-            makeSession(name: "b", sessionId: "s2", branch: "main", workingDirectory: "/repo-b"),
-        ]
-        store.reconcileOrder()
-
-        let update = GitService.GitStateUpdate(
-            repoPath: "/repo-a",
-            status: GitService.GitStatus(branch: "feature/new", dirtyFileCount: 3)
-        )
-        store.handleGitStateUpdate(update)
-
-        XCTAssertEqual(store.sessions[0].branch, "feature/new")
-        XCTAssertEqual(store.sessions[0].changedFileCount, 3)
-        // repo-b should be unchanged
-        XCTAssertEqual(store.sessions[1].branch, "main")
-        XCTAssertEqual(store.sessions[1].changedFileCount, 0)
-    }
-
     // MARK: - Order Reconciliation
 
     func testReconcilePrunesStaleAndAppendsNew() {

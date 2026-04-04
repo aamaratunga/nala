@@ -127,14 +127,9 @@ final class SessionStore {
     private var tmuxService: TmuxService?
     private var pulseParser: PulseParser?
     private var eventWatcher: EventFileWatcher?
-    private var gitPoller: GitService.GitStatePoller?
     private var autoNamer: AutoNamer?
     private var serviceTask: Task<Void, Never>?
     private var stalenessTask: Task<Void, Never>?
-    private var gitPollTask: Task<Void, Never>?
-
-    /// Cached git state per repo path
-    private var gitStateCache: [String: GitService.GitStatus] = [:]
 
     /// Collected activity summaries per session for auto-naming.
     private var activityLog: [String: [String]] = [:]
@@ -466,7 +461,6 @@ final class SessionStore {
         let tmux = TmuxService()
         let pulse = PulseParser()
         let events = EventFileWatcher()
-        let git = GitService.GitStatePoller()
         let namer = AutoNamer()
 
         tmuxService = tmux
@@ -476,7 +470,6 @@ final class SessionStore {
         }
         pulseParser = pulse
         eventWatcher = events
-        gitPoller = git
         autoNamer = namer
 
         // Start consuming streams from all services
@@ -512,15 +505,6 @@ final class SessionStore {
                     }
                 }
 
-                // GitService polling (5-second cadence)
-                group.addTask { [weak self] in
-                    for await update in git.updates() {
-                        guard let self else { return }
-                        await MainActor.run {
-                            self.handleGitStateUpdate(update)
-                        }
-                    }
-                }
             }
         }
 
@@ -532,15 +516,6 @@ final class SessionStore {
                 self.eventWatcher?.refreshStaleness()
             }
         }
-
-        // Git polling cadence (every 5 seconds)
-        gitPollTask = Task { [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 5_000_000_000) // 5s
-                guard let self else { return }
-                await self.gitPoller?.pollOnce()
-            }
-        }
     }
 
     /// Stop all services. Called on app termination.
@@ -549,12 +524,9 @@ final class SessionStore {
         serviceTask = nil
         stalenessTask?.cancel()
         stalenessTask = nil
-        gitPollTask?.cancel()
-        gitPollTask = nil
         tmuxService?.stop()
         pulseParser?.stopAll()
         eventWatcher?.stopAll()
-        gitPoller?.stop()
     }
 
     // MARK: - Agent State Application
@@ -656,7 +628,6 @@ final class SessionStore {
             // Build or update the session
             let pulseState = pulseParser?.cachedResult(for: info.sessionName)
             let agentState = eventWatcher?.cachedState(for: sessionId)
-            let gitState = gitStateCache[groupingPath(for: info.workingDirectory)]
 
             let existingIdx = sessions.firstIndex(where: { $0.id == compositeKey })
 
@@ -673,11 +644,6 @@ final class SessionStore {
 
                 if let state = agentState {
                     applyAgentState(state, toSessionAt: idx)
-                }
-
-                if let git = gitState {
-                    sessions[idx].branch = git.branch
-                    sessions[idx].changedFileCount = git.dirtyFileCount
                 }
 
                 NotificationManager.shared.evaluateTransition(old: old, new: sessions[idx])
@@ -697,11 +663,6 @@ final class SessionStore {
                 if let pulse = pulseState {
                     session.status = pulse.status
                     session.summary = pulse.summary
-                }
-
-                if let git = gitState {
-                    session.branch = git.branch
-                    session.changedFileCount = git.dirtyFileCount
                 }
 
                 sessions.append(session)
@@ -747,10 +708,6 @@ final class SessionStore {
                 await tmuxService?.ensurePipePane(session: info)
             }
         }
-
-        // Update git poller with current worktree paths
-        let worktreePaths = Set(update.current.map { groupingPath(for: $0.workingDirectory) })
-        gitPoller?.setPaths(worktreePaths)
 
         reconcileOrder()
         isConnected = true
@@ -828,18 +785,6 @@ final class SessionStore {
                         }
                     }
                 }
-            }
-        }
-    }
-
-    func handleGitStateUpdate(_ update: GitService.GitStateUpdate) {
-        gitStateCache[update.repoPath] = update.status
-        // Update all sessions in this repo
-        for i in sessions.indices {
-            let path = groupingPath(for: sessions[i].workingDirectory)
-            if path == update.repoPath {
-                sessions[i].branch = update.status.branch
-                sessions[i].changedFileCount = update.status.dirtyFileCount
             }
         }
     }
