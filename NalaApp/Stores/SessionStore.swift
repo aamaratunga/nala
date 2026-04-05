@@ -1271,7 +1271,7 @@ final class SessionStore {
     func repoConfigForWorktree(path: String) -> RepoConfig? {
         // First check if the path is under a configured worktree folder
         for config in repoConfigs {
-            if !config.worktreeFolderPath.isEmpty && path.hasPrefix(config.worktreeFolderPath) {
+            if !config.worktreeFolderPath.isEmpty && path.hasPrefix(config.worktreeFolderPath + "/") {
                 return config
             }
         }
