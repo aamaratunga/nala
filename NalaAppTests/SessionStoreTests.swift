@@ -1271,4 +1271,131 @@ final class SessionStoreTests: XCTestCase {
         XCTAssertEqual(tmux.tmuxAvailable, tmuxExists,
                        "TmuxService.tmuxAvailable should match whether tmux is on disk")
     }
+
+    // MARK: - Folder Interaction Tracking
+
+    func testRecordFolderInteractionUpdatesTimestamp() {
+        let store = makeStore()
+        let before = Date()
+
+        store.recordFolderInteraction("/proj/alpha")
+
+        let after = Date()
+        let timestamp = store.folderLastUsed["/proj/alpha"]
+        XCTAssertNotNil(timestamp, "Timestamp should be recorded for folder")
+        XCTAssertGreaterThanOrEqual(timestamp!, before)
+        XCTAssertLessThanOrEqual(timestamp!, after)
+    }
+
+    func testRecordFolderInteractionForSessionResolvesFolder() {
+        let store = makeStore()
+        store.sessions = [makeSession(sessionId: "s1", workingDirectory: "/proj/alpha")]
+        store.reconcileOrder()
+
+        store.recordFolderInteractionForSession("s1")
+
+        XCTAssertNotNil(store.folderLastUsed["/proj/alpha"],
+                        "Should record timestamp for the session's folder")
+    }
+
+    func testRecordFolderInteractionForSessionNoOpForMissing() {
+        let store = makeStore()
+        store.sessions = [makeSession(sessionId: "s1", workingDirectory: "/proj/alpha")]
+
+        // Should not crash for non-existent session
+        store.recordFolderInteractionForSession("nonexistent")
+
+        XCTAssertTrue(store.folderLastUsed.isEmpty)
+    }
+
+    func testFolderLastUsedPersistsToUserDefaults() {
+        let store = makeStore()
+        store.recordFolderInteraction("/proj/alpha")
+
+        let testDefaults = UserDefaults(suiteName: Self.testSuiteName)!
+        let data = testDefaults.data(forKey: "nala.folderLastUsed")
+        XCTAssertNotNil(data, "folderLastUsed should be persisted to UserDefaults")
+
+        let decoded = try? JSONDecoder().decode([String: Date].self, from: data!)
+        XCTAssertNotNil(decoded?["/proj/alpha"])
+    }
+
+    func testFolderLastUsedLoadsOnStartServices() {
+        let testDefaults = UserDefaults(suiteName: Self.testSuiteName)!
+        let date = Date()
+        let encoded = try! JSONEncoder().encode(["/proj/alpha": date])
+        testDefaults.set(encoded, forKey: "nala.folderLastUsed")
+
+        let store = makeStore()
+        store.startServices()
+
+        XCTAssertNotNil(store.folderLastUsed["/proj/alpha"],
+                        "folderLastUsed should load from UserDefaults on startup")
+    }
+
+    func testReconcilePrunesStaleFolderLastUsed() {
+        let store = makeStore()
+        store.folderLastUsed = ["/old": Date(), "/proj/alpha": Date()]
+        store.sessions = [
+            makeSession(name: "a", sessionId: "s1", workingDirectory: "/proj/alpha"),
+        ]
+
+        store.reconcileOrder()
+
+        XCTAssertNil(store.folderLastUsed["/old"],
+                     "Stale folder last-used entry should be pruned")
+        XCTAssertNotNil(store.folderLastUsed["/proj/alpha"],
+                        "Active folder last-used entry should be preserved")
+    }
+
+    func testLaunchSessionRecordsFolderInteraction() {
+        let store = makeStore()
+        store.sessions = []
+        store.reconcileOrder()
+
+        store.launchSession(agentType: "claude", in: "/proj/alpha")
+
+        XCTAssertNotNil(store.folderLastUsed["/proj/alpha"],
+                        "launchSession should record folder interaction")
+    }
+
+    // MARK: - lastFocusedTimestamps Persistence
+
+    func testLastFocusedTimestampsPersistsToUserDefaults() {
+        let store = makeStore()
+        store.lastFocusedTimestamps["s1"] = Date()
+
+        let testDefaults = UserDefaults(suiteName: Self.testSuiteName)!
+        let data = testDefaults.data(forKey: "nala.lastFocusedTimestamps")
+        XCTAssertNotNil(data, "lastFocusedTimestamps should be persisted to UserDefaults")
+
+        let decoded = try? JSONDecoder().decode([String: Date].self, from: data!)
+        XCTAssertNotNil(decoded?["s1"])
+    }
+
+    func testLastFocusedTimestampsLoadsOnStartServices() {
+        let testDefaults = UserDefaults(suiteName: Self.testSuiteName)!
+        let date = Date()
+        let encoded = try! JSONEncoder().encode(["s1": date])
+        testDefaults.set(encoded, forKey: "nala.lastFocusedTimestamps")
+
+        let store = makeStore()
+        store.startServices()
+
+        XCTAssertNotNil(store.lastFocusedTimestamps["s1"],
+                        "lastFocusedTimestamps should load from UserDefaults on startup")
+    }
+
+    func testReconcilePrunesStaleLastFocusedTimestamps() {
+        let store = makeStore()
+        store.sessions = [makeSession(sessionId: "s1", workingDirectory: "/tmp")]
+        store.lastFocusedTimestamps = ["s1": Date(), "stale-id": Date()]
+
+        store.reconcileOrder()
+
+        XCTAssertNotNil(store.lastFocusedTimestamps["s1"],
+                        "Active session timestamp should be preserved")
+        XCTAssertNil(store.lastFocusedTimestamps["stale-id"],
+                     "Stale session timestamp should be pruned")
+    }
 }
