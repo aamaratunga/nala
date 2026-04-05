@@ -386,9 +386,16 @@ struct CommandPaletteView: View {
     }
 
     private var folderModeItems: [PaletteItem] {
-        // Active folder first, then rest by folder order
         let activePath = store.focusedFolderPath
-        var paths = store.folderOrder
+
+        // Sort by recency (most recent first), folders with no timestamp last
+        var paths = store.folderOrder.sorted { a, b in
+            let tA = store.folderLastUsed[a] ?? .distantPast
+            let tB = store.folderLastUsed[b] ?? .distantPast
+            return tA > tB
+        }
+
+        // Active folder always first
         if let active = activePath, let idx = paths.firstIndex(of: active) {
             paths.remove(at: idx)
             paths.insert(active, at: 0)

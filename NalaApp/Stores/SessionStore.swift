@@ -40,7 +40,9 @@ final class SessionStore {
     var sidebarFocused = false
 
     /// Tracks when each session was last focused (selected), for command palette recency sort.
-    var lastFocusedTimestamps: [String: Date] = [:]
+    var lastFocusedTimestamps: [String: Date] = [:] {
+        didSet { if !isSuppressingPersistence { saveLastFocusedTimestamps() } }
+    }
     var sidebarVisibility: NavigationSplitViewVisibility = .all
     var lastError: String?
 
@@ -123,6 +125,11 @@ final class SessionStore {
         didSet { if !isSuppressingPersistence { saveBrowseRoot() } }
     }
 
+    /// Tracks when each folder was last interacted with (session launched or selected), for command palette recency sort.
+    var folderLastUsed: [String: Date] = [:] {
+        didSet { if !isSuppressingPersistence { saveFolderLastUsed() } }
+    }
+
     /// Subfolders discovered by scanning worktree folders. Cached to
     /// UserDefaults so the sidebar loads instantly on next launch.
     var discoveredFolders: Set<String> = []
@@ -181,6 +188,8 @@ final class SessionStore {
     private static let recentBrowsePathsKey = "nala.recentBrowsePaths"
     private static let recentBrowseTimestampsKey = "nala.recentBrowseTimestamps"
     private static let browseRootKey = "nala.browseRoot"
+    private static let folderLastUsedKey = "nala.folderLastUsed"
+    private static let lastFocusedTimestampsKey = "nala.lastFocusedTimestamps"
 
     /// The currently selected session, if any.
     var selectedSession: Session? {
@@ -397,6 +406,20 @@ final class SessionStore {
             for path in evicted { recentBrowseTimestamps.removeValue(forKey: path) }
         }
         recentBrowseTimestamps[path] = Date()
+    }
+
+    // MARK: - Folder Interaction Tracking
+
+    /// Record a folder interaction (session launch or focus) for recency sorting.
+    func recordFolderInteraction(_ folderPath: String) {
+        folderLastUsed[folderPath] = Date()
+    }
+
+    /// Record interaction for the folder containing a given session.
+    func recordFolderInteractionForSession(_ sessionId: String) {
+        guard let session = sessions.first(where: { $0.id == sessionId }) else { return }
+        let folder = groupingPath(for: session.workingDirectory)
+        recordFolderInteraction(folder)
     }
 
     // MARK: - Native Service Lifecycle
@@ -843,6 +866,7 @@ final class SessionStore {
         selectedSessionId = state.id
         sidebarFocused = false
         let resolvedDir = groupingPath(for: workingDir)
+        recordFolderInteraction(resolvedDir)
         folderExpansion[resolvedDir] = true
         let status = folderStatus[resolvedDir] ?? .inProgress
         sectionExpansion[status] = true
@@ -1175,12 +1199,23 @@ final class SessionStore {
             folderExpansion.removeValue(forKey: key)
         }
 
+        // Prune stale folder last-used timestamps
+        for key in folderLastUsed.keys where !keepFolders.contains(key) {
+            folderLastUsed.removeValue(forKey: key)
+        }
+
         // Prune stale acknowledged session IDs
         let currentSessionIds = Set(sessions.map(\.sessionId))
         let staleAcknowledged = acknowledgedSessionIds.subtracting(currentSessionIds)
         if !staleAcknowledged.isEmpty {
             acknowledgedSessionIds.subtract(staleAcknowledged)
             saveAcknowledgedSessions()
+        }
+
+        // Prune stale last-focused session timestamps
+        let allSessionIds = Set(sessions.map(\.id))
+        for key in lastFocusedTimestamps.keys where !allSessionIds.contains(key) {
+            lastFocusedTimestamps.removeValue(forKey: key)
         }
     }
 
@@ -1337,6 +1372,14 @@ final class SessionStore {
             recentBrowseTimestamps = decoded
         }
         browseRoot = defaults.string(forKey: Self.browseRootKey) ?? ""
+        if let data = defaults.data(forKey: Self.folderLastUsedKey),
+           let decoded = try? JSONDecoder().decode([String: Date].self, from: data) {
+            folderLastUsed = decoded
+        }
+        if let data = defaults.data(forKey: Self.lastFocusedTimestampsKey),
+           let decoded = try? JSONDecoder().decode([String: Date].self, from: data) {
+            lastFocusedTimestamps = decoded
+        }
         loadAcknowledgedSessions()
     }
 
@@ -1394,6 +1437,18 @@ final class SessionStore {
 
     private func saveBrowseRoot() {
         defaults.set(browseRoot, forKey: Self.browseRootKey)
+    }
+
+    private func saveFolderLastUsed() {
+        if let data = try? JSONEncoder().encode(folderLastUsed) {
+            defaults.set(data, forKey: Self.folderLastUsedKey)
+        }
+    }
+
+    private func saveLastFocusedTimestamps() {
+        if let data = try? JSONEncoder().encode(lastFocusedTimestamps) {
+            defaults.set(data, forKey: Self.lastFocusedTimestampsKey)
+        }
     }
 
     // MARK: - Worktree Helpers

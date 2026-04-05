@@ -81,6 +81,7 @@ struct ContentView: View {
                         }
                         // Track last focused timestamp for palette recency sort
                         store.lastFocusedTimestamps[id] = Date()
+                        store.recordFolderInteractionForSession(id)
                     }
                     let tmuxName = store.sessions
                         .first(where: { $0.id == newId })?.tmuxSession
