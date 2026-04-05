@@ -1,4 +1,5 @@
 import Foundation
+import QuartzCore
 import SwiftUI
 import os
 
@@ -154,6 +155,7 @@ final class SessionStore {
     private static let acknowledgedSessionsKey = "nala.acknowledgedSessions"
 
     private let logger = Logger(subsystem: "com.nala.app", category: "SessionStore")
+    private static let signpostLog = OSLog(subsystem: "com.nala.app", category: .pointsOfInterest)
     private let defaults: UserDefaults
     private var isSuppressingPersistence = false
     private var lastScannedWorktreePaths: Set<String> = []
@@ -173,7 +175,12 @@ final class SessionStore {
     /// Returns the git root for a working directory, falling back to the path itself.
     func groupingPath(for workingDirectory: String) -> String {
         if let cached = gitRootCache[workingDirectory] { return cached }
+        let startTime = CACurrentMediaTime()
         let resolved = GitService.findGitRoot(from: workingDirectory) ?? workingDirectory
+        let elapsed = CACurrentMediaTime() - startTime
+        if elapsed > 0.05 {
+            logger.warning("groupingPath: findGitRoot took \(String(format: "%.1f", elapsed * 1000))ms for \(workingDirectory)")
+        }
         gitRootCache[workingDirectory] = resolved
         return resolved
     }
@@ -328,13 +335,10 @@ final class SessionStore {
     // MARK: - Error Alerts
 
     func showErrorAlert(title: String, message: String?) {
+        let errorMessage = "\(title)\n\(message ?? "An unknown error occurred.")"
+        logger.error("showErrorAlert: \(errorMessage)")
         Task { @MainActor in
-            let alert = NSAlert()
-            alert.messageText = title
-            alert.informativeText = message ?? "An unknown error occurred."
-            alert.alertStyle = .critical
-            alert.addButton(withTitle: "OK")
-            alert.runModal()
+            self.lastError = errorMessage
         }
     }
 
@@ -606,6 +610,19 @@ final class SessionStore {
     // MARK: - Tmux Update Handler
 
     func handleTmuxUpdate(_ update: TmuxUpdate) {
+        let signpostID = OSSignpostID(log: Self.signpostLog)
+        let startTime = CACurrentMediaTime()
+        os_signpost(.begin, log: Self.signpostLog, name: "handleTmuxUpdate", signpostID: signpostID,
+                    "sessions: %d, added: %d, removed: %d",
+                    update.current.count, update.added.count, update.removed.count)
+        defer {
+            os_signpost(.end, log: Self.signpostLog, name: "handleTmuxUpdate", signpostID: signpostID)
+            let elapsed = CACurrentMediaTime() - startTime
+            if elapsed > 0.1 {
+                logger.warning("handleTmuxUpdate took \(String(format: "%.1f", elapsed * 1000))ms (sessions: \(update.current.count))")
+            }
+        }
+
         // Process removals
         let removedNames = Set(update.removed)
         if !removedNames.isEmpty {
@@ -880,7 +897,9 @@ final class SessionStore {
     }
 
     private func performLaunch(state: SessionLaunchState) async {
+        logger.info("performLaunch: starting \(state.agentType) in \(state.workingDirectory)")
         guard let tmux = tmuxService else {
+            logger.error("performLaunch: TmuxService not available")
             await MainActor.run {
                 state.error = "TmuxService not available"
                 handleLaunchFailure(state: state)
@@ -893,6 +912,7 @@ final class SessionStore {
                 agentType: state.agentType,
                 workingDirectory: state.workingDirectory
             )
+            logger.info("performLaunch: tmux session created: \(sessionName)")
             // Extract session ID from session name (format: {type}-{uuid})
             await MainActor.run {
                 if let parsed = TmuxService.parseSessionName(sessionName) {
@@ -905,6 +925,7 @@ final class SessionStore {
                 }
             }
         } catch {
+            logger.error("performLaunch: failed: \(error.localizedDescription)")
             await MainActor.run {
                 state.error = error.localizedDescription
                 handleLaunchFailure(state: state)
@@ -1147,6 +1168,9 @@ final class SessionStore {
 
     /// Prunes stale entries and appends newly discovered folders/sessions.
     func reconcileOrder() {
+        os_signpost(.begin, log: Self.signpostLog, name: "reconcileOrder")
+        defer { os_signpost(.end, log: Self.signpostLog, name: "reconcileOrder") }
+
         isSuppressingPersistence = true
         defer {
             isSuppressingPersistence = false

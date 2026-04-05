@@ -68,6 +68,58 @@ Always read DESIGN.md before making any visual or UI decisions.
 All font choices, colors, spacing, and aesthetic direction are defined there.
 Do not deviate without explicit user approval.
 
+## App Logs
+
+Nala uses macOS Unified Logging (`os.Logger`) with subsystem `"com.nala.app"`. Logs are not written to a file. They go to the system log and can be read with Console.app or the `log` CLI.
+
+### Reading logs in real time
+
+```bash
+# All Nala logs
+log stream --predicate 'subsystem == "com.nala.app"' --level debug
+
+# Filter by category (SessionStore, TmuxService, GitService, EventFileWatcher, PulseParser, etc.)
+log stream --predicate 'subsystem == "com.nala.app" AND category == "SessionStore"' --level debug
+```
+
+### Reading historical logs
+
+```bash
+# Last 5 minutes
+log show --predicate 'subsystem == "com.nala.app"' --last 5m --level debug
+
+# Last 1 hour
+log show --predicate 'subsystem == "com.nala.app"' --last 1h --level debug
+```
+
+### Console.app
+
+Open `/Applications/Utilities/Console.app`, type `com.nala.app` in the search bar, and select "Subsystem" from the filter dropdown.
+
+### Performance instrumentation
+
+`SessionStore` emits `os_signpost` intervals on the Points of Interest log for `handleTmuxUpdate` and `reconcileOrder`. These are visible in Instruments.app (use the "Points of Interest" instrument). Timing warnings (>100ms for handleTmuxUpdate, >50ms for groupingPath) are logged at warning level automatically.
+
+### Log categories
+
+Each service logs under its own category:
+- `SessionStore` — session lifecycle, polling, errors, performance warnings
+- `TmuxService` — tmux process execution, session creation/deletion
+- `GitService` — git commands, worktree operations
+- `EventFileWatcher` — JSONL event file watching
+- `PulseParser` — log file pulse parsing
+- `TerminalLauncher` — external terminal attachment
+- `AutoNamer` — AI-based session naming
+
+### Log levels
+
+- **debug** — verbose (only visible with `--level debug` flag)
+- **info** — normal operations (session created, watcher started)
+- **warning** — performance issues, non-fatal problems
+- **error** — failures (launch errors, alert triggers)
+
+Debug and info are ephemeral (macOS may discard quickly). Warning and error persist longer.
+
 ## Conventions
 - Bundle ID: `com.nala.app`
 - Logger subsystem: `"com.nala.app"`

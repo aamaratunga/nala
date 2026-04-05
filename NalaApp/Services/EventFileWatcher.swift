@@ -44,10 +44,28 @@ final class EventFileWatcher: @unchecked Sendable {
         var fileDescriptor: Int32 = -1
         var source: DispatchSourceFileSystemObject?
         var partialLine: String = ""
-        var currentState = AgentState()
+        /// Internal state mutated only on watcherQueue. Use stateLock for cross-thread reads.
+        var _currentState = AgentState()
         var latestEventType: String?
         var latestEventTime: Date?
         var latestSummary: String?
+
+        /// Lock protecting cross-thread reads of _currentState.
+        let stateLock = NSLock()
+
+        /// Thread-safe getter: snapshot the current state under lock.
+        var currentState: AgentState {
+            get {
+                stateLock.lock()
+                defer { stateLock.unlock() }
+                return _currentState
+            }
+            set {
+                stateLock.lock()
+                _currentState = newValue
+                stateLock.unlock()
+            }
+        }
 
         init(sessionId: String, path: String) {
             self.sessionId = sessionId
@@ -166,13 +184,13 @@ final class EventFileWatcher: @unchecked Sendable {
     }
 
     /// Get the current cached state for a session (thread-safe).
+    /// Reads through a per-watcher lock instead of dispatching to the queue,
+    /// avoiding main-thread blocking when the watcher queue is busy.
     func cachedState(for sessionId: String) -> AgentState? {
         watchersLock.lock()
         let watcher = watchers[sessionId]
         watchersLock.unlock()
-        guard let watcher else { return nil }
-        // currentState is mutated on watcherQueue, so read it there
-        return watcherQueue.sync { watcher.currentState }
+        return watcher?.currentState
     }
 
     /// Stream of state updates from all watched sessions.
