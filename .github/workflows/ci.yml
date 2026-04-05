@@ -25,7 +25,7 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Cache Homebrew downloads
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/Library/Caches/Homebrew/downloads/*xcodegen*
@@ -39,7 +39,7 @@ jobs:
         run: xcodegen generate
 
       - name: Cache SPM packages
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: .spm-cache
           key: ${{ runner.os }}-spm-${{ hashFiles('project.yml') }}
