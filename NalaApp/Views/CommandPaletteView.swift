@@ -175,7 +175,6 @@ struct CommandPaletteView: View {
         }
         .frame(width: 720)
         .frame(maxHeight: 600)
-        .fixedSize(horizontal: false, vertical: true)
         .background(NalaTheme.bgSurfaceRaised)
         .clipShape(RoundedRectangle(cornerRadius: 16))
         .overlay(
@@ -501,6 +500,7 @@ struct CommandPaletteView: View {
                 }
                 .padding(.vertical, 6)
             }
+            .fixedSize(horizontal: false, vertical: true)
             .frame(maxHeight: 460)
             .onChange(of: selectedIndex) { _, newIndex in
                 let allItems = filteredItems
