@@ -3,6 +3,7 @@ import SwiftUI
 @main
 struct NalaApp: App {
     @State private var sessionStore = SessionStore()
+    private let updateManager = UpdateManager()
 
     var body: some Scene {
         WindowGroup {
@@ -28,6 +29,9 @@ struct NalaApp: App {
         }
         .windowToolbarStyle(.unifiedCompact)
         .commands {
+            CommandGroup(after: .appInfo) {
+                CheckForUpdatesView(updater: updateManager.updater)
+            }
             CommandGroup(replacing: .newItem) {
                 Button("Command Palette") {
                     withAnimation(.easeOut(duration: 0.15)) {

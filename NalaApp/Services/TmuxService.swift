@@ -51,10 +51,11 @@ final class TmuxService: @unchecked Sendable {
     /// Known tmux install paths, checked in order.
     /// macOS GUI apps don't inherit the user's shell PATH, so we check common locations directly.
     private static let knownTmuxPaths = [
+        Bundle.main.path(forAuxiliaryExecutable: "tmux"),  // Bundled in Contents/MacOS/
         "/opt/homebrew/bin/tmux",    // Homebrew on Apple Silicon
         "/usr/local/bin/tmux",       // Homebrew on Intel / manual installs
         "/usr/bin/tmux",             // unlikely, but check anyway
-    ]
+    ].compactMap { $0 }
 
     init() {
         let fm = FileManager.default

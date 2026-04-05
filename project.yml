@@ -13,6 +13,9 @@ packages:
   Lottie:
     url: https://github.com/airbnb/lottie-ios
     from: "4.6.0"
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    from: "2.6.0"
 
 targets:
   NalaApp:
@@ -27,22 +30,27 @@ targets:
         CURRENT_PROJECT_VERSION: "1"
         SWIFT_VERSION: "5.10"
         MACOSX_DEPLOYMENT_TARGET: "15.0"
-        CODE_SIGN_ENTITLEMENTS: ""
+        CODE_SIGN_ENTITLEMENTS: NalaApp/NalaApp.entitlements
         ENABLE_APP_SANDBOX: "NO"
         PRODUCT_NAME: Nala
         PRODUCT_MODULE_NAME: Nala
     dependencies:
       - package: SwiftTerm
       - package: Lottie
+      - package: Sparkle
     info:
       path: NalaApp/Info.plist
       properties:
         CFBundleName: Nala
         CFBundleDisplayName: Nala
-        CFBundleShortVersionString: "1.0.0"
-        CFBundleVersion: "1"
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         LSMinimumSystemVersion: "15.0"
         NSMainStoryboardFile: ""
+        SUFeedURL: "https://github.com/aamaratunga/nala/releases/latest/download/appcast.xml"
+        SUPublicEDKey: "NHWJrRT8iCVCNckpsYSc+sxz4YElq8UVtHSyinBvOI0="
+        SUEnableAutomaticChecks: true
+        SUScheduledCheckInterval: 86400
 
   NalaAppTests:
     type: bundle.unit-test

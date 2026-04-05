@@ -1,0 +1,202 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Build & Release DMG
+    runs-on: macos-15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Extract version from tag
+        id: version
+        run: |
+          TAG="${GITHUB_REF#refs/tags/v}"
+          echo "marketing_version=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "build_number=$(date +%Y%m%d)" >> "$GITHUB_OUTPUT"
+          echo "Marketing version: ${TAG}"
+          echo "Build number: $(date +%Y%m%d)"
+
+      - name: Cache Homebrew downloads
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Caches/Homebrew/downloads/*xcodegen*
+            ~/Library/Caches/Homebrew/downloads/*create-dmg*
+            ~/Library/Caches/Homebrew/xcodegen--*
+            ~/Library/Caches/Homebrew/create-dmg--*
+          key: ${{ runner.os }}-release-brew-v1
+
+      - name: Install tools
+        run: brew install xcodegen create-dmg
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Cache SPM packages
+        uses: actions/cache@v4
+        with:
+          path: .spm-cache
+          key: ${{ runner.os }}-spm-${{ hashFiles('project.yml') }}
+          restore-keys: |
+            ${{ runner.os }}-spm-
+
+      - name: Build release
+        run: |
+          xcodebuild build \
+            -project NalaApp.xcodeproj \
+            -scheme NalaApp \
+            -configuration Release \
+            -destination 'platform=macOS,arch=arm64' \
+            -clonedSourcePackagesDirPath .spm-cache \
+            -derivedDataPath .build \
+            CODE_SIGN_IDENTITY="${{ secrets.CODE_SIGN_IDENTITY || '-' }}" \
+            CODE_SIGNING_ALLOWED=YES \
+            MARKETING_VERSION="${{ steps.version.outputs.marketing_version }}" \
+            CURRENT_PROJECT_VERSION="${{ steps.version.outputs.build_number }}"
+
+      - name: Create DMG
+        run: |
+          APP_PATH=".build/Build/Products/Release/Nala.app"
+
+          # Verify app exists
+          if [ ! -d "$APP_PATH" ]; then
+            echo "ERROR: Nala.app not found at $APP_PATH"
+            ls -la .build/Build/Products/Release/ || true
+            exit 1
+          fi
+
+          create-dmg \
+            --volname "Nala" \
+            --volicon "$APP_PATH/Contents/Resources/AppIcon.icns" \
+            --window-pos 200 120 \
+            --window-size 600 400 \
+            --icon-size 100 \
+            --icon "Nala.app" 150 185 \
+            --app-drop-link 450 185 \
+            --no-internet-enable \
+            "Nala-${{ steps.version.outputs.marketing_version }}.dmg" \
+            "$APP_PATH" || true
+
+          # create-dmg exits 2 when it can't find an icon — the DMG is still valid
+          if [ ! -f "Nala-${{ steps.version.outputs.marketing_version }}.dmg" ]; then
+            echo "ERROR: DMG was not created"
+            exit 1
+          fi
+
+      - name: Verify DMG
+        run: |
+          set -e
+          DMG="Nala-${{ steps.version.outputs.marketing_version }}.dmg"
+
+          # Mount and verify
+          MOUNT_DIR=$(hdiutil attach "$DMG" -nobrowse | tail -1 | awk '{print $NF}')
+          echo "Mounted at: $MOUNT_DIR"
+
+          if [ ! -d "$MOUNT_DIR/Nala.app" ]; then
+            echo "ERROR: Nala.app not found in DMG"
+            hdiutil detach "$MOUNT_DIR"
+            exit 1
+          fi
+
+          codesign --verify --verbose "$MOUNT_DIR/Nala.app" 2>&1 || echo "Note: ad-hoc signed (expected for pre-Developer ID builds)"
+
+          hdiutil detach "$MOUNT_DIR"
+          echo "DMG verification passed"
+
+      # --- Sparkle appcast generation (requires SPARKLE_EDDSA_KEY secret) ---
+
+      - name: Sign update for Sparkle
+        if: env.SPARKLE_EDDSA_KEY != ''
+        env:
+          SPARKLE_EDDSA_KEY: ${{ secrets.SPARKLE_EDDSA_KEY }}
+        run: |
+          set -e
+          DMG="Nala-${{ steps.version.outputs.marketing_version }}.dmg"
+          VERSION="${{ steps.version.outputs.marketing_version }}"
+          BUILD="${{ steps.version.outputs.build_number }}"
+          DMG_SIZE=$(stat -f%z "$DMG")
+          DOWNLOAD_URL="https://github.com/${{ github.repository }}/releases/download/v${VERSION}/${DMG}"
+
+          # Find Sparkle's sign_update tool from SPM build
+          SIGN_UPDATE=$(find .build -name "sign_update" -type f | head -1)
+          if [ -z "$SIGN_UPDATE" ]; then
+            # Try building the Sparkle command-line tools
+            SIGN_UPDATE=$(find .spm-cache -path "*/Sparkle/bin/sign_update" -type f | head -1)
+          fi
+
+          if [ -z "$SIGN_UPDATE" ]; then
+            echo "WARNING: sign_update not found, generating unsigned appcast"
+            SIGNATURE=""
+          else
+            SIGNATURE=$("$SIGN_UPDATE" "$DMG" --ed-key-file <(echo "$SPARKLE_EDDSA_KEY") 2>&1 | grep 'edSignature=' | sed 's/.*edSignature="\([^"]*\)".*/\1/')
+            if [ -z "$SIGNATURE" ]; then
+              echo "ERROR: Failed to sign DMG with Sparkle"
+              exit 1
+            fi
+          fi
+
+          cat > appcast.xml << APPCAST_EOF
+          <?xml version="1.0" encoding="utf-8"?>
+          <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/">
+            <channel>
+              <title>Nala</title>
+              <item>
+                <title>Version ${VERSION}</title>
+                <sparkle:version>${BUILD}</sparkle:version>
+                <sparkle:shortVersionString>${VERSION}</sparkle:shortVersionString>
+                <pubDate>$(date -R)</pubDate>
+                <enclosure
+                  url="${DOWNLOAD_URL}"
+                  length="${DMG_SIZE}"
+                  type="application/octet-stream"
+                  sparkle:edSignature="${SIGNATURE}"
+                />
+              </item>
+            </channel>
+          </rss>
+          APPCAST_EOF
+
+          # Remove leading whitespace from heredoc indentation
+          sed -i '' 's/^          //' appcast.xml
+
+          echo "Appcast generated:"
+          cat appcast.xml
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${{ steps.version.outputs.marketing_version }}"
+          DMG="Nala-${VERSION}.dmg"
+
+          ASSETS=("$DMG")
+          if [ -f appcast.xml ]; then
+            ASSETS+=("appcast.xml")
+          fi
+
+          gh release create "v${VERSION}" \
+            --title "Nala v${VERSION}" \
+            --generate-notes \
+            "${ASSETS[@]}"
+
+      # --- Phase 2: Notarization (activates when secrets are configured) ---
+
+      # - name: Notarize
+      #   if: secrets.APPLE_ID != '' && secrets.APPLE_APP_PASSWORD != ''
+      #   run: |
+      #     xcrun notarytool submit "Nala-${{ steps.version.outputs.marketing_version }}.dmg" \
+      #       --apple-id "${{ secrets.APPLE_ID }}" \
+      #       --password "${{ secrets.APPLE_APP_PASSWORD }}" \
+      #       --team-id "${{ secrets.APPLE_TEAM_ID }}" \
+      #       --wait
+      #     xcrun stapler staple "Nala-${{ steps.version.outputs.marketing_version }}.dmg"

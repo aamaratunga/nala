@@ -1251,4 +1251,24 @@ final class SessionStoreTests: XCTestCase {
         XCTAssertEqual(namesAfterSecond.count, 1, "Second call should be guarded — stale data persists")
         XCTAssertEqual(namesAfterSecond["stale2"], "Another Old")
     }
+
+    // MARK: - tmuxNotFound
+
+    func testTmuxNotFoundDefaultsToFalse() {
+        let store = makeStore()
+        XCTAssertFalse(store.tmuxNotFound, "tmuxNotFound should default to false before services start")
+    }
+
+    func testTmuxServiceAvailabilityReflectsInstallState() {
+        let tmux = TmuxService()
+        // In CI/dev environments tmux is typically installed via Homebrew.
+        // This test documents the contract: tmuxAvailable is true iff tmux
+        // is found at a known path. If this test runs in an environment
+        // without tmux, flip the assertion.
+        let tmuxExists = FileManager.default.isExecutableFile(atPath: "/opt/homebrew/bin/tmux")
+            || FileManager.default.isExecutableFile(atPath: "/usr/local/bin/tmux")
+            || FileManager.default.isExecutableFile(atPath: "/usr/bin/tmux")
+        XCTAssertEqual(tmux.tmuxAvailable, tmuxExists,
+                       "TmuxService.tmuxAvailable should match whether tmux is on disk")
+    }
 }

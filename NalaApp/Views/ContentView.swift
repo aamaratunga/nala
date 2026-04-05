@@ -53,7 +53,14 @@ struct ContentView: View {
                         ContentUnavailableView {
                             Label("tmux Not Found", systemImage: "exclamationmark.triangle")
                         } description: {
-                            Text("Install tmux via Homebrew: brew install tmux")
+                            Text("Nala requires tmux to manage agent sessions. Install it via Homebrew, then relaunch the app.")
+                        } actions: {
+                            Button {
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString("brew install tmux", forType: .string)
+                            } label: {
+                                Label("Copy \"brew install tmux\"", systemImage: "doc.on.doc")
+                            }
                         }
                     } else if store.selectedSession == nil {
                         ContentUnavailableView {

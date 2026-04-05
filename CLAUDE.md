@@ -12,7 +12,7 @@
   - `Stores/` — Observable state (`SessionStore`)
   - `Tools/` — Utilities (PathFinder)
   - `Views/` — SwiftUI views (ContentView, CommandPaletteView, SessionDetailView, SessionListView, SettingsView, etc.)
-- `NalaAppTests/` — Unit tests (194 tests)
+- `NalaAppTests/` — Unit tests
 - `project.yml` — XcodeGen project spec
 - `DESIGN.md` — Design system (colors, typography, spacing, motion)
 
@@ -33,6 +33,28 @@ xcodebuild test -project NalaApp.xcodeproj -scheme NalaApp -destination 'platfor
 ```bash
 xcodegen generate
 ```
+
+### Release
+
+To publish a new version:
+
+1. Update `MARKETING_VERSION` in `project.yml` (e.g., `"1.2.0"`)
+2. Commit, merge to `main`
+3. Tag and push:
+   ```bash
+   git tag v1.2.0
+   git push origin v1.2.0
+   ```
+
+The `release.yml` workflow will automatically:
+- Build an arm64 Release binary
+- Create a DMG with Applications symlink
+- Sign the DMG for Sparkle auto-updates (using `SPARKLE_EDDSA_KEY` repo secret)
+- Create a GitHub Release with the DMG and appcast.xml
+
+**Version scheme:** `MARKETING_VERSION` (semver from tag) is the user-facing version. `CURRENT_PROJECT_VERSION` (YYYYMMDD, auto-generated in CI) is the build number Sparkle uses to detect upgrades.
+
+**Signing:** Currently ad-hoc. See TODOS.md for Developer ID + notarization plan.
 
 ## Architecture
 - **No network dependencies** — all state comes from local tmux polling + file watching
