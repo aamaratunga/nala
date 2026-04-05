@@ -1,4 +1,4 @@
-# Nala
+# Nala (Not Another LLM App)
 
 Native macOS app for orchestrating AI coding agents in parallel git worktrees.
 
