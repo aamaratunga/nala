@@ -175,6 +175,7 @@ struct CommandPaletteView: View {
         }
         .frame(width: 720)
         .frame(maxHeight: 600)
+        .fixedSize(horizontal: false, vertical: true)
         .background(NalaTheme.bgSurfaceRaised)
         .clipShape(RoundedRectangle(cornerRadius: 16))
         .overlay(
@@ -484,7 +485,7 @@ struct CommandPaletteView: View {
 
         return ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(spacing: 0) {
+                VStack(spacing: 0) {
                     if case .newWorktree = mode, worktreeSelectedConfig != nil {
                         // Branch input mode: no results list needed
                         EmptyView()
@@ -500,7 +501,6 @@ struct CommandPaletteView: View {
                 }
                 .padding(.vertical, 6)
             }
-            .fixedSize(horizontal: false, vertical: true)
             .frame(maxHeight: 460)
             .onChange(of: selectedIndex) { _, newIndex in
                 let allItems = filteredItems
