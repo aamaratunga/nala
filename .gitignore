@@ -15,6 +15,7 @@ DerivedData/
 # SwiftPM
 .build/
 .swiftpm/
+.spm-cache/
 Package.resolved
 
 # macOS

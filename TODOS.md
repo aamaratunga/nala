@@ -8,23 +8,14 @@ Items ordered by recommended execution sequence.
 
 ### Tier 1 — Distribution readiness
 
-#### 1. Developer ID signing + notarization
+#### 1. App icon
 
-**What:** Sign the app with an Apple Developer ID certificate and notarize it so macOS Gatekeeper allows installation without right-click workarounds.
+**What:** Design and add an app icon (AppIcon asset catalog) so the app has a proper identity in the Dock, Finder, and DMG.
 
-**Why:** Ad-hoc signed DMGs trigger Gatekeeper warnings on first install. Developer ID signing + notarization eliminates this friction entirely.
+**Why:** The app currently shows the default blank icon. First impression for anyone receiving the DMG.
 
-**Context:** Requires an Apple Developer account ($99/yr). Implementation involves:
-- Adding `ENABLE_HARDENED_RUNTIME=YES` build setting to `project.yml`
-- Configuring `CODE_SIGN_IDENTITY` GitHub Actions secret with the Developer ID Application certificate
-- Adding `xcrun notarytool submit` and `xcrun stapler staple` steps to `release.yml` (stubs already present as comments)
-- Embedded frameworks (SwiftTerm, Lottie, Sparkle) compile from source with the app's signing identity, so they inherit the Developer ID signature automatically
-- May need specific entitlements (e.g., `com.apple.security.cs.disable-library-validation`) if Hardened Runtime causes codesign failures — add only if errors prove they're needed
-- Secrets needed: `CODE_SIGN_IDENTITY`, `APPLE_ID`, `APPLE_APP_PASSWORD`, `APPLE_TEAM_ID`
-
-**Effort:** M
+**Effort:** S
 **Priority:** P1
-**Depends on:** Apple Developer account enrollment
 
 #### 2. Bundle tmux binary for distribution
 
@@ -41,7 +32,25 @@ Items ordered by recommended execution sequence.
 
 ### Tier 2 — Maintainability
 
-#### 3. Extract WorktreeManager from SessionStore
+#### 3. Developer ID signing + notarization
+
+**What:** Sign the app with an Apple Developer ID certificate and notarize it so macOS Gatekeeper allows installation without right-click workarounds.
+
+**Why:** Ad-hoc signed DMGs trigger Gatekeeper warnings on first install. Developer ID signing + notarization eliminates this friction. Not needed for sharing with coworkers (right-click → Open works), but required for wider distribution.
+
+**Context:** Requires an Apple Developer account ($99/yr). Implementation involves:
+- Adding `ENABLE_HARDENED_RUNTIME=YES` build setting to `project.yml`
+- Configuring `CODE_SIGN_IDENTITY` GitHub Actions secret with the Developer ID Application certificate
+- Adding `xcrun notarytool submit` and `xcrun stapler staple` steps to `release.yml` (stubs already present as comments)
+- Embedded frameworks (SwiftTerm, Lottie, Sparkle) compile from source with the app's signing identity, so they inherit the Developer ID signature automatically
+- May need specific entitlements (e.g., `com.apple.security.cs.disable-library-validation`) if Hardened Runtime causes codesign failures — add only if errors prove they're needed
+- Secrets needed: `CODE_SIGN_IDENTITY`, `APPLE_ID`, `APPLE_APP_PASSWORD`, `APPLE_TEAM_ID`
+
+**Effort:** M
+**Priority:** P3
+**Depends on:** Apple Developer account enrollment
+
+#### 4. Extract WorktreeManager from SessionStore
 
 **What:** Extract worktree creation/deletion orchestration into a separate `WorktreeManager` class when SessionStore exceeds 2,500 lines.
 
@@ -52,7 +61,7 @@ Items ordered by recommended execution sequence.
 **Effort:** M
 **Priority:** P3
 
-#### 4. Homebrew Cask tap
+#### 5. Homebrew Cask tap
 
 **What:** Create a Homebrew Cask formula so users can `brew install --cask nala`.
 
