@@ -229,6 +229,7 @@ struct LocalTerminalView: NSViewRepresentable {
         private var mouseMonitor: Any?
         private var keyMonitor: Any?
         private var forwardedMouseDown = false
+        private var cmdClickPending = false
         private var didDrag = false
         private var scrollAccumulator: CGFloat = 0
         private var lastRepeatForward: TimeInterval = 0
@@ -314,6 +315,17 @@ struct LocalTerminalView: NSViewRepresentable {
                           hitView === tv || hitView.isDescendant(of: tv) else {
                         return event
                     }
+                    // Reset stale Cmd+Click state from any abandoned gesture
+                    // (e.g. mouseUp never delivered after app backgrounded)
+                    self.cmdClickPending = false
+                    // Cmd+Click: intercept for link detection instead of forwarding to tmux
+                    if event.modifierFlags.contains(.command) {
+                        if let window = tv.window, window.firstResponder !== tv {
+                            window.makeFirstResponder(tv)
+                        }
+                        self.cmdClickPending = true
+                        return nil
+                    }
                     let mode = terminal.mouseMode
                     // sendButtonPress() (internal): true for .vt200, .buttonEventTracking, .anyEvent
                     guard mode == .vt200 || mode == .buttonEventTracking || mode == .anyEvent else {
@@ -331,6 +343,8 @@ struct LocalTerminalView: NSViewRepresentable {
                     return nil  // consume — prevent SwiftTerm's native selection
 
                 case .leftMouseDragged:
+                    // Cancel pending Cmd+Click if user drags (selecting text, not clicking)
+                    self.cmdClickPending = false
                     guard self.forwardedMouseDown else { return event }
                     let mode = terminal.mouseMode
                     // sendButtonTracking() (internal): true for .buttonEventTracking, .anyEvent
@@ -342,6 +356,22 @@ struct LocalTerminalView: NSViewRepresentable {
                     return nil
 
                 case .leftMouseUp:
+                    // Cmd+Click: detect URL at click position and open in browser
+                    if self.cmdClickPending {
+                        self.cmdClickPending = false
+                        // Only open link if mouse is still over our terminal view
+                        guard let window = tv.window,
+                              let hitView = window.contentView?.hitTest(event.locationInWindow),
+                              hitView === tv || hitView.isDescendant(of: tv) else {
+                            return nil
+                        }
+                        let pos = self.gridPosition(for: event, tv: tv, terminal: terminal)
+                        if let link = terminal.link(at: .screen(Position(col: pos.col, row: pos.row)), mode: .explicitAndImplicit),
+                           let url = URL(string: link) {
+                            NSWorkspace.shared.open(url)
+                        }
+                        return nil
+                    }
                     guard self.forwardedMouseDown else { return event }
                     self.forwardedMouseDown = false
                     let flags = self.encodeMouseFlags(for: event, terminal: terminal, release: true)
