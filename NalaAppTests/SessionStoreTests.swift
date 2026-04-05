@@ -902,4 +902,353 @@ final class SessionStoreTests: XCTestCase {
         let saved = testDefaults.stringArray(forKey: "nala.acknowledgedSessions") ?? []
         XCTAssertFalse(saved.contains("s1"), "Stale acknowledged ID should be pruned")
     }
+
+    // MARK: - Startup Cleanup
+
+    // -- pruneDisplayNames --
+
+    func testPruneDisplayNamesRemovesStaleEntries() {
+        let store = makeStore()
+        let testDefaults = UserDefaults(suiteName: Self.testSuiteName)!
+        testDefaults.set(["s1": "Active", "s2": "Stale", "s3": "Also Stale"], forKey: "nala.displayNames")
+
+        store.pruneDisplayNames(activeSessionIds: Set(["s1"]))
+
+        let names = testDefaults.dictionary(forKey: "nala.displayNames") as? [String: String] ?? [:]
+        XCTAssertEqual(names.count, 1)
+        XCTAssertEqual(names["s1"], "Active")
+        XCTAssertNil(names["s2"])
+    }
+
+    func testPruneDisplayNamesAllActive() {
+        let store = makeStore()
+        let testDefaults = UserDefaults(suiteName: Self.testSuiteName)!
+        testDefaults.set(["s1": "One", "s2": "Two"], forKey: "nala.displayNames")
+
+        store.pruneDisplayNames(activeSessionIds: Set(["s1", "s2"]))
+
+        let names = testDefaults.dictionary(forKey: "nala.displayNames") as? [String: String] ?? [:]
+        XCTAssertEqual(names.count, 2)
+    }
+
+    func testPruneDisplayNamesNoneActive() {
+        let store = makeStore()
+        let testDefaults = UserDefaults(suiteName: Self.testSuiteName)!
+        testDefaults.set(["s1": "One", "s2": "Two"], forKey: "nala.displayNames")
+
+        store.pruneDisplayNames(activeSessionIds: Set())
+
+        let names = testDefaults.dictionary(forKey: "nala.displayNames") as? [String: String] ?? [:]
+        XCTAssertTrue(names.isEmpty)
+    }
+
+    func testPruneDisplayNamesNoStoredNames() {
+        let store = makeStore()
+        // No display names stored — should not crash
+        store.pruneDisplayNames(activeSessionIds: Set(["s1"]))
+        // No assertion needed — just verifying no crash
+    }
+
+    // -- pruneEventFiles --
+
+    private func makeTempEventsDir() -> String {
+        let dir = NSTemporaryDirectory() + "nala-test-events-\(UUID().uuidString)"
+        try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    func testPruneEventFilesDeletesOrphans() {
+        let dir = makeTempEventsDir()
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+
+        // Create event files: one active, one orphan
+        FileManager.default.createFile(atPath: "\(dir)/active-id.jsonl", contents: nil)
+        FileManager.default.createFile(atPath: "\(dir)/orphan-id.jsonl", contents: nil)
+
+        let store = makeStore()
+        store.pruneEventFiles(activeSessionIds: Set(["active-id"]), eventsDirectory: dir)
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: "\(dir)/active-id.jsonl"))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: "\(dir)/orphan-id.jsonl"))
+    }
+
+    func testPruneEventFilesAllActive() {
+        let dir = makeTempEventsDir()
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+
+        FileManager.default.createFile(atPath: "\(dir)/s1.jsonl", contents: nil)
+        FileManager.default.createFile(atPath: "\(dir)/s2.jsonl", contents: nil)
+
+        let store = makeStore()
+        store.pruneEventFiles(activeSessionIds: Set(["s1", "s2"]), eventsDirectory: dir)
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: "\(dir)/s1.jsonl"))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: "\(dir)/s2.jsonl"))
+    }
+
+    func testPruneEventFilesIgnoresNonJsonl() {
+        let dir = makeTempEventsDir()
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+
+        FileManager.default.createFile(atPath: "\(dir)/README.txt", contents: nil)
+        FileManager.default.createFile(atPath: "\(dir)/orphan.jsonl", contents: nil)
+
+        let store = makeStore()
+        store.pruneEventFiles(activeSessionIds: Set(), eventsDirectory: dir)
+
+        // Non-jsonl file should survive
+        XCTAssertTrue(FileManager.default.fileExists(atPath: "\(dir)/README.txt"))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: "\(dir)/orphan.jsonl"))
+    }
+
+    func testPruneEventFilesMissingDirectory() {
+        let store = makeStore()
+        // Non-existent directory — should not crash
+        store.pruneEventFiles(activeSessionIds: Set(), eventsDirectory: "/tmp/nala-nonexistent-\(UUID().uuidString)")
+    }
+
+    // -- cleanOrphanedTmpFiles --
+
+    private func makeTempDir() -> String {
+        let dir = NSTemporaryDirectory() + "nala-test-tmp-\(UUID().uuidString)/"
+        try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    func testCleanOrphanedTmpFilesDeletesOrphanLogs() {
+        let dir = makeTempDir()
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+
+        FileManager.default.createFile(atPath: "\(dir)nala_active-session.log", contents: nil)
+        FileManager.default.createFile(atPath: "\(dir)nala_orphan-session.log", contents: nil)
+
+        let store = makeStore()
+        store.cleanOrphanedTmpFiles(
+            activeSessionNames: Set(["active-session"]),
+            activeSessionIds: Set(),
+            tmpDirectory: dir
+        )
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: "\(dir)nala_active-session.log"))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: "\(dir)nala_orphan-session.log"))
+    }
+
+    func testCleanOrphanedTmpFilesDeletesOrphanSettings() {
+        let dir = makeTempDir()
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+
+        FileManager.default.createFile(atPath: "\(dir)nala_settings_active-id.json", contents: nil)
+        FileManager.default.createFile(atPath: "\(dir)nala_settings_orphan-id.json", contents: nil)
+
+        let store = makeStore()
+        store.cleanOrphanedTmpFiles(
+            activeSessionNames: Set(),
+            activeSessionIds: Set(["active-id"]),
+            tmpDirectory: dir
+        )
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: "\(dir)nala_settings_active-id.json"))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: "\(dir)nala_settings_orphan-id.json"))
+    }
+
+    func testCleanOrphanedTmpFilesDeletesOrphanPrompts() {
+        let dir = makeTempDir()
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+
+        FileManager.default.createFile(atPath: "\(dir)nala_prompt_active-id.txt", contents: nil)
+        FileManager.default.createFile(atPath: "\(dir)nala_prompt_orphan-id.txt", contents: nil)
+
+        let store = makeStore()
+        store.cleanOrphanedTmpFiles(
+            activeSessionNames: Set(),
+            activeSessionIds: Set(["active-id"]),
+            tmpDirectory: dir
+        )
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: "\(dir)nala_prompt_active-id.txt"))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: "\(dir)nala_prompt_orphan-id.txt"))
+    }
+
+    func testCleanOrphanedTmpFilesAlwaysDeletesAttachScripts() {
+        let dir = makeTempDir()
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+
+        FileManager.default.createFile(atPath: "\(dir)nala-attach-abc123.sh", contents: nil)
+        FileManager.default.createFile(atPath: "\(dir)nala-attach-def456.sh", contents: nil)
+
+        let store = makeStore()
+        store.cleanOrphanedTmpFiles(
+            activeSessionNames: Set(),
+            activeSessionIds: Set(),
+            tmpDirectory: dir
+        )
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: "\(dir)nala-attach-abc123.sh"))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: "\(dir)nala-attach-def456.sh"))
+    }
+
+    func testCleanOrphanedTmpFilesKeepsActiveFiles() {
+        let dir = makeTempDir()
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+
+        FileManager.default.createFile(atPath: "\(dir)nala_my-session.log", contents: nil)
+        FileManager.default.createFile(atPath: "\(dir)nala_settings_my-id.json", contents: nil)
+        FileManager.default.createFile(atPath: "\(dir)nala_prompt_my-id.txt", contents: nil)
+
+        let store = makeStore()
+        store.cleanOrphanedTmpFiles(
+            activeSessionNames: Set(["my-session"]),
+            activeSessionIds: Set(["my-id"]),
+            tmpDirectory: dir
+        )
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: "\(dir)nala_my-session.log"))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: "\(dir)nala_settings_my-id.json"))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: "\(dir)nala_prompt_my-id.txt"))
+    }
+
+    func testCleanOrphanedTmpFilesIgnoresNonNalaFiles() {
+        let dir = makeTempDir()
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+
+        FileManager.default.createFile(atPath: "\(dir)other_file.log", contents: nil)
+        FileManager.default.createFile(atPath: "\(dir)something_else.json", contents: nil)
+
+        let store = makeStore()
+        store.cleanOrphanedTmpFiles(
+            activeSessionNames: Set(),
+            activeSessionIds: Set(),
+            tmpDirectory: dir
+        )
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: "\(dir)other_file.log"))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: "\(dir)something_else.json"))
+    }
+
+    // -- validateRecentBrowsePaths --
+
+    func testValidateRecentBrowsePathsRemovesNonexistent() {
+        let store = makeStore()
+        // /tmp exists, /nonexistent-nala-test-path does not
+        store.recentBrowsePaths = ["/tmp", "/nonexistent-nala-test-path-\(UUID().uuidString)"]
+
+        store.validateRecentBrowsePaths()
+
+        XCTAssertEqual(store.recentBrowsePaths, ["/tmp"])
+    }
+
+    func testValidateRecentBrowsePathsAllExist() {
+        let store = makeStore()
+        store.recentBrowsePaths = ["/tmp", "/"]
+
+        store.validateRecentBrowsePaths()
+
+        XCTAssertEqual(store.recentBrowsePaths, ["/tmp", "/"])
+    }
+
+    func testValidateRecentBrowsePathsAllMissing() {
+        let store = makeStore()
+        let fake1 = "/nonexistent-nala-\(UUID().uuidString)"
+        let fake2 = "/nonexistent-nala-\(UUID().uuidString)"
+        store.recentBrowsePaths = [fake1, fake2]
+
+        store.validateRecentBrowsePaths()
+
+        XCTAssertTrue(store.recentBrowsePaths.isEmpty)
+    }
+
+    func testValidateRecentBrowsePathsKeepsNetworkMounts() {
+        let store = makeStore()
+        store.recentBrowsePaths = [
+            "/Volumes/SomeExternalDisk/project",
+            "/Network/Servers/shared/project",
+            "/nonexistent-nala-\(UUID().uuidString)",
+        ]
+
+        store.validateRecentBrowsePaths()
+
+        XCTAssertEqual(store.recentBrowsePaths.count, 2)
+        XCTAssertTrue(store.recentBrowsePaths.contains("/Volumes/SomeExternalDisk/project"))
+        XCTAssertTrue(store.recentBrowsePaths.contains("/Network/Servers/shared/project"))
+    }
+
+    // -- validateRecentBrowsePaths: TTL --
+
+    func testValidateRecentBrowsePathsRemovesExpiredEntries() {
+        let store = makeStore()
+        // /tmp exists on disk but its timestamp is 8 days ago — should be pruned
+        store.recentBrowsePaths = ["/tmp"]
+        store.recentBrowseTimestamps = ["/tmp": Date().addingTimeInterval(-8 * 24 * 60 * 60)]
+
+        store.validateRecentBrowsePaths()
+
+        XCTAssertTrue(store.recentBrowsePaths.isEmpty, "Path older than 7 days should be pruned")
+        XCTAssertTrue(store.recentBrowseTimestamps.isEmpty, "Orphan timestamp should be cleaned up")
+    }
+
+    func testValidateRecentBrowsePathsKeepsFreshEntries() {
+        let store = makeStore()
+        // /tmp exists and timestamp is 1 day ago — should survive
+        store.recentBrowsePaths = ["/tmp"]
+        store.recentBrowseTimestamps = ["/tmp": Date().addingTimeInterval(-1 * 24 * 60 * 60)]
+
+        store.validateRecentBrowsePaths()
+
+        XCTAssertEqual(store.recentBrowsePaths, ["/tmp"], "Path younger than 7 days should survive")
+        XCTAssertNotNil(store.recentBrowseTimestamps["/tmp"])
+    }
+
+    func testAddRecentBrowsePathRecordsTimestamp() {
+        let store = makeStore()
+        let before = Date()
+
+        store.addRecentBrowsePath("/tmp")
+
+        let after = Date()
+        let timestamp = store.recentBrowseTimestamps["/tmp"]
+        XCTAssertNotNil(timestamp, "Timestamp should be recorded for added path")
+        XCTAssertGreaterThanOrEqual(timestamp!, before)
+        XCTAssertLessThanOrEqual(timestamp!, after)
+    }
+
+    // -- reconcileOrder: folderExpansion pruning --
+
+    func testReconcilePrunesStaleFolderExpansion() {
+        let store = makeStore()
+        store.folderExpansion = ["/old": true, "/proj/alpha": false]
+        store.sessions = [
+            makeSession(name: "a", sessionId: "s1", workingDirectory: "/proj/alpha"),
+        ]
+
+        store.reconcileOrder()
+
+        XCTAssertNil(store.folderExpansion["/old"], "Stale folder expansion entry should be pruned")
+        XCTAssertEqual(store.folderExpansion["/proj/alpha"], false, "Active folder expansion should be preserved")
+    }
+
+    // -- performStartupCleanup: one-shot guard --
+
+    func testPerformStartupCleanupRunsOnlyOnce() {
+        let store = makeStore()
+        let testDefaults = UserDefaults(suiteName: Self.testSuiteName)!
+
+        // Set up stale display names
+        testDefaults.set(["stale": "Old Name"], forKey: "nala.displayNames")
+        store.sessions = [makeSession(sessionId: "s1", workingDirectory: "/tmp")]
+        store.reconcileOrder()
+
+        // First call should prune
+        store.performStartupCleanup()
+        let namesAfterFirst = testDefaults.dictionary(forKey: "nala.displayNames") as? [String: String] ?? [:]
+        XCTAssertTrue(namesAfterFirst.isEmpty, "Stale name should be pruned on first call")
+
+        // Add more stale data
+        testDefaults.set(["stale2": "Another Old"], forKey: "nala.displayNames")
+
+        // Second call should be a no-op (guard)
+        store.performStartupCleanup()
+        let namesAfterSecond = testDefaults.dictionary(forKey: "nala.displayNames") as? [String: String] ?? [:]
+        XCTAssertEqual(namesAfterSecond.count, 1, "Second call should be guarded — stale data persists")
+        XCTAssertEqual(namesAfterSecond["stale2"], "Another Old")
+    }
 }

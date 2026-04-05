@@ -113,6 +113,11 @@ final class SessionStore {
         didSet { if !isSuppressingPersistence { saveRecentBrowsePaths() } }
     }
 
+    /// Timestamps recording when each recent browse path was last used (7-day TTL).
+    var recentBrowseTimestamps: [String: Date] = [:] {
+        didSet { if !isSuppressingPersistence { saveRecentBrowseTimestamps() } }
+    }
+
     /// Configured starting directory for browse mode. Pre-fills the query field.
     var browseRoot: String = "" {
         didSet { if !isSuppressingPersistence { saveBrowseRoot() } }
@@ -146,6 +151,7 @@ final class SessionStore {
     private var isSuppressingPersistence = false
     private var lastScannedWorktreePaths: Set<String> = []
     private var scanTask: Task<Void, Never>?
+    private var hasPerformedStartupCleanup = false
 
     /// True when running as a test host — skip service connections.
     static let isTestHost = NSClassFromString("XCTestCase") != nil
@@ -173,6 +179,7 @@ final class SessionStore {
     private static let repoConfigsKey = "nala.repoConfigs"
     private static let discoveredFoldersKey = "nala.discoveredFolders"
     private static let recentBrowsePathsKey = "nala.recentBrowsePaths"
+    private static let recentBrowseTimestampsKey = "nala.recentBrowseTimestamps"
     private static let browseRootKey = "nala.browseRoot"
 
     /// The currently selected session, if any.
@@ -385,8 +392,11 @@ final class SessionStore {
         recentBrowsePaths.removeAll { $0 == path }
         recentBrowsePaths.insert(path, at: 0)
         if recentBrowsePaths.count > 20 {
+            let evicted = Set(recentBrowsePaths.suffix(from: 20))
             recentBrowsePaths = Array(recentBrowsePaths.prefix(20))
+            for path in evicted { recentBrowseTimestamps.removeValue(forKey: path) }
         }
+        recentBrowseTimestamps[path] = Date()
     }
 
     // MARK: - Native Service Lifecycle
@@ -713,6 +723,7 @@ final class SessionStore {
         }
 
         reconcileOrder()
+        performStartupCleanup()
         isConnected = true
     }
 
@@ -1118,6 +1129,7 @@ final class SessionStore {
             saveFolderOrder()
             saveSessionOrder()
             saveFolderStatus()
+            saveFolderExpansion()
         }
 
         let currentFolders = Set(sessions.map { groupingPath(for: $0.workingDirectory) })
@@ -1158,12 +1170,121 @@ final class SessionStore {
             folderStatus.removeValue(forKey: key)
         }
 
+        // Prune stale folder expansion entries
+        for key in folderExpansion.keys where !keepFolders.contains(key) {
+            folderExpansion.removeValue(forKey: key)
+        }
+
         // Prune stale acknowledged session IDs
         let currentSessionIds = Set(sessions.map(\.sessionId))
         let staleAcknowledged = acknowledgedSessionIds.subtracting(currentSessionIds)
         if !staleAcknowledged.isEmpty {
             acknowledgedSessionIds.subtract(staleAcknowledged)
             saveAcknowledgedSessions()
+        }
+    }
+
+    // MARK: - Startup Cleanup
+
+    /// One-shot cleanup on first tmux update. Prunes stale display names,
+    /// event files, tmp files, and validates recent browse paths.
+    func performStartupCleanup() {
+        guard !hasPerformedStartupCleanup else { return }
+        hasPerformedStartupCleanup = true
+
+        let activeSessionIds = Set(sessions.map(\.sessionId))
+        let activeSessionNames = Set(sessions.map(\.name))
+
+        pruneDisplayNames(activeSessionIds: activeSessionIds)
+        pruneEventFiles(activeSessionIds: activeSessionIds)
+        cleanOrphanedTmpFiles(activeSessionNames: activeSessionNames, activeSessionIds: activeSessionIds)
+        validateRecentBrowsePaths()
+
+        logger.info("Startup cleanup complete (active sessions: \(activeSessionIds.count))")
+    }
+
+    /// Remove display name entries from UserDefaults for sessions that no longer exist.
+    func pruneDisplayNames(activeSessionIds: Set<String>) {
+        guard var names = defaults.dictionary(forKey: Self.displayNamesKey) as? [String: String] else { return }
+        let before = names.count
+        names = names.filter { activeSessionIds.contains($0.key) }
+        if names.count != before {
+            defaults.set(names, forKey: Self.displayNamesKey)
+        }
+    }
+
+    /// Delete event JSONL files for sessions that no longer exist.
+    func pruneEventFiles(activeSessionIds: Set<String>, eventsDirectory: String = EventFileWatcher.eventsDirectory) {
+        let fm = FileManager.default
+        guard let files = try? fm.contentsOfDirectory(atPath: eventsDirectory) else { return }
+        for file in files {
+            guard file.hasSuffix(".jsonl") else { continue }
+            let sessionId = String(file.dropLast(6)) // remove ".jsonl"
+            if !activeSessionIds.contains(sessionId) {
+                let path = (eventsDirectory as NSString).appendingPathComponent(file)
+                try? fm.removeItem(atPath: path)
+            }
+        }
+    }
+
+    /// Remove orphaned /tmp/nala_* files that don't belong to active sessions.
+    func cleanOrphanedTmpFiles(activeSessionNames: Set<String>, activeSessionIds: Set<String>, tmpDirectory: String = NSTemporaryDirectory()) {
+        let fm = FileManager.default
+        guard let files = try? fm.contentsOfDirectory(atPath: tmpDirectory) else { return }
+        for file in files {
+            guard file.hasPrefix("nala_") || file.hasPrefix("nala-") else { continue }
+            let path = (tmpDirectory as NSString).appendingPathComponent(file)
+
+            if file.hasPrefix("nala-attach-") && file.hasSuffix(".sh") {
+                // Always delete attach scripts
+                try? fm.removeItem(atPath: path)
+            } else if file.hasPrefix("nala_settings_") && file.hasSuffix(".json") {
+                // nala_settings_{sessionId}.json
+                let stem = String(file.dropFirst("nala_settings_".count).dropLast(".json".count))
+                if !activeSessionIds.contains(stem) {
+                    try? fm.removeItem(atPath: path)
+                }
+            } else if file.hasPrefix("nala_prompt_") && file.hasSuffix(".txt") {
+                // nala_prompt_{sessionId}.txt
+                let stem = String(file.dropFirst("nala_prompt_".count).dropLast(".txt".count))
+                if !activeSessionIds.contains(stem) {
+                    try? fm.removeItem(atPath: path)
+                }
+            } else if file.hasPrefix("nala_") && file.hasSuffix(".log") {
+                // nala_{sessionName}.log
+                let stem = String(file.dropFirst("nala_".count).dropLast(".log".count))
+                if !activeSessionNames.contains(stem) {
+                    try? fm.removeItem(atPath: path)
+                }
+            }
+        }
+    }
+
+    /// Remove recent browse paths that no longer exist on disk or are older than 7 days,
+    /// but keep paths under /Volumes/ or /Network/ to avoid blocking on disconnected mounts.
+    func validateRecentBrowsePaths() {
+        let fm = FileManager.default
+        let ttl: TimeInterval = 7 * 24 * 60 * 60 // 7 days
+        let now = Date()
+        let filtered = recentBrowsePaths.filter { path in
+            // Expire paths older than 7 days
+            if let timestamp = recentBrowseTimestamps[path],
+               now.timeIntervalSince(timestamp) > ttl {
+                return false
+            }
+            if path.hasPrefix("/Volumes/") || path.hasPrefix("/Network/") {
+                return true
+            }
+            return fm.fileExists(atPath: path)
+        }
+        if filtered.count != recentBrowsePaths.count {
+            recentBrowsePaths = filtered
+        }
+        // Clean up orphan timestamps for paths no longer in the list
+        let validPaths = Set(recentBrowsePaths)
+        let orphanKeys = recentBrowseTimestamps.keys.filter { !validPaths.contains($0) }
+        if !orphanKeys.isEmpty {
+            for key in orphanKeys { recentBrowseTimestamps.removeValue(forKey: key) }
         }
     }
 
@@ -1211,6 +1332,10 @@ final class SessionStore {
         }
 
         recentBrowsePaths = defaults.stringArray(forKey: Self.recentBrowsePathsKey) ?? []
+        if let data = defaults.data(forKey: Self.recentBrowseTimestampsKey),
+           let decoded = try? JSONDecoder().decode([String: Date].self, from: data) {
+            recentBrowseTimestamps = decoded
+        }
         browseRoot = defaults.string(forKey: Self.browseRootKey) ?? ""
         loadAcknowledgedSessions()
     }
@@ -1259,6 +1384,12 @@ final class SessionStore {
 
     private func saveRecentBrowsePaths() {
         defaults.set(recentBrowsePaths, forKey: Self.recentBrowsePathsKey)
+    }
+
+    private func saveRecentBrowseTimestamps() {
+        if let data = try? JSONEncoder().encode(recentBrowseTimestamps) {
+            defaults.set(data, forKey: Self.recentBrowseTimestampsKey)
+        }
     }
 
     private func saveBrowseRoot() {
