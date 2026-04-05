@@ -4,7 +4,7 @@ Native macOS app for orchestrating AI coding agents in parallel git worktrees.
 
 ## What it does
 
-Nala gives you a mission control interface for managing multiple AI coding agents (Claude, Gemini) running simultaneously across git worktrees. Each agent runs in its own tmux session with an embedded terminal, and Nala tracks their state in real time.
+Nala gives you a mission control interface for managing multiple AI coding agents (Claude) running simultaneously across git worktrees. Each agent runs in its own tmux session with an embedded terminal, and Nala tracks their state in real time.
 
 - Embedded terminals via SwiftTerm — no external terminal needed
 - Real-time agent state tracking (working, waiting for input, done, stuck)
@@ -17,7 +17,7 @@ Nala gives you a mission control interface for managing multiple AI coding agent
 
 - macOS 15.0+
 - [tmux](https://github.com/tmux/tmux) (`brew install tmux`)
-- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) or [Gemini CLI](https://github.com/google-gemini/gemini-cli) for AI agents
+- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) for AI agents
 - [XcodeGen](https://github.com/yonaskolb/XcodeGen) (`brew install xcodegen`) for building from source
 
 ## Building from source

@@ -19,7 +19,7 @@ final class LaunchRequestTests: XCTestCase {
 
     func testEncodesAllFields() throws {
         var request = LaunchRequest(workingDir: "/tmp/proj")
-        request.agentType = "gemini"
+        request.agentType = "terminal"
         request.displayName = "My Agent"
         request.flags = ["--verbose"]
         request.prompt = "Do the thing"
@@ -28,7 +28,7 @@ final class LaunchRequestTests: XCTestCase {
         let dict = try JSONSerialization.jsonObject(with: data) as! [String: Any]
 
         XCTAssertEqual(dict["working_dir"] as? String, "/tmp/proj")
-        XCTAssertEqual(dict["agent_type"] as? String, "gemini")
+        XCTAssertEqual(dict["agent_type"] as? String, "terminal")
         XCTAssertEqual(dict["display_name"] as? String, "My Agent")
         XCTAssertEqual(dict["flags"] as? [String], ["--verbose"])
         XCTAssertEqual(dict["prompt"] as? String, "Do the thing")
@@ -67,9 +67,9 @@ final class LaunchRequestTests: XCTestCase {
         let json = """
         {
             "session_id": "s-456",
-            "session_name": "gemini-agent-2",
+            "session_name": "claude-agent-2",
             "working_dir": "/tmp/other",
-            "agent_type": "gemini"
+            "agent_type": "claude"
         }
         """
         let response = try JSONDecoder().decode(LaunchResponse.self, from: Data(json.utf8))

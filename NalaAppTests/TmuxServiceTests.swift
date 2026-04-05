@@ -12,10 +12,9 @@ final class TmuxServiceTests: XCTestCase {
         XCTAssertEqual(result?.uuid, "12345678-1234-1234-1234-123456789abc")
     }
 
-    func testParseValidGeminiSessionName() {
+    func testParseGeminiSessionNameReturnsNil() {
         let result = TmuxService.parseSessionName("gemini-abcdef01-2345-6789-abcd-ef0123456789")
-        XCTAssertNotNil(result)
-        XCTAssertEqual(result?.agentType, "gemini")
+        XCTAssertNil(result, "Gemini sessions are no longer supported")
     }
 
     func testParseValidTerminalSessionName() {

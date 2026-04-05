@@ -87,7 +87,6 @@ struct SessionDetailView: View {
     private var agentBadgeColor: Color {
         switch session.agentType {
         case "terminal": return NalaTheme.teal
-        case "gemini": return NalaTheme.magenta
         default: return NalaTheme.textSecondary
         }
     }

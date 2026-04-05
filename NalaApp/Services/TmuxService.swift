@@ -30,7 +30,7 @@ final class TmuxService: @unchecked Sendable {
 
     /// Regex for Nala-managed session names: {agentType}-{uuid}
     static let sessionNamePattern = try! NSRegularExpression(
-        pattern: #"^(claude|gemini|terminal)-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$"#,
+        pattern: #"^(claude|terminal)-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$"#,
         options: .caseInsensitive
     )
 
@@ -242,14 +242,6 @@ final class TmuxService: @unchecked Sendable {
             ])
             if !sendResult.succeeded {
                 logger.warning("Failed to send launch command: \(sendResult.errorMessage)")
-            }
-        } else if agentType == "gemini" {
-            let command = "env GEMINI_SESSION_ID=\(sessionId) gemini"
-            let sendResult = await runTmux(args: [
-                "send-keys", "-t", sessionName, command, "Enter"
-            ])
-            if !sendResult.succeeded {
-                logger.warning("Failed to send Gemini launch command: \(sendResult.errorMessage)")
             }
         }
         // For terminal type, just leave the shell running

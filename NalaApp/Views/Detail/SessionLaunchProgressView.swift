@@ -13,7 +13,6 @@ struct SessionLaunchProgressView: View {
     private var agentLabel: String {
         switch state.agentType {
         case "terminal": "Terminal"
-        case "gemini": "Gemini"
         default: "Claude"
         }
     }
