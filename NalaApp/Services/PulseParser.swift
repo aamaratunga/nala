@@ -92,7 +92,25 @@ final class PulseParser: @unchecked Sendable {
         var fileDescriptor: Int32 = -1
         var source: DispatchSourceFileSystemObject?
         var partialLine: String = ""
-        var currentResult = PulseResult()
+        /// Internal state mutated only on watcherQueue. Use resultLock for cross-thread reads.
+        var _currentResult = PulseResult()
+
+        /// Lock protecting cross-thread reads of _currentResult.
+        let resultLock = NSLock()
+
+        /// Thread-safe getter: snapshot the current result under lock.
+        var currentResult: PulseResult {
+            get {
+                resultLock.lock()
+                defer { resultLock.unlock() }
+                return _currentResult
+            }
+            set {
+                resultLock.lock()
+                _currentResult = newValue
+                resultLock.unlock()
+            }
+        }
 
         init(path: String, sessionName: String) {
             self.path = path
@@ -186,13 +204,13 @@ final class PulseParser: @unchecked Sendable {
     }
 
     /// Get the current cached pulse result for a session (thread-safe).
+    /// Reads through a per-watcher lock instead of dispatching to the queue,
+    /// avoiding main-thread blocking when the watcher queue is busy.
     func cachedResult(for sessionName: String) -> PulseResult? {
         watchersLock.lock()
         let watcher = watchers[sessionName]
         watchersLock.unlock()
-        guard let watcher else { return nil }
-        // currentResult is mutated on watcherQueue, so read it there
-        return watcherQueue.sync { watcher.currentResult }
+        return watcher?.currentResult
     }
 
     /// Stream of pulse updates from all watched files.
