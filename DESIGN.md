@@ -1,7 +1,7 @@
 # Design System — Nala macOS
 
 ## Product Context
-- **What this is:** A native macOS app for orchestrating multiple AI coding agents (Claude, Gemini) running in parallel git worktrees with embedded terminals
+- **What this is:** A native macOS app for orchestrating multiple AI coding agents (Claude) running in parallel git worktrees with embedded terminals
 - **Who it's for:** Software engineers managing multiple AI coding sessions simultaneously
 - **Space/industry:** Developer tools, AI orchestration, terminal emulators
 - **Project type:** macOS native desktop app (SwiftUI + AppKit)
@@ -64,7 +64,7 @@ Warm coral accent on deep blue-black. Every developer tool defaults to cold blue
 - **Amber (Waiting):** `#FFB347` / glow: `rgba(255, 179, 71, 0.12)`
 - **Red (Stuck):** `#FF6B6B` / glow: `rgba(255, 107, 107, 0.12)`
 - **Teal (Terminal):** `#56D4DD` / badge bg: `rgba(86, 212, 221, 0.12)`
-- **Magenta (Gemini):** `#D2A8FF` / badge bg: `rgba(210, 168, 255, 0.12)`
+- **Magenta:** `#D2A8FF` / badge bg: `rgba(210, 168, 255, 0.12)`
 
 ### SwiftUI Color Definitions
 ```swift

@@ -1,7 +1,7 @@
 # CLAUDE.md — Nala
 
 ## Project Overview
-**Nala** is a native macOS app for orchestrating AI coding agents (Claude, Gemini) running in parallel git worktrees using tmux. It provides embedded terminals, real-time agent state tracking via file-based events, git state polling, session management, and a command palette for launching agents and worktrees.
+**Nala** is a native macOS app for orchestrating AI coding agents (Claude) running in parallel git worktrees using tmux. It provides embedded terminals, real-time agent state tracking via file-based events, git state polling, session management, and a command palette for launching agents and worktrees.
 
 ## Project Structure
 - `NalaApp/` — Main app source

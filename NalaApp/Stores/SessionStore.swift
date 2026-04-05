@@ -804,10 +804,6 @@ final class SessionStore {
                 SessionCommand(name: "cost", description: "Show token usage and cost"),
                 SessionCommand(name: "diff", description: "View changes made in session"),
             ]
-        case "gemini":
-            return [
-                SessionCommand(name: "help", description: "Show available commands"),
-            ]
         default:
             return []
         }
