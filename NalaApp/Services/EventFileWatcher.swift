@@ -127,13 +127,12 @@ final class EventFileWatcher: @unchecked Sendable {
         let path = "\(Self.eventsDirectory)/\(sessionId).jsonl"
         let watcher = SessionWatcher(sessionId: sessionId, path: path)
 
-        // If file exists, read from current position (process existing events for state recovery)
+        // Recover state from the tail of the file (only last ~64KB).
+        // Event files can grow to multi-MB; reading the full file blocks the
+        // main thread and causes UI hangs. Only the last few events are needed
+        // to derive the current agent state.
         if FileManager.default.fileExists(atPath: path) {
-            if let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
-               let text = String(data: data, encoding: .utf8) {
-                processEvents(text: text, watcher: watcher, emitUpdate: false)
-                watcher.lastOffset = UInt64(data.count)
-            }
+            recoverStateFromTail(watcher: watcher)
         } else {
             // Create the file so dispatch source can watch it
             FileManager.default.createFile(atPath: path, contents: nil, attributes: [.posixPermissions: 0o600])
@@ -153,6 +152,45 @@ final class EventFileWatcher: @unchecked Sendable {
 
         // Emit initial state
         emitUpdate(watcher: watcher)
+    }
+
+    /// Read only the tail of the event file to recover the latest agent state.
+    /// Avoids reading multi-megabyte files on the main thread when only the
+    /// last few events are needed for state derivation.
+    private func recoverStateFromTail(watcher: SessionWatcher) {
+        guard let attrs = try? FileManager.default.attributesOfItem(atPath: watcher.path),
+              let fileSize = attrs[.size] as? UInt64,
+              fileSize > 0 else { return }
+
+        // 256KB covers the largest observed events (~38KB) with generous headroom.
+        // State recovery only needs the last event.
+        let tailSize: UInt64 = min(fileSize, 256 * 1024)
+        let readOffset = fileSize - tailSize
+
+        guard let fh = FileHandle(forReadingAtPath: watcher.path) else { return }
+        defer { fh.closeFile() }
+
+        fh.seek(toFileOffset: readOffset)
+        let data = fh.readData(ofLength: Int(tailSize))
+        watcher.lastOffset = fileSize // Dispatch source reads only new content from here
+
+        // Use lossy UTF-8 decoding: reading from an arbitrary offset can split
+        // a multibyte character, and strict decoding would fail on the entire
+        // buffer. The first partial line is skipped anyway.
+        let text = String(decoding: data, as: UTF8.self)
+        guard !text.isEmpty else { return }
+
+        // If we started mid-file, skip the first (potentially partial) line
+        var processText = text
+        if readOffset > 0, let firstNewline = text.firstIndex(of: "\n") {
+            processText = String(text[text.index(after: firstNewline)...])
+        }
+
+        processEvents(text: processText, watcher: watcher, emitUpdate: false)
+
+        if watcher.latestEventType == nil {
+            logger.warning("recoverStateFromTail: no events parsed from \(watcher.path) (tail \(tailSize) bytes of \(fileSize))")
+        }
     }
 
     /// Stop watching events for a session.

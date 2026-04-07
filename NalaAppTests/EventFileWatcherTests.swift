@@ -192,4 +192,63 @@ final class EventFileWatcherTests: XCTestCase {
         let objects = EventFileWatcher.splitConcatenatedJSON("")
         XCTAssertEqual(objects.count, 0)
     }
+
+    // MARK: - Tail Recovery (Regression: main-thread hang from full file reads)
+
+    /// Verifies that startWatching recovers the correct agent state from the tail
+    /// of a large event file, without reading the entire file. This prevents
+    /// multi-second UI hangs when event files grow to megabytes.
+    func testStartWatchingRecoversStateFromLargeFile() {
+        let watcher = EventFileWatcher()
+        let sessionId = UUID().uuidString.lowercased()
+        let path = "\(EventFileWatcher.eventsDirectory)/\(sessionId).jsonl"
+
+        // Build a large event file: many old events followed by a final "stop"
+        var lines: [String] = []
+        for i in 0..<2000 {
+            let event: [String: Any] = [
+                "hook_event_name": "PostToolUse",
+                "tool_name": "Read",
+                "tool_input": ["file_path": "/tmp/file_\(i).swift"],
+                "timestamp": "2026-01-01T00:00:00Z"
+            ]
+            if let data = try? JSONSerialization.data(withJSONObject: event),
+               let str = String(data: data, encoding: .utf8) {
+                lines.append(str)
+            }
+        }
+        // Final event: agent stopped (done)
+        let stopEvent: [String: Any] = [
+            "hook_event_name": "Stop",
+            "stop_hook_active": true,
+            "reason": "end_turn",
+            "timestamp": "2026-01-01T01:00:00Z"
+        ]
+        if let data = try? JSONSerialization.data(withJSONObject: stopEvent),
+           let str = String(data: data, encoding: .utf8) {
+            lines.append(str)
+        }
+
+        let content = lines.joined(separator: "\n") + "\n"
+        let contentData = content.data(using: .utf8)!
+        // Ensure file is large enough that tail recovery reads a subset
+        XCTAssertGreaterThan(contentData.count, 256 * 1024,
+            "Test file should exceed 256KB to exercise tail recovery")
+
+        try? FileManager.default.createDirectory(
+            atPath: EventFileWatcher.eventsDirectory,
+            withIntermediateDirectories: true
+        )
+        FileManager.default.createFile(atPath: path, contents: contentData, attributes: [.posixPermissions: 0o600])
+        defer { try? FileManager.default.removeItem(atPath: path) }
+
+        watcher.startWatching(sessionId: sessionId)
+        defer { watcher.stopWatching(sessionId: sessionId) }
+
+        // State should reflect the final "stop" event (done = true)
+        let state = watcher.cachedState(for: sessionId)
+        XCTAssertNotNil(state, "State should be recovered from event file tail")
+        XCTAssertTrue(state?.done ?? false, "Final stop event should set done = true")
+        XCTAssertFalse(state?.working ?? true, "Done agent should not be working")
+    }
 }
