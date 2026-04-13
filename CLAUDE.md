@@ -8,7 +8,7 @@
   - `NalaApp.swift` — App entry point, migration logic
   - `Theme.swift` — Design system colors and gradients (`NalaTheme`)
   - `Models/` — Data models (Session, RepoConfig, launch/restart/creation states)
-  - `Services/` — Core services (TmuxService, EventFileWatcher, GitService, PulseParser, NotificationManager, TerminalLauncher, AutoNamer)
+  - `Services/` — Core services (TmuxService, EventFileWatcher, GitService, NotificationManager, TerminalLauncher, AutoNamer)
   - `Stores/` — Observable state (`SessionStore`)
   - `Tools/` — Utilities (PathFinder)
   - `Views/` — SwiftUI views (ContentView, CommandPaletteView, SessionDetailView, SessionListView, SettingsView, etc.)
@@ -78,7 +78,7 @@ Nala uses macOS Unified Logging (`os.Logger`) with subsystem `"com.nala.app"`. L
 # All Nala logs
 log stream --predicate 'subsystem == "com.nala.app"' --level debug
 
-# Filter by category (SessionStore, TmuxService, GitService, EventFileWatcher, PulseParser, etc.)
+# Filter by category (SessionStore, TmuxService, GitService, EventFileWatcher, etc.)
 log stream --predicate 'subsystem == "com.nala.app" AND category == "SessionStore"' --level debug
 ```
 
@@ -107,7 +107,6 @@ Each service logs under its own category:
 - `TmuxService` — tmux process execution, session creation/deletion
 - `GitService` — git commands, worktree operations
 - `EventFileWatcher` — JSONL event file watching
-- `PulseParser` — log file pulse parsing
 - `TerminalLauncher` — external terminal attachment
 - `AutoNamer` — AI-based session naming
 
@@ -125,5 +124,4 @@ Debug and info are ephemeral (macOS may discard quickly). Warning and error pers
 - Logger subsystem: `"com.nala.app"`
 - UserDefaults keys: `nala.*` prefix
 - Events directory: `~/.nala/events/`
-- Log paths: `/tmp/nala_{agent}_{folder}.log`
 - Color properties (`coralPrimary`, `coralLight`, etc.) describe the hue #FF6B52, not the old product name

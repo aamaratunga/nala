@@ -11,8 +11,6 @@ func makeSession(
     agentType: String = "claude",
     sessionId: String = "sess-1",
     tmuxSession: String = "tmux-1",
-    status: String? = nil,
-    summary: String? = nil,
     stalenessSeconds: Double? = nil,
     branch: String? = nil,
     displayName: String? = nil,
@@ -30,16 +28,13 @@ func makeSession(
     boardProject: String? = nil,
     boardJobTitle: String? = nil,
     boardUnread: Int = 0,
-    commands: [SessionCommand] = [],
-    logPath: String = "/tmp/log.txt"
+    commands: [SessionCommand] = []
 ) -> Session {
     Session(
         name: name,
         agentType: agentType,
         sessionId: sessionId,
         tmuxSession: tmuxSession,
-        status: status,
-        summary: summary,
         stalenessSeconds: stalenessSeconds,
         branch: branch,
         displayName: displayName,
@@ -57,8 +52,7 @@ func makeSession(
         boardProject: boardProject,
         boardJobTitle: boardJobTitle,
         boardUnread: boardUnread,
-        commands: commands,
-        logPath: logPath
+        commands: commands
     )
 }
 
@@ -70,8 +64,6 @@ let fullSessionJSON = """
     "agent_type": "claude",
     "session_id": "abc123",
     "tmux_session": "tmux-claude-1",
-    "status": "Implementing feature",
-    "summary": "Adding unit tests",
     "staleness_seconds": 42.5,
     "branch": "feature/tests",
     "display_name": "Test Agent",
@@ -89,8 +81,7 @@ let fullSessionJSON = """
     "board_unread": 2,
     "commands": [
         {"name": "test", "description": "Run tests"}
-    ],
-    "log_path": "/tmp/claude_test_project.log"
+    ]
 }
 """
 

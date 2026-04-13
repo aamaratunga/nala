@@ -13,8 +13,6 @@ final class SessionTests: XCTestCase {
         XCTAssertEqual(session.agentType, "claude")
         XCTAssertEqual(session.sessionId, "abc123")
         XCTAssertEqual(session.tmuxSession, "tmux-claude-1")
-        XCTAssertEqual(session.status, "Implementing feature")
-        XCTAssertEqual(session.summary, "Adding unit tests")
         XCTAssertEqual(session.stalenessSeconds, 42.5)
         XCTAssertEqual(session.branch, "feature/tests")
         XCTAssertEqual(session.displayName, "Test Agent")
@@ -32,7 +30,6 @@ final class SessionTests: XCTestCase {
         XCTAssertEqual(session.boardUnread, 2)
         XCTAssertEqual(session.commands.count, 1)
         XCTAssertEqual(session.commands.first?.name, "test")
-        XCTAssertEqual(session.logPath, "/tmp/claude_test_project.log")
     }
 
     func testDecodeMinimalPayload() throws {
@@ -44,8 +41,6 @@ final class SessionTests: XCTestCase {
         XCTAssertEqual(session.agentType, "claude")
         XCTAssertEqual(session.sessionId, "")
         XCTAssertEqual(session.tmuxSession, "")
-        XCTAssertNil(session.status)
-        XCTAssertNil(session.summary)
         XCTAssertNil(session.stalenessSeconds)
         XCTAssertNil(session.branch)
         XCTAssertNil(session.displayName)
@@ -62,7 +57,6 @@ final class SessionTests: XCTestCase {
         XCTAssertNil(session.boardJobTitle)
         XCTAssertEqual(session.boardUnread, 0)
         XCTAssertTrue(session.commands.isEmpty)
-        XCTAssertEqual(session.logPath, "")
     }
 
     // MARK: - Computed Properties

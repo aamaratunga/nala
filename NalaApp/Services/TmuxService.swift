@@ -211,7 +211,6 @@ final class TmuxService: @unchecked Sendable {
     ) async throws -> String {
         let sessionId = UUID().uuidString.lowercased()
         let sessionName = "\(agentType)-\(sessionId)"
-        let logPath = "/tmp/nala_\(sessionName).log"
 
         // Create the tmux session
         let createResult = await runTmux(args: [
@@ -220,14 +219,6 @@ final class TmuxService: @unchecked Sendable {
         ])
         guard createResult.succeeded else {
             throw TmuxError.sessionCreationFailed(createResult.errorMessage)
-        }
-
-        // Set up pipe-pane for log streaming
-        let pipeResult = await runTmux(args: [
-            "pipe-pane", "-o", "-t", sessionName, "cat >> \(logPath)"
-        ])
-        if !pipeResult.succeeded {
-            logger.warning("Failed to set up pipe-pane: \(pipeResult.errorMessage)")
         }
 
         // Launch the agent
@@ -257,10 +248,6 @@ final class TmuxService: @unchecked Sendable {
         if !result.succeeded {
             logger.warning("kill-session failed for \(name): \(result.errorMessage)")
         }
-
-        // Remove log file
-        let logPath = "/tmp/nala_\(name).log"
-        try? FileManager.default.removeItem(atPath: logPath)
 
         // Remove settings temp file
         if let parsed = Self.parseSessionName(name) {
@@ -430,19 +417,6 @@ final class TmuxService: @unchecked Sendable {
         }
 
         return parts.joined(separator: " ")
-    }
-
-    // MARK: - Pipe-Pane Setup for Existing Sessions
-
-    /// Ensure pipe-pane is configured for a session (handles app restart while tmux persists).
-    func ensurePipePane(session: TmuxSessionInfo) async {
-        let logPath = "/tmp/nala_\(session.sessionName).log"
-        // If log file doesn't exist, set up pipe-pane
-        if !FileManager.default.fileExists(atPath: logPath) {
-            let _ = await runTmux(args: [
-                "pipe-pane", "-o", "-t", session.sessionName, "cat >> \(logPath)"
-            ])
-        }
     }
 
     // MARK: - Polling

@@ -49,8 +49,6 @@ struct Session: Identifiable, Equatable {
     let agentType: String
     let sessionId: String
     let tmuxSession: String
-    var status: String?
-    var summary: String?
     var stalenessSeconds: Double?
     var branch: String?
     var displayName: String?
@@ -69,7 +67,6 @@ struct Session: Identifiable, Equatable {
     var boardJobTitle: String?
     var boardUnread: Int
     var commands: [SessionCommand]
-    var logPath: String
     var isPlaceholder: Bool = false
 
     var id: String { sessionId.isEmpty ? name : sessionId }
@@ -81,8 +78,6 @@ struct Session: Identifiable, Equatable {
         agentType: String = "claude",
         sessionId: String = "",
         tmuxSession: String = "",
-        status: String? = nil,
-        summary: String? = nil,
         stalenessSeconds: Double? = nil,
         branch: String? = nil,
         displayName: String? = nil,
@@ -100,15 +95,12 @@ struct Session: Identifiable, Equatable {
         boardProject: String? = nil,
         boardJobTitle: String? = nil,
         boardUnread: Int = 0,
-        commands: [SessionCommand] = [],
-        logPath: String = ""
+        commands: [SessionCommand] = []
     ) {
         self.name = name
         self.agentType = agentType
         self.sessionId = sessionId
         self.tmuxSession = tmuxSession
-        self.status = status
-        self.summary = summary
         self.stalenessSeconds = stalenessSeconds
         self.branch = branch
         self.displayName = displayName
@@ -127,14 +119,12 @@ struct Session: Identifiable, Equatable {
         self.boardJobTitle = boardJobTitle
         self.boardUnread = boardUnread
         self.commands = commands
-        self.logPath = logPath
         self.isPlaceholder = false
     }
 
     /// The label to show in the sidebar (matches web app fallback chain).
     var displayLabel: String {
         if let dn = displayName, !dn.isEmpty { return dn }
-        if let s = summary, !s.isEmpty { return s }
         if let job = boardJobTitle, !job.isEmpty { return job }
         return agentType == "terminal" ? "Terminal" : "Agent"
     }
@@ -151,7 +141,6 @@ struct Session: Identifiable, Equatable {
             return "Waiting for input"
         }
         if sleeping { return "Sleeping" }
-        if let s = status, !s.isEmpty { return s }
         if let event = latestEventSummary, !event.isEmpty { return event }
         return nil
     }
@@ -179,8 +168,6 @@ extension Session: Decodable {
         case agentType = "agent_type"
         case sessionId = "session_id"
         case tmuxSession = "tmux_session"
-        case status
-        case summary
         case stalenessSeconds = "staleness_seconds"
         case branch
         case displayName = "display_name"
@@ -199,7 +186,6 @@ extension Session: Decodable {
         case boardJobTitle = "board_job_title"
         case boardUnread = "board_unread"
         case commands
-        case logPath = "log_path"
     }
 
     init(from decoder: Decoder) throws {
@@ -208,8 +194,6 @@ extension Session: Decodable {
         agentType = try c.decodeIfPresent(String.self, forKey: .agentType) ?? "claude"
         sessionId = try c.decodeIfPresent(String.self, forKey: .sessionId) ?? ""
         tmuxSession = try c.decodeIfPresent(String.self, forKey: .tmuxSession) ?? ""
-        status = try c.decodeIfPresent(String.self, forKey: .status)
-        summary = try c.decodeIfPresent(String.self, forKey: .summary)
         stalenessSeconds = try c.decodeIfPresent(Double.self, forKey: .stalenessSeconds)
         branch = try c.decodeIfPresent(String.self, forKey: .branch)
         displayName = try c.decodeIfPresent(String.self, forKey: .displayName)
@@ -228,7 +212,6 @@ extension Session: Decodable {
         boardJobTitle = try c.decodeIfPresent(String.self, forKey: .boardJobTitle)
         boardUnread = try c.decodeIfPresent(Int.self, forKey: .boardUnread) ?? 0
         commands = try c.decodeIfPresent([SessionCommand].self, forKey: .commands) ?? []
-        logPath = try c.decodeIfPresent(String.self, forKey: .logPath) ?? ""
         isPlaceholder = false
     }
 }

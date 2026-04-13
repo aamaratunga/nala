@@ -42,7 +42,6 @@ Nala is fully local with zero network dependencies:
 1. **Tmux polling** — discovers and monitors agent sessions via `tmux list-sessions`
 2. **Event file watching** — Claude Code hooks write JSONL events to `~/.nala/events/`; Nala watches these files for state changes
 3. **Git polling** — tracks branch names and dirty file counts per worktree
-4. **Pulse parsing** — reads `||PULSE:STATUS||` and `||PULSE:SUMMARY||` markers from agent output
 
 ## License
 

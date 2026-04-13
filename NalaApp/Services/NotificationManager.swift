@@ -62,7 +62,7 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
         if new.waitingForInput && !wasWaiting {
             let enabled = defaults.object(forKey: "nala.notifications.needsInput") as? Bool ?? true
             if enabled {
-                let detail = new.waitingSummary ?? new.status ?? ""
+                let detail = new.waitingSummary ?? ""
                 let body = detail.isEmpty ? folder : "\(folder) — \(detail)"
                 postNotification(
                     id: "needs-input-\(new.id)",
@@ -77,7 +77,7 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
         if new.done && !wasDone {
             let enabled = defaults.object(forKey: "nala.notifications.done") as? Bool ?? true
             if enabled {
-                let detail = new.summary ?? new.status ?? ""
+                let detail = new.latestEventSummary ?? ""
                 let body = detail.isEmpty ? folder : "\(folder) — \(detail)"
                 postNotification(
                     id: "done-\(new.id)",

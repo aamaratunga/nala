@@ -22,8 +22,8 @@ struct StatusSection: Identifiable, Equatable {
 }
 
 /// Central observable store for live session state. Owns the native services
-/// (TmuxService, PulseParser, EventFileWatcher, GitService) and merges their
-/// output into a flat session list.
+/// (TmuxService, EventFileWatcher, GitService) and merges their output into
+/// a flat session list.
 @Observable
 final class SessionStore {
     var sessions: [Session] = []
@@ -138,7 +138,6 @@ final class SessionStore {
     // MARK: - Native Services
 
     @ObservationIgnored private var tmuxService: TmuxService?
-    @ObservationIgnored private var pulseParser: PulseParser?
     @ObservationIgnored private var eventWatcher: EventFileWatcher?
     @ObservationIgnored private var autoNamer: AutoNamer?
     @ObservationIgnored private var serviceTask: Task<Void, Never>?
@@ -500,7 +499,6 @@ final class SessionStore {
         }
 
         let tmux = TmuxService()
-        let pulse = PulseParser()
         let events = EventFileWatcher()
         let namer = AutoNamer()
 
@@ -509,7 +507,6 @@ final class SessionStore {
             tmuxNotFound = true
             logger.error("tmux not found — sessions will not be discovered")
         }
-        pulseParser = pulse
         eventWatcher = events
         autoNamer = namer
 
@@ -522,16 +519,6 @@ final class SessionStore {
                         guard let self else { return }
                         await MainActor.run {
                             self.handleTmuxUpdate(update)
-                        }
-                    }
-                }
-
-                // PulseParser updates
-                group.addTask { [weak self] in
-                    for await update in pulse.updates() {
-                        guard let self else { return }
-                        await MainActor.run {
-                            self.handlePulseUpdate(update)
                         }
                     }
                 }
@@ -568,7 +555,6 @@ final class SessionStore {
         stalenessTask?.cancel()
         stalenessTask = nil
         tmuxService?.stop()
-        pulseParser?.stopAll()
         eventWatcher?.stopAll()
     }
 
@@ -637,7 +623,6 @@ final class SessionStore {
                 if let session = sessions.first(where: { $0.name == name }) {
                     NotificationManager.shared.clearSession(session.id)
                     pendingKills.remove(session.id)
-                    pulseParser?.stopWatching(sessionName: name)
                     eventWatcher?.stopWatching(sessionId: session.sessionId)
                     autoNamer?.reset(sessionId: session.sessionId)
                     activityLog.removeValue(forKey: session.sessionId)
@@ -673,33 +658,23 @@ final class SessionStore {
             guard !pendingKills.contains(compositeKey) else { continue }
 
             // Start watchers for new sessions
-            let logPath = "/tmp/nala_\(info.sessionName).log"
-            if pulseParser?.cachedResult(for: info.sessionName) == nil {
-                pulseParser?.startWatching(sessionName: info.sessionName, logPath: logPath)
-            }
             if info.agentType == "claude", eventWatcher?.cachedState(for: sessionId) == nil {
                 eventWatcher?.startWatching(sessionId: sessionId)
             }
 
             // Build or update the session
-            let pulseState = pulseParser?.cachedResult(for: info.sessionName)
             let agentState = eventWatcher?.cachedState(for: sessionId)
 
             let existingIdx = sessions.firstIndex(where: { $0.id == compositeKey })
 
             if let idx = existingIdx {
                 // Update existing session in place — intentionally do NOT update
-                // workingDirectory or logPath here. A session's working directory is
-                // set once on initial discovery and stays fixed. Updating it every
-                // poll cycle causes groupingPath() → findGitRoot() to walk the
-                // filesystem whenever an agent cd's to a new directory, which
-                // triggers TCC prompts for protected paths like /Volumes or ~/Music.
+                // workingDirectory here. A session's working directory is set once
+                // on initial discovery and stays fixed. Updating it every poll cycle
+                // causes groupingPath() → findGitRoot() to walk the filesystem
+                // whenever an agent cd's to a new directory, which triggers TCC
+                // prompts for protected paths like /Volumes or ~/Music.
                 let old = sessions[idx]
-
-                if let pulse = pulseState {
-                    if let s = pulse.status { sessions[idx].status = s }
-                    if let s = pulse.summary { sessions[idx].summary = s }
-                }
 
                 if let state = agentState {
                     applyAgentState(state, toSessionAt: idx)
@@ -713,16 +688,10 @@ final class SessionStore {
                     agentType: info.agentType,
                     sessionId: sessionId,
                     tmuxSession: info.sessionName,
-                    workingDirectory: info.workingDirectory,
-                    logPath: logPath
+                    workingDirectory: info.workingDirectory
                 )
                 session.displayName = loadDisplayName(for: sessionId)
                 session.commands = defaultCommands(for: info.agentType)
-
-                if let pulse = pulseState {
-                    session.status = pulse.status
-                    session.summary = pulse.summary
-                }
 
                 sessions.append(session)
 
@@ -761,29 +730,9 @@ final class SessionStore {
             }
         }
 
-        // Ensure pipe-pane is configured (handles app restart while tmux persists)
-        Task {
-            for info in update.added {
-                await tmuxService?.ensurePipePane(session: info)
-            }
-        }
-
         reconcileOrder()
         performStartupCleanup()
         isConnected = true
-    }
-
-    func handlePulseUpdate(_ update: PulseUpdate) {
-        // Find the session by tmux session name
-        guard let idx = sessions.firstIndex(where: { $0.name == update.sessionName }) else { return }
-        let old = sessions[idx]
-        if let status = update.result.status {
-            sessions[idx].status = status
-        }
-        if let summary = update.result.summary {
-            sessions[idx].summary = summary
-        }
-        NotificationManager.shared.evaluateTransition(old: old, new: sessions[idx])
     }
 
     func handleAgentStateUpdate(_ update: AgentStateUpdate) {
@@ -1313,12 +1262,6 @@ final class SessionStore {
                 // nala_prompt_{sessionId}.txt
                 let stem = String(file.dropFirst("nala_prompt_".count).dropLast(".txt".count))
                 if !activeSessionIds.contains(stem) {
-                    try? fm.removeItem(atPath: path)
-                }
-            } else if file.hasPrefix("nala_") && file.hasSuffix(".log") {
-                // nala_{sessionName}.log
-                let stem = String(file.dropFirst("nala_".count).dropLast(".log".count))
-                if !activeSessionNames.contains(stem) {
                     try? fm.removeItem(atPath: path)
                 }
             }

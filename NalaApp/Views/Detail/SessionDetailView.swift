@@ -104,13 +104,6 @@ struct SessionDetailView: View {
                     Text(session.displayLabel)
                         .font(.headline)
                 }
-
-                if let summary = session.summary, !summary.isEmpty {
-                    Text(summary)
-                        .font(.caption)
-                        .foregroundStyle(NalaTheme.textSecondary)
-                        .lineLimit(1)
-                }
             }
 
             Spacer()

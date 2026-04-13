@@ -128,37 +128,6 @@ final class SessionStoreTests: XCTestCase {
         XCTAssertNil(store.activeLaunches[placeholderId])
     }
 
-    // MARK: - handlePulseUpdate
-
-    func testPulseUpdateSetsStatusAndSummary() {
-        let store = makeStore()
-        store.sessions = [makeSession(name: "claude-s1", sessionId: "s1", workingDirectory: "/tmp")]
-        store.reconcileOrder()
-
-        let update = PulseUpdate(
-            sessionName: "claude-s1",
-            result: PulseResult(status: "Implementing tests", summary: "Adding unit tests")
-        )
-        store.handlePulseUpdate(update)
-
-        XCTAssertEqual(store.sessions[0].status, "Implementing tests")
-        XCTAssertEqual(store.sessions[0].summary, "Adding unit tests")
-    }
-
-    func testPulseUpdateNoOpForUnknownSession() {
-        let store = makeStore()
-        store.sessions = [makeSession(name: "claude-s1", sessionId: "s1", workingDirectory: "/tmp")]
-
-        let update = PulseUpdate(
-            sessionName: "nonexistent",
-            result: PulseResult(status: "Stuff", summary: "Things")
-        )
-        // Should not crash
-        store.handlePulseUpdate(update)
-
-        XCTAssertNil(store.sessions[0].status)
-    }
-
     // MARK: - handleAgentStateUpdate
 
     func testAgentStateUpdatePropagatesAllFields() {
@@ -1015,24 +984,6 @@ final class SessionStoreTests: XCTestCase {
         return dir
     }
 
-    func testCleanOrphanedTmpFilesDeletesOrphanLogs() {
-        let dir = makeTempDir()
-        defer { try? FileManager.default.removeItem(atPath: dir) }
-
-        FileManager.default.createFile(atPath: "\(dir)nala_active-session.log", contents: nil)
-        FileManager.default.createFile(atPath: "\(dir)nala_orphan-session.log", contents: nil)
-
-        let store = makeStore()
-        store.cleanOrphanedTmpFiles(
-            activeSessionNames: Set(["active-session"]),
-            activeSessionIds: Set(),
-            tmpDirectory: dir
-        )
-
-        XCTAssertTrue(FileManager.default.fileExists(atPath: "\(dir)nala_active-session.log"))
-        XCTAssertFalse(FileManager.default.fileExists(atPath: "\(dir)nala_orphan-session.log"))
-    }
-
     func testCleanOrphanedTmpFilesDeletesOrphanSettings() {
         let dir = makeTempDir()
         defer { try? FileManager.default.removeItem(atPath: dir) }
@@ -1091,7 +1042,6 @@ final class SessionStoreTests: XCTestCase {
         let dir = makeTempDir()
         defer { try? FileManager.default.removeItem(atPath: dir) }
 
-        FileManager.default.createFile(atPath: "\(dir)nala_my-session.log", contents: nil)
         FileManager.default.createFile(atPath: "\(dir)nala_settings_my-id.json", contents: nil)
         FileManager.default.createFile(atPath: "\(dir)nala_prompt_my-id.txt", contents: nil)
 
@@ -1102,7 +1052,6 @@ final class SessionStoreTests: XCTestCase {
             tmpDirectory: dir
         )
 
-        XCTAssertTrue(FileManager.default.fileExists(atPath: "\(dir)nala_my-session.log"))
         XCTAssertTrue(FileManager.default.fileExists(atPath: "\(dir)nala_settings_my-id.json"))
         XCTAssertTrue(FileManager.default.fileExists(atPath: "\(dir)nala_prompt_my-id.txt"))
     }
