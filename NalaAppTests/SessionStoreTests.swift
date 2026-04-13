@@ -236,6 +236,92 @@ final class SessionStoreTests: XCTestCase {
         XCTAssertEqual(store.sessions[0].latestEventSummary, "Read main.swift")
     }
 
+    // MARK: - Batched Event Regression Tests
+
+    /// Critical regression: session is acknowledged (done suppressed), then
+    /// prompt_submit + stop batch arrives. The intermediate working state must
+    /// clear the acknowledgement so done is visible again.
+    func testBatchedEventsFromDoneAckedToDoneAgain() {
+        let store = makeStore()
+        store.sessions = [makeSession(sessionId: "s1", workingDirectory: "/tmp", done: true)]
+        store.reconcileOrder()
+        // Don't select it — prevents auto-acknowledge
+        store.selectedSessionId = nil
+
+        // Acknowledge the done state (simulates user clicking the session)
+        store.acknowledgeSession("s1")
+        XCTAssertFalse(store.sessions[0].done, "Done should be suppressed after ack")
+
+        // Simulate the batched events arriving as separate AgentStateUpdates
+        // (which is what the fixed EventFileWatcher now emits per-event).
+
+        // First: intermediate working state (from prompt_submit)
+        let workingState = AgentState(
+            working: true,
+            done: false,
+            latestEventType: "prompt_submit",
+            latestEventSummary: "Prompt: fix the bug"
+        )
+        store.handleAgentStateUpdate(AgentStateUpdate(sessionId: "s1", state: workingState))
+
+        // Acknowledgement should be cleared by the working state
+        let testDefaults = UserDefaults(suiteName: Self.testSuiteName)!
+        let savedAfterWorking = testDefaults.stringArray(forKey: "nala.acknowledgedSessions") ?? []
+        XCTAssertFalse(savedAfterWorking.contains("s1"),
+            "Acknowledgement should be cleared by intermediate working state")
+
+        // Second: final done state (from stop)
+        let doneState = AgentState(
+            done: true,
+            latestEventType: "stop",
+            latestEventSummary: "Agent stopped: end_turn"
+        )
+        store.handleAgentStateUpdate(AgentStateUpdate(sessionId: "s1", state: doneState))
+
+        // Done should now be visible (not suppressed by stale acknowledgement)
+        XCTAssertTrue(store.sessions[0].done,
+            "Done should NOT be suppressed after ack was cleared by intermediate working state")
+    }
+
+    /// Verify that both waitingForInput and done transitions are visible to
+    /// NotificationManager when notification + stop events batch together.
+    func testBatchedNotificationThenStopFiresBothNotifications() {
+        let store = makeStore()
+        store.sessions = [makeSession(sessionId: "s1", workingDirectory: "/tmp", working: true)]
+        store.reconcileOrder()
+        store.selectedSessionId = nil
+
+        // First: intermediate notification state
+        let notificationState = AgentState(
+            waitingForInput: true,
+            latestEventType: "notification",
+            latestEventSummary: "Notification: Permission required",
+            waitingReason: "Permission required",
+            waitingSummary: "Permission required"
+        )
+        store.handleAgentStateUpdate(AgentStateUpdate(sessionId: "s1", state: notificationState))
+
+        // Session should show waitingForInput
+        XCTAssertTrue(store.sessions[0].waitingForInput,
+            "Intermediate notification state should set waitingForInput")
+        XCTAssertFalse(store.sessions[0].done,
+            "Should not be done yet after notification")
+
+        // Second: final stop state
+        let doneState = AgentState(
+            done: true,
+            latestEventType: "stop",
+            latestEventSummary: "Agent stopped: end_turn"
+        )
+        store.handleAgentStateUpdate(AgentStateUpdate(sessionId: "s1", state: doneState))
+
+        // Session should now show done (waitingForInput cleared by state derivation)
+        XCTAssertTrue(store.sessions[0].done,
+            "Final stop state should set done")
+        XCTAssertFalse(store.sessions[0].waitingForInput,
+            "waitingForInput should be cleared by stop state")
+    }
+
     // MARK: - Order Reconciliation
 
     func testReconcilePrunesStaleAndAppendsNew() {

@@ -33,8 +33,10 @@ final class EventFileWatcher: @unchecked Sendable {
         return "\(home)/.nala/events"
     }()
 
-    /// Staleness threshold in seconds (7 minutes)
-    static let stalenessThreshold: TimeInterval = 420
+    /// Staleness threshold in seconds (6 minutes).
+    /// A "working" session with no new events for this long is marked "stuck".
+    /// Lowered from 7 minutes to detect hook failures faster.
+    static let stalenessThreshold: TimeInterval = 360
 
     // MARK: - Per-Session Watcher State
 
@@ -266,6 +268,7 @@ final class EventFileWatcher: @unchecked Sendable {
     }
 
     /// Re-derive state for all watchers (call periodically to detect staleness).
+    /// Also re-reads each event file as a safety net for missed kqueue notifications.
     /// Dispatches onto watcherQueue to serialize with dispatch source event handlers.
     func refreshStaleness() {
         watcherQueue.async { [weak self] in
@@ -274,6 +277,10 @@ final class EventFileWatcher: @unchecked Sendable {
             let allWatchers = Array(self.watchers.values)
             self.watchersLock.unlock()
             for watcher in allWatchers {
+                // Safety net: re-read the file in case a kqueue notification
+                // was dropped under high system load.
+                self.readNewContent(watcher: watcher)
+
                 let oldState = watcher.currentState
                 self.deriveState(watcher: watcher)
                 if watcher.currentState != oldState {
@@ -325,7 +332,10 @@ final class EventFileWatcher: @unchecked Sendable {
         // Notification
         if hookType == "Notification" || json["message"] != nil {
             let message = json["message"] as? String ?? ""
-            // "waiting for your input" is treated as stop (done)
+            // "waiting for your input" is treated as stop (done).
+            // COUPLING: This string is emitted by Claude Code's notification
+            // hook when the agent finishes a turn and awaits user input. If
+            // Claude Code changes this message, this detection will break.
             if message.lowercased().contains("waiting for your input") {
                 return ("stop", "Agent stopped: waiting for input", nil, nil)
             }
@@ -498,7 +508,6 @@ final class EventFileWatcher: @unchecked Sendable {
         }
 
         let completeLines = text.hasSuffix("\n") ? lines : lines.dropLast()
-        var stateChanged = false
 
         for line in completeLines {
             let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -532,14 +541,14 @@ final class EventFileWatcher: @unchecked Sendable {
                 }
 
                 deriveState(watcher: watcher)
-                if watcher.currentState != oldState {
-                    stateChanged = true
+
+                // Emit per-event so intermediate transitions (e.g., working
+                // between two done states) reach SessionStore for ack clearing
+                // and notification firing.
+                if watcher.currentState != oldState && shouldEmit {
+                    emitUpdate(watcher: watcher)
                 }
             }
-        }
-
-        if stateChanged && shouldEmit {
-            emitUpdate(watcher: watcher)
         }
     }
 

@@ -142,7 +142,7 @@ final class EventFileWatcherTests: XCTestCase {
     }
 
     func testStalenessThreshold() {
-        XCTAssertEqual(EventFileWatcher.stalenessThreshold, 420, "Staleness threshold should be 7 minutes")
+        XCTAssertEqual(EventFileWatcher.stalenessThreshold, 360, "Staleness threshold should be 6 minutes")
     }
 
     // MARK: - Concatenated JSON Splitting
@@ -191,6 +191,155 @@ final class EventFileWatcherTests: XCTestCase {
     func testSplitEmptyString() {
         let objects = EventFileWatcher.splitConcatenatedJSON("")
         XCTAssertEqual(objects.count, 0)
+    }
+
+    // MARK: - Batched Event Emission (Regression: intermediate states dropped)
+
+    /// Thread-safe update collector for async stream tests.
+    private class UpdateCollector: @unchecked Sendable {
+        private let lock = NSLock()
+        private var _updates: [AgentState] = []
+
+        func append(_ state: AgentState) {
+            lock.lock()
+            _updates.append(state)
+            lock.unlock()
+        }
+
+        var count: Int {
+            lock.lock()
+            defer { lock.unlock() }
+            return _updates.count
+        }
+
+        var updates: [AgentState] {
+            lock.lock()
+            defer { lock.unlock() }
+            return _updates
+        }
+    }
+
+    /// Verifies that when prompt_submit + stop arrive in one batch, both
+    /// the intermediate working state and the final done state are emitted
+    /// as separate updates through the AsyncStream.
+    func testProcessEventsBatchedPromptSubmitThenStop() {
+        let watcher = EventFileWatcher()
+        let sessionId = UUID().uuidString.lowercased()
+        let path = "\(EventFileWatcher.eventsDirectory)/\(sessionId).jsonl"
+
+        try? FileManager.default.createDirectory(
+            atPath: EventFileWatcher.eventsDirectory,
+            withIntermediateDirectories: true
+        )
+        FileManager.default.createFile(atPath: path, contents: nil, attributes: [.posixPermissions: 0o600])
+
+        // Thread-safe collector; expectation fires after 3 updates (initial + 2 events)
+        let collector = UpdateCollector()
+        let gotAllUpdates = expectation(description: "Got initial + 2 batched event updates")
+        gotAllUpdates.expectedFulfillmentCount = 3
+
+        let stream = watcher.updates()
+        let collectTask = Task {
+            for await update in stream {
+                collector.append(update.state)
+                gotAllUpdates.fulfill()
+            }
+        }
+
+        watcher.startWatching(sessionId: sessionId)
+
+        // Delay to ensure the stream consumer processes the initial empty state
+        let writeDelay = expectation(description: "write delay")
+        writeDelay.isInverted = true
+        wait(for: [writeDelay], timeout: 0.3)
+
+        // Use recent timestamps so the staleness check doesn't override working→stuck
+        let now = ISO8601DateFormatter().string(from: Date())
+        let promptJson = #"{"hook_event_name":"UserPromptSubmit","prompt":"fix bug","timestamp":""# + now + #""}"#
+        let stopJson = #"{"hook_event_name":"Stop","stop_hook_active":true,"reason":"end_turn","timestamp":""# + now + #""}"#
+        let batch = "\(promptJson)\n\(stopJson)\n"
+
+        let fh = FileHandle(forWritingAtPath: path)!
+        fh.seekToEndOfFile()
+        fh.write(batch.data(using: .utf8)!)
+        fh.closeFile()
+
+        wait(for: [gotAllUpdates], timeout: 5.0)
+        collectTask.cancel()
+        watcher.stopWatching(sessionId: sessionId)
+        try? FileManager.default.removeItem(atPath: path)
+
+        let all = collector.updates
+        // Expect: [initial(empty), working(prompt_submit), done(stop)]
+        XCTAssertGreaterThanOrEqual(all.count, 3,
+            "Per-event emission should produce initial + 2 event updates")
+        // First is initial empty state
+        XCTAssertFalse(all[0].working, "Initial state should not be working")
+        XCTAssertFalse(all[0].done, "Initial state should not be done")
+        // Second is intermediate working from prompt_submit
+        XCTAssertTrue(all[1].working,
+            "Second update should be working (from prompt_submit)")
+        // Third is done from stop
+        XCTAssertTrue(all[2].done,
+            "Third update should be done (from stop)")
+    }
+
+    /// Verifies that when notification + stop arrive in one batch, both
+    /// the intermediate waitingForInput state and the final done state are emitted.
+    func testProcessEventsBatchedNotificationThenStop() {
+        let watcher = EventFileWatcher()
+        let sessionId = UUID().uuidString.lowercased()
+        let path = "\(EventFileWatcher.eventsDirectory)/\(sessionId).jsonl"
+
+        try? FileManager.default.createDirectory(
+            atPath: EventFileWatcher.eventsDirectory,
+            withIntermediateDirectories: true
+        )
+        FileManager.default.createFile(atPath: path, contents: nil, attributes: [.posixPermissions: 0o600])
+
+        let collector = UpdateCollector()
+        let gotAllUpdates = expectation(description: "Got initial + 2 batched event updates")
+        gotAllUpdates.expectedFulfillmentCount = 3
+
+        let stream = watcher.updates()
+        let collectTask = Task {
+            for await update in stream {
+                collector.append(update.state)
+                gotAllUpdates.fulfill()
+            }
+        }
+
+        watcher.startWatching(sessionId: sessionId)
+
+        let writeDelay = expectation(description: "write delay")
+        writeDelay.isInverted = true
+        wait(for: [writeDelay], timeout: 0.3)
+
+        // Use recent timestamps so staleness checks don't interfere
+        let now = ISO8601DateFormatter().string(from: Date())
+        let notifJson = #"{"hook_event_name":"Notification","message":"Permission required","timestamp":""# + now + #""}"#
+        let stopJson = #"{"hook_event_name":"Stop","stop_hook_active":true,"reason":"end_turn","timestamp":""# + now + #""}"#
+        let batch = "\(notifJson)\n\(stopJson)\n"
+
+        let fh = FileHandle(forWritingAtPath: path)!
+        fh.seekToEndOfFile()
+        fh.write(batch.data(using: .utf8)!)
+        fh.closeFile()
+
+        wait(for: [gotAllUpdates], timeout: 5.0)
+        collectTask.cancel()
+        watcher.stopWatching(sessionId: sessionId)
+        try? FileManager.default.removeItem(atPath: path)
+
+        let all = collector.updates
+        XCTAssertGreaterThanOrEqual(all.count, 3,
+            "Per-event emission should produce initial + 2 event updates")
+        XCTAssertFalse(all[0].working, "Initial state should not be working")
+        XCTAssertFalse(all[0].done, "Initial state should not be done")
+        XCTAssertTrue(all[1].waitingForInput,
+            "Second update should be waitingForInput (from notification)")
+        XCTAssertTrue(all[2].done,
+            "Third update should be done (from stop)")
     }
 
     // MARK: - Tail Recovery (Regression: main-thread hang from full file reads)

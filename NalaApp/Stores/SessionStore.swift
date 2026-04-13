@@ -536,10 +536,12 @@ final class SessionStore {
             }
         }
 
-        // Staleness refresh (every 30 seconds)
+        // Staleness refresh (every 15 seconds).
+        // Also serves as a safety net for missed kqueue notifications —
+        // refreshStaleness() re-reads event files to catch dropped writes.
         stalenessTask = Task { [weak self] in
             while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 30_000_000_000) // 30s
+                try? await Task.sleep(nanoseconds: 15_000_000_000) // 15s
                 guard let self else { return }
                 self.eventWatcher?.refreshStaleness()
             }
