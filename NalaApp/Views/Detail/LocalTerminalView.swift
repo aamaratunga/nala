@@ -16,6 +16,19 @@ final class NalaTerminalView: LocalProcessTerminalView {
     /// Whether this terminal is the currently selected (visible) one.
     var isActiveTerminal: Bool { sessionName == Self.activeSessionName }
 
+    /// Controls whether flushed PTY data is forwarded to SwiftTerm for
+    /// rendering. When `false`, incoming bytes accumulate in `pendingBytes`
+    /// but no flush is scheduled — so SwiftTerm never calls `setNeedsDisplay`
+    /// and AppKit skips the expensive `draw()` cycle entirely.
+    var isVisible: Bool = true {
+        didSet {
+            if isVisible && !oldValue {
+                // Transitioning from hidden → visible: flush accumulated data
+                flushPendingData()
+            }
+        }
+    }
+
     private var pendingBytes: [UInt8] = []
     private var pendingOSC52: [UInt8] = []
     private var coalesceTimer: DispatchWorkItem?
@@ -30,6 +43,10 @@ final class NalaTerminalView: LocalProcessTerminalView {
 
     override func dataReceived(slice: ArraySlice<UInt8>) {
         pendingBytes.append(contentsOf: slice)
+
+        // While hidden, accumulate data silently — don't schedule flushes.
+        // SwiftTerm never calls setNeedsDisplay, so AppKit skips draw().
+        guard isVisible else { return }
 
         coalesceTimer?.cancel()
 
@@ -143,6 +160,7 @@ final class NalaTerminalView: LocalProcessTerminalView {
 /// A live PTY terminal that attaches to a tmux session via `tmux attach`.
 struct LocalTerminalView: NSViewRepresentable {
     let sessionName: String
+    let isVisible: Bool
     @Binding var isTerminated: Bool
 
     /// Weak map from tmux session name → terminal view, used by
@@ -215,7 +233,7 @@ struct LocalTerminalView: NSViewRepresentable {
     }
 
     func updateNSView(_ tv: NalaTerminalView, context: Context) {
-        // Nothing to update — the PTY session is self-contained
+        tv.isVisible = isVisible
     }
 
     func makeCoordinator() -> Coordinator {

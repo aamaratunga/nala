@@ -45,6 +45,7 @@ struct SessionDetailView: View {
                 if session.hasTmuxTarget {
                     LocalTerminalView(
                         sessionName: session.tmuxSession,
+                        isVisible: session.id == store.selectedSessionId,
                         isTerminated: $isLocalTerminated
                     )
                     .id(localTerminalGeneration)

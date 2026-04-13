@@ -61,11 +61,11 @@ final class SessionStore {
 
     /// Session IDs that were optimistically removed (pending tmux kill).
     /// Prevents polling from re-adding them before they actually disappear.
-    private var pendingKills: Set<String> = []
+    @ObservationIgnored private var pendingKills: Set<String> = []
 
     /// Session IDs whose "done" state has been acknowledged by the user.
     /// While in this set, EventFileWatcher's done=true is suppressed to false.
-    private var acknowledgedSessionIds: Set<String> = []
+    @ObservationIgnored private var acknowledgedSessionIds: Set<String> = []
 
     // MARK: - Ordering State (persisted via UserDefaults)
 
@@ -137,18 +137,18 @@ final class SessionStore {
 
     // MARK: - Native Services
 
-    private var tmuxService: TmuxService?
-    private var pulseParser: PulseParser?
-    private var eventWatcher: EventFileWatcher?
-    private var autoNamer: AutoNamer?
-    private var serviceTask: Task<Void, Never>?
-    private var stalenessTask: Task<Void, Never>?
+    @ObservationIgnored private var tmuxService: TmuxService?
+    @ObservationIgnored private var pulseParser: PulseParser?
+    @ObservationIgnored private var eventWatcher: EventFileWatcher?
+    @ObservationIgnored private var autoNamer: AutoNamer?
+    @ObservationIgnored private var serviceTask: Task<Void, Never>?
+    @ObservationIgnored private var stalenessTask: Task<Void, Never>?
 
     /// Collected activity summaries per session for auto-naming.
-    private var activityLog: [String: [String]] = [:]
+    @ObservationIgnored private var activityLog: [String: [String]] = [:]
 
     /// Sessions explicitly renamed by the user (auto-naming won't touch these).
-    private var userRenamedSessions: Set<String> = []
+    @ObservationIgnored private var userRenamedSessions: Set<String> = []
 
     /// Persisted display names (keyed by sessionId)
     private static let displayNamesKey = "nala.displayNames"
@@ -157,16 +157,16 @@ final class SessionStore {
     private let logger = Logger(subsystem: "com.nala.app", category: "SessionStore")
     private static let signpostLog = OSLog(subsystem: "com.nala.app", category: .pointsOfInterest)
     private let defaults: UserDefaults
-    private var isSuppressingPersistence = false
-    private var lastScannedWorktreePaths: Set<String> = []
-    private var scanTask: Task<Void, Never>?
-    private var hasPerformedStartupCleanup = false
+    @ObservationIgnored private var isSuppressingPersistence = false
+    @ObservationIgnored private var lastScannedWorktreePaths: Set<String> = []
+    @ObservationIgnored private var scanTask: Task<Void, Never>?
+    @ObservationIgnored private var hasPerformedStartupCleanup = false
 
     /// True when running as a test host — skip service connections.
     static let isTestHost = NSClassFromString("XCTestCase") != nil
 
     /// Cache: workingDirectory → resolved git root (or self if not in a git repo).
-    private var gitRootCache: [String: String] = [:]
+    @ObservationIgnored private var gitRootCache: [String: String] = [:]
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -490,10 +490,14 @@ final class SessionStore {
 
     /// Start native services for session discovery and monitoring.
     func startServices() {
+        logger.info("startServices: begin (isTestHost=\(Self.isTestHost))")
         loadSavedOrder()
         scanWorktreeFolders()
 
-        guard !Self.isTestHost else { return }
+        guard !Self.isTestHost else {
+            logger.info("startServices: skipping service connections (test host)")
+            return
+        }
 
         let tmux = TmuxService()
         let pulse = PulseParser()
@@ -553,6 +557,8 @@ final class SessionStore {
                 self.eventWatcher?.refreshStaleness()
             }
         }
+
+        logger.info("startServices: all services started")
     }
 
     /// Stop all services. Called on app termination.

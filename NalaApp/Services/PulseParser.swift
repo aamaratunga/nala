@@ -259,6 +259,10 @@ final class PulseParser: @unchecked Sendable {
         source.resume()
     }
 
+    /// Maximum bytes to read per dispatch source event. Files larger than
+    /// this are skipped to the tail — only recent output contains PULSE markers.
+    private static let maxReadSize: UInt64 = 256 * 1024 // 256 KB
+
     private func readNewContent(watcher: FileWatcher) {
         guard let attrs = try? FileManager.default.attributesOfItem(atPath: watcher.path),
               let fileSize = attrs[.size] as? UInt64 else { return }
@@ -271,32 +275,68 @@ final class PulseParser: @unchecked Sendable {
 
         guard fileSize > watcher.lastOffset else { return }
 
+        let newBytes = fileSize - watcher.lastOffset
+
+        // If the file grew by more than maxReadSize, skip ahead — only the
+        // tail is likely to contain relevant PULSE markers.
+        let readOffset: UInt64
+        let readLength: Int
+        if newBytes > Self.maxReadSize {
+            readOffset = fileSize - Self.maxReadSize
+            readLength = Int(Self.maxReadSize)
+            watcher.partialLine = "" // discard stale partial
+        } else {
+            readOffset = watcher.lastOffset
+            readLength = Int(newBytes)
+        }
+
         guard let fileHandle = FileHandle(forReadingAtPath: watcher.path) else { return }
         defer { fileHandle.closeFile() }
 
-        fileHandle.seek(toFileOffset: watcher.lastOffset)
-        let data = fileHandle.readData(ofLength: Int(fileSize - watcher.lastOffset))
-        watcher.lastOffset = fileSize
+        fileHandle.seek(toFileOffset: readOffset)
+        let data = fileHandle.readData(ofLength: readLength)
+        watcher.lastOffset = fileSize // always advance past everything
 
-        guard let text = String(data: data, encoding: .utf8), !text.isEmpty else { return }
+        guard !data.isEmpty else { return }
 
-        // Prepend any partial line from the previous read
-        let fullText = watcher.partialLine + text
+        // Byte-level line splitting: scan for 0x0A (\n) in raw Data to
+        // avoid Swift String.split's expensive Unicode grapheme processing.
+        let endsWithNewline = data.last == 0x0A
+        var lineChunks: [Data] = []
+        var start = data.startIndex
+        for i in data.indices where data[i] == 0x0A {
+            lineChunks.append(data[start..<i])
+            start = data.index(after: i)
+        }
+        // Remainder after the last newline (partial line)
+        let trailingData = data[start..<data.endIndex]
 
-        // Split into lines, keeping the last incomplete line as partial
-        let lines = fullText.split(separator: "\n", omittingEmptySubsequences: false)
-        if text.hasSuffix("\n") {
+        // Prepend partial line from previous read to the first chunk
+        if !watcher.partialLine.isEmpty, let firstIdx = lineChunks.indices.first {
+            if let partialData = watcher.partialLine.data(using: .utf8) {
+                lineChunks[firstIdx] = partialData + lineChunks[firstIdx]
+            }
             watcher.partialLine = ""
-        } else if let last = lines.last {
-            watcher.partialLine = String(last)
+        } else if !watcher.partialLine.isEmpty && lineChunks.isEmpty {
+            // All new data is a continuation of the partial line
+            if let text = String(data: trailingData, encoding: .utf8) {
+                watcher.partialLine += text
+            }
+            return
         }
 
-        // Process complete lines
-        let completeLines = text.hasSuffix("\n") ? lines : lines.dropLast()
-        guard !completeLines.isEmpty else { return }
+        // Handle trailing partial
+        if endsWithNewline {
+            watcher.partialLine = ""
+        } else if !trailingData.isEmpty {
+            watcher.partialLine = String(data: trailingData, encoding: .utf8) ?? ""
+        }
 
-        let joined = completeLines.joined(separator: "\n")
-        let stripped = Self.stripANSI(String(joined))
+        guard !lineChunks.isEmpty else { return }
+
+        let joinedData = lineChunks.joined(separator: [0x0A])
+        guard let joined = String(data: Data(joinedData), encoding: .utf8) else { return }
+        let stripped = Self.stripANSI(joined)
         let parsed = Self.parsePulseEvents(from: stripped)
 
         // Update cached result with any new values
