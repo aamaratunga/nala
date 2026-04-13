@@ -75,6 +75,34 @@ Items ordered by recommended execution sequence.
 
 ---
 
+### Tier 3 — Diff Viewer V2
+
+#### 6. Auto-paste comments to agent terminal
+
+**What:** Add a "Send to agent" button alongside "Copy all to prompt" in the diff viewer's CommentBarView. Injects formatted comments directly into the tmux session via `TmuxService` (`tmux send-keys`).
+
+**Why:** Eliminates the copy → switch to Terminal tab → paste step in the review workflow. The formatted comment text is already produced by `copyAllToPrompt()`.
+
+**Context:** TmuxService already supports `send-keys`. Main concern is timing — what if the agent is mid-response? May need to check agent state (idle/working) before injecting. Could also auto-switch to Terminal tab after sending.
+
+**Effort:** S
+**Priority:** P3
+**Depends on:** Diff viewer V1 (PR4: comment system)
+
+#### 7. Keyboard-driven comment workflow
+
+**What:** Add keyboard navigation for the diff viewer — arrow keys to navigate lines in the WKWebView, press 'c' to add a comment on the focused line, Escape to cancel.
+
+**Why:** Power users reviewing many files want to stay on the keyboard. The V1 mouse-click workflow requires switching between keyboard (typing comments) and mouse (clicking lines).
+
+**Context:** Requires JS-side focus management in CM6 (track focused line, highlight it, post messages on keypress). WKWebView focus interactions with SwiftUI can be tricky — the WKWebView needs to be first responder for keyboard events, which may conflict with SwiftUI keyboard shortcuts.
+
+**Effort:** M
+**Priority:** P3
+**Depends on:** Diff viewer V1 (PR4: comment system)
+
+---
+
 ## Completed
 
 - ~~Enable branch protection requiring CI pass~~ — Branch protection on `main` with required `Build & Test` check and squash-only merges
