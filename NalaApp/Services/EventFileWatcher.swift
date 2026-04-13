@@ -246,6 +246,23 @@ final class EventFileWatcher: @unchecked Sendable {
         return watcher?.currentState
     }
 
+    /// Reset cached state for a session to idle.
+    /// Called when the user cancels an agent to prevent stale working state
+    /// from being re-applied by tmux polling.
+    func resetCachedState(for sessionId: String) {
+        watchersLock.lock()
+        let watcher = watchers[sessionId]
+        watchersLock.unlock()
+        guard let watcher else { return }
+        // Set idle state immediately (thread-safe via stateLock)
+        watcher.currentState = AgentState()
+        // Clear watcher internals on the correct queue to prevent re-derivation
+        watcherQueue.async {
+            watcher.latestEventType = nil
+            watcher.latestSummary = nil
+        }
+    }
+
     /// Stream of state updates from all watched sessions.
     func updates() -> AsyncStream<AgentStateUpdate> {
         AsyncStream { [weak self] continuation in

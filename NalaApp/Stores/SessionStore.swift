@@ -601,6 +601,39 @@ final class SessionStore {
         }
     }
 
+    // MARK: - Cancel-to-Idle
+
+    /// Pending cancel timers keyed by sessionId. Cancelled if a working event arrives before firing.
+    @ObservationIgnored private var pendingCancelTimers: [String: DispatchWorkItem] = [:]
+
+    /// Called when the user presses Esc or Ctrl+C in the embedded terminal.
+    /// Schedules a debounced transition to idle after ~2 seconds.
+    func handleAgentCancel(sessionId: String) {
+        guard let idx = sessions.firstIndex(where: { $0.sessionId == sessionId }),
+              sessions[idx].working else { return }
+
+        // Cancel any existing pending timer for this session
+        pendingCancelTimers[sessionId]?.cancel()
+
+        let work = DispatchWorkItem { [weak self] in
+            guard let self,
+                  self.pendingCancelTimers[sessionId] != nil else { return }
+            self.pendingCancelTimers.removeValue(forKey: sessionId)
+            guard let idx = self.sessions.firstIndex(where: { $0.sessionId == sessionId }),
+                  self.sessions[idx].working else { return }
+
+            self.sessions[idx].working = false
+            self.sessions[idx].done = false
+            self.sessions[idx].waitingForInput = false
+            self.sessions[idx].stuck = false
+            self.sessions[idx].sleeping = false
+            self.sessions[idx].latestEventSummary = "Cancelled"
+            self.eventWatcher?.resetCachedState(for: sessionId)
+        }
+        pendingCancelTimers[sessionId] = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0, execute: work)
+    }
+
     // MARK: - Tmux Update Handler
 
     func handleTmuxUpdate(_ update: TmuxUpdate) {
@@ -757,6 +790,15 @@ final class SessionStore {
     func handleAgentStateUpdate(_ update: AgentStateUpdate) {
         guard let idx = sessions.firstIndex(where: { $0.sessionId == update.sessionId }) else { return }
         let old = sessions[idx]
+
+        // Cancel any pending cancel-to-idle timer when a genuine new working
+        // event arrives. This is intentionally here (not in applyAgentState)
+        // because applyAgentState is also called by handleTmuxUpdate with
+        // cached state every ~1s, which would incorrectly cancel the timer.
+        if update.state.working {
+            pendingCancelTimers[update.sessionId]?.cancel()
+            pendingCancelTimers.removeValue(forKey: update.sessionId)
+        }
 
         applyAgentState(update.state, toSessionAt: idx)
 

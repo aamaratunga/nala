@@ -46,7 +46,10 @@ struct SessionDetailView: View {
                     LocalTerminalView(
                         sessionName: session.tmuxSession,
                         isVisible: session.id == store.selectedSessionId,
-                        isTerminated: $isLocalTerminated
+                        isTerminated: $isLocalTerminated,
+                        onCancel: { [sessionId = session.sessionId] in
+                            store.handleAgentCancel(sessionId: sessionId)
+                        }
                     )
                     .id(localTerminalGeneration)
                     .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))

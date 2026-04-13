@@ -162,6 +162,8 @@ struct LocalTerminalView: NSViewRepresentable {
     let sessionName: String
     let isVisible: Bool
     @Binding var isTerminated: Bool
+    /// Called when the user presses Esc or Ctrl+C (cancel keys).
+    var onCancel: (() -> Void)?
 
     /// Weak map from tmux session name → terminal view, used by
     /// ContentView.focusTerminal() to find the correct visible terminal.
@@ -237,7 +239,7 @@ struct LocalTerminalView: NSViewRepresentable {
     }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(sessionName: sessionName, isTerminated: $isTerminated)
+        Coordinator(sessionName: sessionName, isTerminated: $isTerminated, onCancel: onCancel)
     }
 
     final class Coordinator: NSObject, LocalProcessTerminalViewDelegate {
@@ -251,10 +253,12 @@ struct LocalTerminalView: NSViewRepresentable {
         private var didDrag = false
         private var scrollAccumulator: CGFloat = 0
         private var lastRepeatForward: TimeInterval = 0
+        private let onCancel: (() -> Void)?
 
-        init(sessionName: String, isTerminated: Binding<Bool>) {
+        init(sessionName: String, isTerminated: Binding<Bool>, onCancel: (() -> Void)? = nil) {
             self.sessionName = sessionName
             _isTerminated = isTerminated
+            self.onCancel = onCancel
         }
 
         deinit {
@@ -506,6 +510,13 @@ struct LocalTerminalView: NSViewRepresentable {
                 if event.keyCode == 9 && mods == .command {
                     tv.paste(self)
                     return nil
+                }
+
+                // Esc (keyCode 53) or Ctrl+C (keyCode 8 + .control): notify cancel.
+                // Let the key pass through to tmux so Claude Code receives the interrupt.
+                if event.keyCode == 53 || (event.keyCode == 8 && mods == .control) {
+                    self.onCancel?()
+                    return event
                 }
 
                 // keyCode 36 = Return; check only Shift is held

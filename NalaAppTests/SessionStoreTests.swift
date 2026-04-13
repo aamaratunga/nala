@@ -1394,6 +1394,109 @@ final class SessionStoreTests: XCTestCase {
                         "launchSession should record folder interaction")
     }
 
+    // MARK: - handleAgentCancel (Cancel-to-Idle)
+
+    func testHandleAgentCancelWhileWorking() {
+        let store = makeStore()
+        store.sessions = [makeSession(sessionId: "s1", workingDirectory: "/tmp", working: true)]
+        store.reconcileOrder()
+
+        store.handleAgentCancel(sessionId: "s1")
+
+        // Immediately after calling, session should still be working (2s debounce)
+        XCTAssertTrue(store.sessions[0].working, "Session should still be working before debounce fires")
+
+        // Wait for the debounce timer to fire
+        let expectation = expectation(description: "Cancel debounce fires")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+            expectation.fulfill()
+        }
+        wait(for: [expectation], timeout: 5.0)
+
+        // After debounce, all flags should be false (idle)
+        XCTAssertFalse(store.sessions[0].working, "working should be false after cancel")
+        XCTAssertFalse(store.sessions[0].done, "done should be false after cancel")
+        XCTAssertFalse(store.sessions[0].waitingForInput, "waitingForInput should be false after cancel")
+        XCTAssertFalse(store.sessions[0].stuck, "stuck should be false after cancel")
+        XCTAssertFalse(store.sessions[0].sleeping, "sleeping should be false after cancel")
+        XCTAssertEqual(store.sessions[0].latestEventSummary, "Cancelled")
+    }
+
+    func testHandleAgentCancelWhileNotWorking() {
+        let store = makeStore()
+        store.sessions = [makeSession(sessionId: "s1", workingDirectory: "/tmp", working: false)]
+        store.reconcileOrder()
+
+        store.handleAgentCancel(sessionId: "s1")
+
+        // Should be a no-op — no timer scheduled, no state change
+        let expectation = expectation(description: "Brief wait")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            expectation.fulfill()
+        }
+        wait(for: [expectation], timeout: 1.0)
+
+        XCTAssertFalse(store.sessions[0].working, "Should remain not working")
+        XCTAssertNil(store.sessions[0].latestEventSummary, "Summary should not change")
+    }
+
+    func testHandleAgentCancelDebounce() {
+        let store = makeStore()
+        store.sessions = [makeSession(sessionId: "s1", workingDirectory: "/tmp", working: true)]
+        store.reconcileOrder()
+
+        // Trigger cancel
+        store.handleAgentCancel(sessionId: "s1")
+
+        // Within the 2s window, a working event arrives — should cancel the pending timer
+        let workingState = AgentState(
+            working: true,
+            done: false,
+            latestEventType: "tool_use",
+            latestEventSummary: "Read file.swift"
+        )
+        store.handleAgentStateUpdate(AgentStateUpdate(sessionId: "s1", state: workingState))
+
+        // Wait past the debounce period
+        let expectation = expectation(description: "Cancel debounce window passes")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+            expectation.fulfill()
+        }
+        wait(for: [expectation], timeout: 5.0)
+
+        // Session should still be working (cancel was debounced by the working event)
+        XCTAssertTrue(store.sessions[0].working, "Session should stay working — cancel was debounced")
+        XCTAssertEqual(store.sessions[0].latestEventSummary, "Read file.swift")
+    }
+
+    func testHandleAgentCancelClearsCorrectSession() {
+        let store = makeStore()
+        store.sessions = [
+            makeSession(name: "a", sessionId: "s1", workingDirectory: "/tmp", working: true),
+            makeSession(name: "b", sessionId: "s2", workingDirectory: "/tmp", working: true),
+        ]
+        store.reconcileOrder()
+
+        // Cancel only s1
+        store.handleAgentCancel(sessionId: "s1")
+
+        // Wait for debounce
+        let expectation = expectation(description: "Cancel debounce fires")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+            expectation.fulfill()
+        }
+        wait(for: [expectation], timeout: 5.0)
+
+        // s1 should be idle
+        let s1 = store.sessions.first { $0.sessionId == "s1" }!
+        XCTAssertFalse(s1.working, "s1 should be idle after cancel")
+        XCTAssertEqual(s1.latestEventSummary, "Cancelled")
+
+        // s2 should still be working
+        let s2 = store.sessions.first { $0.sessionId == "s2" }!
+        XCTAssertTrue(s2.working, "s2 should still be working — only s1 was cancelled")
+    }
+
     // MARK: - lastFocusedTimestamps Persistence
 
     func testLastFocusedTimestampsPersistsToUserDefaults() {
