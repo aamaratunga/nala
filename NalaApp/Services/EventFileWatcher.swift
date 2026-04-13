@@ -1,4 +1,5 @@
 import Foundation
+import QuartzCore
 import os
 
 // MARK: - Data Types
@@ -118,6 +119,7 @@ final class EventFileWatcher: @unchecked Sendable {
 
     /// Start watching events for a session.
     func startWatching(sessionId: String) {
+        let watchStart = CACurrentMediaTime()
         watchersLock.lock()
         guard watchers[sessionId] == nil else {
             watchersLock.unlock()
@@ -152,12 +154,18 @@ final class EventFileWatcher: @unchecked Sendable {
 
         // Emit initial state
         emitUpdate(watcher: watcher)
+
+        let watchElapsed = CACurrentMediaTime() - watchStart
+        if watchElapsed > 0.01 {
+            logger.warning("startWatching took \(String(format: "%.1f", watchElapsed * 1000))ms for \(sessionId)")
+        }
     }
 
     /// Read only the tail of the event file to recover the latest agent state.
     /// Avoids reading multi-megabyte files on the main thread when only the
     /// last few events are needed for state derivation.
     private func recoverStateFromTail(watcher: SessionWatcher) {
+        let recoverStart = CACurrentMediaTime()
         guard let attrs = try? FileManager.default.attributesOfItem(atPath: watcher.path),
               let fileSize = attrs[.size] as? UInt64,
               fileSize > 0 else { return }
@@ -187,6 +195,11 @@ final class EventFileWatcher: @unchecked Sendable {
         }
 
         processEvents(text: processText, watcher: watcher, emitUpdate: false)
+
+        let recoverElapsed = CACurrentMediaTime() - recoverStart
+        if recoverElapsed > 0.01 {
+            logger.warning("recoverStateFromTail took \(String(format: "%.1f", recoverElapsed * 1000))ms for \(watcher.sessionId) (read \(tailSize) of \(fileSize) bytes)")
+        }
 
         if watcher.latestEventType == nil {
             logger.warning("recoverStateFromTail: no events parsed from \(watcher.path) (tail \(tailSize) bytes of \(fileSize))")

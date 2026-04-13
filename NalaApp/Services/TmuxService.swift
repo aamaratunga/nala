@@ -1,4 +1,5 @@
 import Foundation
+import QuartzCore
 import os
 
 // MARK: - Data Types
@@ -213,22 +214,30 @@ final class TmuxService: @unchecked Sendable {
         let sessionName = "\(agentType)-\(sessionId)"
 
         // Create the tmux session
+        let tmuxStart = CACurrentMediaTime()
         let createResult = await runTmux(args: [
             "new-session", "-d", "-s", sessionName, "-x", "220", "-y", "50",
             "-c", workingDirectory
         ])
+        let tmuxElapsed = CACurrentMediaTime() - tmuxStart
+        logger.info("createSession: tmux new-session took \(String(format: "%.0f", tmuxElapsed * 1000))ms")
         guard createResult.succeeded else {
             throw TmuxError.sessionCreationFailed(createResult.errorMessage)
         }
 
         // Launch the agent
         if agentType == "claude" {
+            let settingsStart = CACurrentMediaTime()
             let command = buildClaudeLaunchCommand(
                 sessionId: sessionId,
                 sessionName: sessionName,
                 workingDirectory: workingDirectory,
                 prompt: prompt
             )
+            let settingsElapsed = CACurrentMediaTime() - settingsStart
+            if settingsElapsed > 0.05 {
+                logger.warning("createSession: buildClaudeLaunchCommand took \(String(format: "%.1f", settingsElapsed * 1000))ms (settings merge + file write)")
+            }
             let sendResult = await runTmux(args: [
                 "send-keys", "-t", sessionName, command, "Enter"
             ])

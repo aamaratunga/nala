@@ -76,20 +76,20 @@ Nala uses macOS Unified Logging (`os.Logger`) with subsystem `"com.nala.app"`. L
 
 ```bash
 # All Nala logs
-log stream --predicate 'subsystem == "com.nala.app"' --level debug
+/usr/bin/log stream --predicate 'subsystem == "com.nala.app"' --debug --info
 
 # Filter by category (SessionStore, TmuxService, GitService, EventFileWatcher, etc.)
-log stream --predicate 'subsystem == "com.nala.app" AND category == "SessionStore"' --level debug
+/usr/bin/log stream --predicate 'subsystem == "com.nala.app" AND category == "SessionStore"' --debug --info
 ```
 
 ### Reading historical logs
 
 ```bash
 # Last 5 minutes
-log show --predicate 'subsystem == "com.nala.app"' --last 5m --level debug
+/usr/bin/log show --predicate 'subsystem == "com.nala.app"' --last 5m --debug --info
 
 # Last 1 hour
-log show --predicate 'subsystem == "com.nala.app"' --last 1h --level debug
+/usr/bin/log show --predicate 'subsystem == "com.nala.app"' --last 1h --debug --info
 ```
 
 ### Console.app
@@ -112,7 +112,7 @@ Each service logs under its own category:
 
 ### Log levels
 
-- **debug** — verbose (only visible with `--level debug` flag)
+- **debug** — verbose (only visible with `--debug` flag)
 - **info** — normal operations (session created, watcher started)
 - **warning** — performance issues, non-fatal problems
 - **error** — failures (launch errors, alert triggers)

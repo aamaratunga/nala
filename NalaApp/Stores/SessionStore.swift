@@ -616,6 +616,7 @@ final class SessionStore {
         }
 
         // Process removals
+        var phaseTime = CACurrentMediaTime()
         let removedNames = Set(update.removed)
         if !removedNames.isEmpty {
             for name in removedNames {
@@ -649,7 +650,11 @@ final class SessionStore {
             }
         }
 
+        let removalsElapsed = CACurrentMediaTime() - phaseTime
+        phaseTime = CACurrentMediaTime()
+
         // Process additions and current state
+        var watcherStartCount = 0
         for info in update.current {
             let sessionId = info.sessionId
             let compositeKey = sessionId
@@ -660,6 +665,7 @@ final class SessionStore {
             // Start watchers for new sessions
             if info.agentType == "claude", eventWatcher?.cachedState(for: sessionId) == nil {
                 eventWatcher?.startWatching(sessionId: sessionId)
+                watcherStartCount += 1
             }
 
             // Build or update the session
@@ -730,9 +736,20 @@ final class SessionStore {
             }
         }
 
+        let currentLoopElapsed = CACurrentMediaTime() - phaseTime
+        phaseTime = CACurrentMediaTime()
+
         reconcileOrder()
+
+        let reconcileElapsed = CACurrentMediaTime() - phaseTime
         performStartupCleanup()
         isConnected = true
+
+        // Log phase breakdown if total is slow
+        let totalElapsed = CACurrentMediaTime() - startTime
+        if totalElapsed > 0.1 {
+            logger.warning("handleTmuxUpdate breakdown: removals=\(String(format: "%.1f", removalsElapsed * 1000))ms, currentLoop=\(String(format: "%.1f", currentLoopElapsed * 1000))ms (watcherStarts=\(watcherStartCount)), reconcile=\(String(format: "%.1f", reconcileElapsed * 1000))ms")
+        }
     }
 
     func handleAgentStateUpdate(_ update: AgentStateUpdate) {
@@ -818,6 +835,7 @@ final class SessionStore {
     // MARK: - Session Launch (Native)
 
     func launchSession(agentType: String, in workingDir: String) {
+        let launchStart = CACurrentMediaTime()
         let state = SessionLaunchState(workingDirectory: workingDir, agentType: agentType)
 
         // Create placeholder session
@@ -843,6 +861,13 @@ final class SessionStore {
         let status = folderStatus[resolvedDir] ?? .inProgress
         sectionExpansion[status] = true
 
+        let launchElapsed = CACurrentMediaTime() - launchStart
+        if launchElapsed > 0.05 {
+            logger.warning("launchSession main-thread work took \(String(format: "%.1f", launchElapsed * 1000))ms")
+        } else {
+            logger.debug("launchSession main-thread work took \(String(format: "%.1f", launchElapsed * 1000))ms")
+        }
+
         guard !Self.isTestHost else { return }
         Task { await performLaunch(state: state) }
     }
@@ -863,13 +888,20 @@ final class SessionStore {
         }
 
         do {
+            let createStart = CACurrentMediaTime()
             let sessionName = try await tmux.createSession(
                 agentType: state.agentType,
                 workingDirectory: state.workingDirectory
             )
-            logger.info("performLaunch: tmux session created: \(sessionName)")
+            let createElapsed = CACurrentMediaTime() - createStart
+            logger.info("performLaunch: tmux session created: \(sessionName) (\(String(format: "%.0f", createElapsed * 1000))ms)")
             // Extract session ID from session name (format: {type}-{uuid})
+            let mainActorStart = CACurrentMediaTime()
             await MainActor.run {
+                let mainActorWait = CACurrentMediaTime() - mainActorStart
+                if mainActorWait > 0.05 {
+                    self.logger.warning("performLaunch: waited \(String(format: "%.1f", mainActorWait * 1000))ms for MainActor")
+                }
                 if let parsed = TmuxService.parseSessionName(sessionName) {
                     state.realSessionId = parsed.uuid
                     state.isFinished = true
@@ -1123,8 +1155,15 @@ final class SessionStore {
 
     /// Prunes stale entries and appends newly discovered folders/sessions.
     func reconcileOrder() {
+        let reconcileStart = CACurrentMediaTime()
         os_signpost(.begin, log: Self.signpostLog, name: "reconcileOrder")
-        defer { os_signpost(.end, log: Self.signpostLog, name: "reconcileOrder") }
+        defer {
+            os_signpost(.end, log: Self.signpostLog, name: "reconcileOrder")
+            let reconcileElapsed = CACurrentMediaTime() - reconcileStart
+            if reconcileElapsed > 0.05 {
+                self.logger.warning("reconcileOrder took \(String(format: "%.1f", reconcileElapsed * 1000))ms (sessions: \(self.sessions.count), folders: \(self.folderOrder.count))")
+            }
+        }
 
         isSuppressingPersistence = true
         defer {
