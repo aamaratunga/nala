@@ -104,7 +104,15 @@ Open `/Applications/Utilities/Console.app`, type `com.nala.app` in the search ba
 
 `MainThreadWatchdog` (DEBUG builds only) pings the main thread every 2 seconds. If the main thread is unresponsive for >3 seconds, it logs an error under the `Watchdog` category.
 
-**When a user reports a hang**, check the logs for hang events:
+**Important:** Watchdog events are written to **both** `os.Logger` and `~/.nala/hang.log`. The file-based log survives force-quit — `os.Logger` entries are often lost because macOS unified logging is asynchronous and in-flight entries aren't flushed when a process is killed.
+
+**When a user reports a hang**, check the persistent hang log first:
+
+```bash
+cat ~/.nala/hang.log
+```
+
+Then check os.Logger (may be incomplete if force-quit):
 
 ```bash
 /usr/bin/log show --predicate 'subsystem == "com.nala.app" AND category == "Watchdog"' --last 30m --debug --info
@@ -112,6 +120,7 @@ Open `/Applications/Utilities/Console.app`, type `com.nala.app` in the search ba
 
 Look for:
 - `MAIN THREAD HANG DETECTED` — confirms the main thread was blocked, with duration
+- `MAIN THREAD STILL HUNG` — ongoing hang with total duration
 - `Main thread hang resolved after Xs` — how long it lasted
 
 Then check what else was happening at the same timestamp:
@@ -121,7 +130,7 @@ Then check what else was happening at the same timestamp:
 /usr/bin/log show --predicate 'subsystem == "com.nala.app"' --last 30m --debug --info
 ```
 
-Look for timing warnings from `handleTmuxUpdate`, `reconcileOrder`, `startWatching`, `performLaunch`, `groupingPath` — these fire when operations exceed their thresholds. The hang is caused by whatever was running on the main thread at the time.
+Look for timing warnings from `handleTmuxUpdate`, `reconcileOrder`, `startWatching`, `performLaunch`, `groupingPath`, `flushPendingData` — these fire when operations exceed their thresholds. The hang is caused by whatever was running on the main thread at the time.
 
 **Prior hang root causes (all fixed):**
 - `watcherQueue.sync` called from main thread (deadlock) — fixed in 4d24a26
@@ -130,6 +139,8 @@ Look for timing warnings from `handleTmuxUpdate`, `reconcileOrder`, `startWatchi
 - PulseParser CPU saturation on multi-MB tmux logs — fixed in 3d9062e
 - Hidden terminals causing expensive draw cycles — fixed in 3d9062e
 - EventFileWatcher.startWatching file I/O on main thread — moved to background queue
+- Unbounded `pendingBytes` in NalaTerminalView — hidden terminals accumulated MB+ of PTY data, flushing it all to SwiftTerm on visibility switch blocked the main thread. Fixed with 256KB cap.
+- `performStartupCleanup` directory listing + file deletion on main thread — moved to background Task
 
 **Pattern:** All prior hangs were synchronous I/O or blocking calls on the main thread. If a new hang appears, look for the same pattern.
 
@@ -140,9 +151,10 @@ Each service logs under its own category:
 - `TmuxService` — tmux process execution, session creation/deletion
 - `GitService` — git commands, worktree operations
 - `EventFileWatcher` — JSONL event file watching
+- `Terminal` — PTY data flushing, buffer cap warnings, flush timing
 - `TerminalLauncher` — external terminal attachment
 - `AutoNamer` — AI-based session naming
-- `Watchdog` — main-thread hang detection (DEBUG only)
+- `Watchdog` — main-thread hang detection (DEBUG only); also writes to `~/.nala/hang.log`
 
 ### Log levels
 

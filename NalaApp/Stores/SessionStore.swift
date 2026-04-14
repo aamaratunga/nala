@@ -1299,12 +1299,19 @@ final class SessionStore {
         let activeSessionIds = Set(sessions.map(\.sessionId))
         let activeSessionNames = Set(sessions.map(\.name))
 
+        // Fast operations stay on main thread (UserDefaults is thread-safe,
+        // validateRecentBrowsePaths modifies observed properties).
         pruneDisplayNames(activeSessionIds: activeSessionIds)
-        pruneEventFiles(activeSessionIds: activeSessionIds)
-        cleanOrphanedTmpFiles(activeSessionNames: activeSessionNames, activeSessionIds: activeSessionIds)
         validateRecentBrowsePaths()
 
-        logger.info("Startup cleanup complete (active sessions: \(activeSessionIds.count))")
+        // Heavy file I/O (directory listing, file deletion) runs off main
+        // thread to avoid blocking handleTmuxUpdate. These only touch the
+        // filesystem — no observed properties or UserDefaults.
+        Task.detached(priority: .utility) { [weak self] in
+            self?.pruneEventFiles(activeSessionIds: activeSessionIds)
+            self?.cleanOrphanedTmpFiles(activeSessionNames: activeSessionNames, activeSessionIds: activeSessionIds)
+            self?.logger.info("Startup cleanup complete (active sessions: \(activeSessionIds.count))")
+        }
     }
 
     /// Remove display name entries from UserDefaults for sessions that no longer exist.

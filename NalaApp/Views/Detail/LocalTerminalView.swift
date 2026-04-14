@@ -1,10 +1,14 @@
 import SwiftUI
 import AppKit
 import SwiftTerm
+import os
+import QuartzCore
 
 /// Coalesces PTY data during bursts so SwiftTerm renders the final
 /// state instead of dozens of intermediate scroll positions.
 final class NalaTerminalView: LocalProcessTerminalView {
+    private static let logger = Logger(subsystem: "com.nala.app", category: "Terminal")
+
     /// The tmux session name this terminal is attached to.
     var sessionName: String = ""
 
@@ -41,8 +45,24 @@ final class NalaTerminalView: LocalProcessTerminalView {
     /// sustained output (e.g. `cat large_file`).
     private static let maxCoalesceWindow: TimeInterval = 0.050  // 50ms ≈ 3 frames
 
+    /// Max bytes to buffer while hidden. Prevents main-thread hang when
+    /// flushing to SwiftTerm on visibility change. 256KB covers ~10+
+    /// screens of terminal output; older content lives in tmux scrollback.
+    private static let maxPendingBytes = 256 * 1024
+
     override func dataReceived(slice: ArraySlice<UInt8>) {
         pendingBytes.append(contentsOf: slice)
+
+        // Cap the hidden-terminal buffer to prevent a main-thread hang
+        // when flushPendingData passes the entire buffer to SwiftTerm.
+        // Without this cap, a terminal hidden for hours while its session
+        // produces output can accumulate megabytes, blocking the main
+        // thread for seconds or longer on the next visibility switch.
+        if !isVisible && pendingBytes.count > Self.maxPendingBytes {
+            Self.logger.warning("pendingBytes cap hit (\(Self.maxPendingBytes) bytes) for hidden terminal '\(self.sessionName)' — clearing buffer")
+            pendingBytes.removeAll(keepingCapacity: true)
+            return
+        }
 
         // While hidden, accumulate data silently — don't schedule flushes.
         // SwiftTerm never calls setNeedsDisplay, so AppKit skips draw().
@@ -73,9 +93,16 @@ final class NalaTerminalView: LocalProcessTerminalView {
         burstStart = 0
         guard !pendingBytes.isEmpty else { return }
         let data = pendingBytes
+        let byteCount = data.count
         pendingBytes.removeAll(keepingCapacity: true)
+        let flushStart = CACurrentMediaTime()
         handleOSC52(in: data)
         super.dataReceived(slice: data[...])
+        let flushElapsed = CACurrentMediaTime() - flushStart
+        // Log when flush is slow (>10ms) — helps correlate with hang reports
+        if flushElapsed > 0.01 {
+            Self.logger.warning("flushPendingData took \(String(format: "%.1f", flushElapsed * 1000))ms (\(byteCount) bytes) for '\(self.sessionName)'")
+        }
     }
 
     /// Scans data for OSC 52 clipboard sequences and copies decoded
