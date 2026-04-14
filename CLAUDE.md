@@ -100,6 +100,39 @@ Open `/Applications/Utilities/Console.app`, type `com.nala.app` in the search ba
 
 `SessionStore` emits `os_signpost` intervals on the Points of Interest log for `handleTmuxUpdate` and `reconcileOrder`. These are visible in Instruments.app (use the "Points of Interest" instrument). Timing warnings (>100ms for handleTmuxUpdate, >50ms for groupingPath) are logged at warning level automatically.
 
+### Main-thread hang detection
+
+`MainThreadWatchdog` (DEBUG builds only) pings the main thread every 2 seconds. If the main thread is unresponsive for >3 seconds, it logs an error under the `Watchdog` category.
+
+**When a user reports a hang**, check the logs for hang events:
+
+```bash
+/usr/bin/log show --predicate 'subsystem == "com.nala.app" AND category == "Watchdog"' --last 30m --debug --info
+```
+
+Look for:
+- `MAIN THREAD HANG DETECTED` — confirms the main thread was blocked, with duration
+- `Main thread hang resolved after Xs` — how long it lasted
+
+Then check what else was happening at the same timestamp:
+
+```bash
+# All Nala logs around the hang time (adjust --start/--end as needed)
+/usr/bin/log show --predicate 'subsystem == "com.nala.app"' --last 30m --debug --info
+```
+
+Look for timing warnings from `handleTmuxUpdate`, `reconcileOrder`, `startWatching`, `performLaunch`, `groupingPath` — these fire when operations exceed their thresholds. The hang is caused by whatever was running on the main thread at the time.
+
+**Prior hang root causes (all fixed):**
+- `watcherQueue.sync` called from main thread (deadlock) — fixed in 4d24a26
+- `NSAlert.runModal()` blocking main run loop — fixed in 4d24a26
+- Reading entire multi-MB event files on main thread — fixed in 8aa2136
+- PulseParser CPU saturation on multi-MB tmux logs — fixed in 3d9062e
+- Hidden terminals causing expensive draw cycles — fixed in 3d9062e
+- EventFileWatcher.startWatching file I/O on main thread — moved to background queue
+
+**Pattern:** All prior hangs were synchronous I/O or blocking calls on the main thread. If a new hang appears, look for the same pattern.
+
 ### Log categories
 
 Each service logs under its own category:
@@ -109,6 +142,7 @@ Each service logs under its own category:
 - `EventFileWatcher` — JSONL event file watching
 - `TerminalLauncher` — external terminal attachment
 - `AutoNamer` — AI-based session naming
+- `Watchdog` — main-thread hang detection (DEBUG only)
 
 ### Log levels
 

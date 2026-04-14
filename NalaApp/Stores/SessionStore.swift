@@ -142,6 +142,7 @@ final class SessionStore {
     @ObservationIgnored private var autoNamer: AutoNamer?
     @ObservationIgnored private var serviceTask: Task<Void, Never>?
     @ObservationIgnored private var stalenessTask: Task<Void, Never>?
+    @ObservationIgnored private var watchdog: MainThreadWatchdog?
 
     /// Collected activity summaries per session for auto-naming.
     @ObservationIgnored private var activityLog: [String: [String]] = [:]
@@ -547,6 +548,11 @@ final class SessionStore {
             }
         }
 
+        // Main-thread hang detector (DEBUG only)
+        let watchdog = MainThreadWatchdog()
+        watchdog.start()
+        self.watchdog = watchdog
+
         logger.info("startServices: all services started")
     }
 
@@ -558,6 +564,7 @@ final class SessionStore {
         stalenessTask = nil
         tmuxService?.stop()
         eventWatcher?.stopAll()
+        watchdog?.stop()
     }
 
     // MARK: - Agent State Application

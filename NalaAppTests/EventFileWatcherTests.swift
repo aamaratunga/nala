@@ -394,6 +394,9 @@ final class EventFileWatcherTests: XCTestCase {
         watcher.startWatching(sessionId: sessionId)
         defer { watcher.stopWatching(sessionId: sessionId) }
 
+        // Wait for async watcher setup to complete (file I/O runs on watcherQueue)
+        watcher.flushQueue()
+
         // State should reflect the final "stop" event (done = true)
         let state = watcher.cachedState(for: sessionId)
         XCTAssertNotNil(state, "State should be recovered from event file tail")

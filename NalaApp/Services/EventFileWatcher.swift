@@ -120,8 +120,12 @@ final class EventFileWatcher: @unchecked Sendable {
     // MARK: - Public API
 
     /// Start watching events for a session.
+    ///
+    /// Registers the watcher immediately (so `cachedState` returns a default
+    /// state) but performs all file I/O — tail recovery, file creation, fd open,
+    /// dispatch source setup — on the background `watcherQueue`. This keeps
+    /// `handleTmuxUpdate` (which calls this from the main thread) responsive.
     func startWatching(sessionId: String) {
-        let watchStart = CACurrentMediaTime()
         watchersLock.lock()
         guard watchers[sessionId] == nil else {
             watchersLock.unlock()
@@ -130,36 +134,50 @@ final class EventFileWatcher: @unchecked Sendable {
 
         let path = "\(Self.eventsDirectory)/\(sessionId).jsonl"
         let watcher = SessionWatcher(sessionId: sessionId, path: path)
-
-        // Recover state from the tail of the file (only last ~64KB).
-        // Event files can grow to multi-MB; reading the full file blocks the
-        // main thread and causes UI hangs. Only the last few events are needed
-        // to derive the current agent state.
-        if FileManager.default.fileExists(atPath: path) {
-            recoverStateFromTail(watcher: watcher)
-        } else {
-            // Create the file so dispatch source can watch it
-            FileManager.default.createFile(atPath: path, contents: nil, attributes: [.posixPermissions: 0o600])
-        }
-
-        let fd = open(path, O_RDONLY | O_NONBLOCK)
-        guard fd >= 0 else {
-            watchersLock.unlock()
-            logger.warning("Failed to open event file for watching: \(path)")
-            return
-        }
-
-        watcher.fileDescriptor = fd
-        setupDispatchSource(watcher: watcher)
         watchers[sessionId] = watcher
         watchersLock.unlock()
 
-        // Emit initial state
-        emitUpdate(watcher: watcher)
+        // File I/O on background queue — never block the main thread.
+        watcherQueue.async { [weak self] in
+            guard let self else { return }
+            let watchStart = CACurrentMediaTime()
 
-        let watchElapsed = CACurrentMediaTime() - watchStart
-        if watchElapsed > 0.01 {
-            logger.warning("startWatching took \(String(format: "%.1f", watchElapsed * 1000))ms for \(sessionId)")
+            // Recover state from the tail of the file (only last ~256KB).
+            if FileManager.default.fileExists(atPath: path) {
+                self.recoverStateFromTail(watcher: watcher)
+            } else {
+                // Create the file so dispatch source can watch it
+                FileManager.default.createFile(atPath: path, contents: nil, attributes: [.posixPermissions: 0o600])
+            }
+
+            // Check if the watcher was removed while we were doing I/O
+            // (e.g., stopWatching called before we finished setup)
+            self.watchersLock.lock()
+            guard self.watchers[sessionId] === watcher else {
+                self.watchersLock.unlock()
+                return
+            }
+            self.watchersLock.unlock()
+
+            let fd = open(path, O_RDONLY | O_NONBLOCK)
+            guard fd >= 0 else {
+                self.logger.warning("Failed to open event file for watching: \(path)")
+                self.watchersLock.lock()
+                self.watchers.removeValue(forKey: sessionId)
+                self.watchersLock.unlock()
+                return
+            }
+
+            watcher.fileDescriptor = fd
+            self.setupDispatchSource(watcher: watcher)
+
+            // Emit initial state
+            self.emitUpdate(watcher: watcher)
+
+            let watchElapsed = CACurrentMediaTime() - watchStart
+            if watchElapsed > 0.01 {
+                self.logger.warning("startWatching took \(String(format: "%.1f", watchElapsed * 1000))ms for \(sessionId)")
+            }
         }
     }
 
@@ -209,6 +227,8 @@ final class EventFileWatcher: @unchecked Sendable {
     }
 
     /// Stop watching events for a session.
+    /// Safe to call even if the watcher is still being set up on the queue —
+    /// removing it from `watchers` causes the pending setup to bail out.
     func stopWatching(sessionId: String) {
         watchersLock.lock()
         guard let watcher = watchers.removeValue(forKey: sessionId) else {
@@ -216,8 +236,13 @@ final class EventFileWatcher: @unchecked Sendable {
             return
         }
         watchersLock.unlock()
-        watcher.source?.cancel()
-        // FD is closed in setCancelHandler (set up in setupDispatchSource)
+        if let source = watcher.source {
+            source.cancel()
+            // FD is closed in setCancelHandler (set up in setupDispatchSource)
+        } else if watcher.fileDescriptor >= 0 {
+            // Setup was interrupted before dispatch source was created
+            Darwin.close(watcher.fileDescriptor)
+        }
     }
 
     /// Stop all watchers.
@@ -282,6 +307,12 @@ final class EventFileWatcher: @unchecked Sendable {
                 self?.continuationsLock.unlock()
             }
         }
+    }
+
+    /// Block until all pending work on the watcher queue has completed.
+    /// Used by tests to wait for async `startWatching` setup to finish.
+    func flushQueue() {
+        watcherQueue.sync {}
     }
 
     /// Re-derive state for all watchers (call periodically to detect staleness).
