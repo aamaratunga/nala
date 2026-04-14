@@ -141,6 +141,7 @@ Look for timing warnings from `handleTmuxUpdate`, `reconcileOrder`, `startWatchi
 - EventFileWatcher.startWatching file I/O on main thread — moved to background queue
 - Unbounded `pendingBytes` in NalaTerminalView — **structurally eliminated** by single-view architecture (no hidden terminals accumulate data; view is destroyed on session switch, `tmux attach` replays ~4-8KB on reconnect)
 - `performStartupCleanup` directory listing + file deletion on main thread — moved to background Task
+- Large `flushPendingData` buffers (100-250KB) blocking main thread for 500-800ms — fixed by chunked drain (16KB per run-loop iteration)
 
 **Pattern:** All prior hangs were synchronous I/O or blocking calls on the main thread. If a new hang appears, look for the same pattern.
 

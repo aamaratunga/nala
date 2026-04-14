@@ -17,6 +17,10 @@ final class NalaTerminalView: LocalProcessTerminalView {
     private var coalesceTimer: DispatchWorkItem?
     private var burstStart: TimeInterval = 0
 
+    /// True while chunks are being drained to SwiftTerm.
+    /// Prevents re-entrant flush from coalesce timer.
+    private var isDraining = false
+
     /// Quiet period — flush when no new data arrives for this long.
     private static let quietPeriod: TimeInterval = 0.004  // 4ms
 
@@ -24,8 +28,15 @@ final class NalaTerminalView: LocalProcessTerminalView {
     /// sustained output (e.g. `cat large_file`).
     private static let maxCoalesceWindow: TimeInterval = 0.050  // 50ms ≈ 3 frames
 
+    /// Max bytes per flush to SwiftTerm. 16KB keeps each parse under ~15ms
+    /// based on observed throughput (10KB → 10ms, 19KB → 18ms).
+    private static let chunkSize = 16_384
+
     override func dataReceived(slice: ArraySlice<UInt8>) {
         pendingBytes.append(contentsOf: slice)
+
+        // While draining, just accumulate — the drain loop picks up new data.
+        guard !isDraining else { return }
 
         coalesceTimer?.cancel()
 
@@ -50,17 +61,60 @@ final class NalaTerminalView: LocalProcessTerminalView {
         coalesceTimer?.cancel()
         coalesceTimer = nil
         burstStart = 0
+        guard !isDraining else { return }
         guard !pendingBytes.isEmpty else { return }
         let data = pendingBytes
-        let byteCount = data.count
         pendingBytes.removeAll(keepingCapacity: true)
-        let flushStart = CACurrentMediaTime()
         handleOSC52(in: data)
-        super.dataReceived(slice: data[...])
-        let flushElapsed = CACurrentMediaTime() - flushStart
-        // Log when flush is slow (>10ms) — helps correlate with hang reports
-        if flushElapsed > 0.01 {
-            Self.logger.warning("flushPendingData took \(String(format: "%.1f", flushElapsed * 1000))ms (\(byteCount) bytes) for '\(self.sessionName)'")
+
+        // Small buffers: flush directly (common case, no overhead)
+        if data.count <= Self.chunkSize {
+            let flushStart = CACurrentMediaTime()
+            super.dataReceived(slice: data[...])
+            let elapsed = CACurrentMediaTime() - flushStart
+            if elapsed > 0.01 {
+                Self.logger.warning("flushPendingData took \(String(format: "%.1f", elapsed * 1000))ms (\(data.count) bytes) for '\(self.sessionName)'")
+            }
+            return
+        }
+
+        // Large buffers: drain in chunks, yielding to the run loop between each
+        isDraining = true
+        drainChunks(data: data, offset: 0, totalBytes: data.count, flushStart: CACurrentMediaTime())
+    }
+
+    private func drainChunks(data: [UInt8], offset: Int, totalBytes: Int, flushStart: TimeInterval) {
+        guard window != nil else {
+            isDraining = false
+            return
+        }
+
+        let end = min(offset + Self.chunkSize, data.count)
+        super.dataReceived(slice: data[offset..<end])
+
+        if end < data.count {
+            // Yield to run loop, then process next chunk
+            DispatchQueue.main.async { [weak self] in
+                self?.drainChunks(data: data, offset: end, totalBytes: totalBytes, flushStart: flushStart)
+            }
+            return
+        }
+
+        // Batch done — log total time
+        let elapsed = CACurrentMediaTime() - flushStart
+        if elapsed > 0.01 {
+            let chunks = Int(ceil(Double(totalBytes) / Double(Self.chunkSize)))
+            Self.logger.warning("flushPendingData took \(String(format: "%.1f", elapsed * 1000))ms (\(totalBytes) bytes, \(chunks) chunks) for '\(self.sessionName)'")
+        }
+
+        // Check if new data arrived during draining
+        if !pendingBytes.isEmpty {
+            let newData = pendingBytes
+            pendingBytes.removeAll(keepingCapacity: true)
+            handleOSC52(in: newData)
+            drainChunks(data: newData, offset: 0, totalBytes: newData.count, flushStart: CACurrentMediaTime())
+        } else {
+            isDraining = false
         }
     }
 
