@@ -15,7 +15,6 @@ extension Notification.Name {
 
 struct ContentView: View {
     @Environment(SessionStore.self) private var store
-    @State private var visitedSessionIds: [String] = []
     @State private var shortcutMonitor: Any?
     @State private var paletteMode: PaletteMode = .switchSession
 
@@ -32,12 +31,11 @@ struct ContentView: View {
                     .navigationSplitViewColumnWidth(min: 220, ideal: 280, max: 400)
             } detail: {
                 ZStack {
-                    // Keep visited session views alive so terminal state persists
-                    ForEach(store.sessions.filter { visitedSessionIds.contains($0.id) && !$0.isPlaceholder }) { session in
-                        let isSelected = session.id == store.selectedSessionId
+                    if let session = store.sessions.first(where: {
+                        $0.id == store.selectedSessionId && !$0.isPlaceholder
+                    }) {
                         SessionDetailView(session: session)
-                            .opacity(isSelected ? 1 : 0)
-                            .allowsHitTesting(isSelected)
+                            .id(session.id)
                     }
 
                     // Overlay creation/deletion/launch/restart progress or empty state on top
@@ -72,38 +70,28 @@ struct ContentView: View {
                 }
                 .onChange(of: store.selectedSessionId) { _, newId in
                     if let id = newId {
-                        visitedSessionIds.removeAll { $0 == id }
-                        visitedSessionIds.append(id)
-                        // Evict oldest if over limit
-                        let maxVisited = 5
-                        if visitedSessionIds.count > maxVisited {
-                            visitedSessionIds.removeFirst(visitedSessionIds.count - maxVisited)
-                        }
                         // Track last focused timestamp for palette recency sort
                         store.lastFocusedTimestamps[id] = Date()
                         store.recordFolderInteractionForSession(id)
                     }
-                    let tmuxName = store.sessions
-                        .first(where: { $0.id == newId })?.tmuxSession
-                    NalaTerminalView.activeSessionName = tmuxName
 
                     // When a session was selected via mouse click (sidebarFocused
                     // is false), focus its terminal.  The async lets SwiftUI
                     // create the terminal view first on initial visit.
-                    if !store.sidebarFocused, let tmuxName {
-                        let expectedId = newId
-                        DispatchQueue.main.async {
-                            guard store.selectedSessionId == expectedId else { return }
-                            guard let window = NSApp.keyWindow,
-                                  let tv = LocalTerminalView.viewsBySession.object(forKey: tmuxName as NSString)
-                            else { return }
-                            window.makeFirstResponder(tv)
+                    if !store.sidebarFocused {
+                        let tmuxName = store.sessions
+                            .first(where: { $0.id == newId })?.tmuxSession
+                        if let tmuxName {
+                            let expectedId = newId
+                            DispatchQueue.main.async {
+                                guard store.selectedSessionId == expectedId else { return }
+                                guard let window = NSApp.keyWindow,
+                                      let tv = LocalTerminalView.viewsBySession.object(forKey: tmuxName as NSString)
+                                else { return }
+                                window.makeFirstResponder(tv)
+                            }
                         }
                     }
-                }
-                .onChange(of: store.sessions) { _, newSessions in
-                    let currentIds = Set(newSessions.map(\.id))
-                    visitedSessionIds = visitedSessionIds.filter { currentIds.contains($0) }
                 }
             }
 
@@ -207,22 +195,6 @@ struct ContentView: View {
             let responderClass = firstResponder.map { String(describing: type(of: $0)) } ?? ""
             let isTerminalFocused = responderClass.contains("Terminal")
             let isTextFieldFocused = firstResponder is NSTextView || firstResponder is NSTextField
-
-            // Guard: if a hidden (non-active) terminal has focus, redirect
-            // immediately and swallow this keystroke.  This catches any case
-            // where macOS restored focus to the wrong terminal on app
-            // reactivation before the notification handler could fix it.
-            if isTerminalFocused,
-               let tv = firstResponder as? NalaTerminalView,
-               !tv.isActiveTerminal {
-                if let session = store.selectedSession {
-                    ContentView.focusTerminal(session: session)
-                } else {
-                    store.sidebarFocused = true
-                    ContentView.resignTerminalFocus()
-                }
-                return nil
-            }
 
             // Sync sidebar focus: if the terminal just gained focus (e.g. user
             // clicked on it), clear the sidebar-focused flag.

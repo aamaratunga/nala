@@ -130,16 +130,16 @@ Then check what else was happening at the same timestamp:
 /usr/bin/log show --predicate 'subsystem == "com.nala.app"' --last 30m --debug --info
 ```
 
-Look for timing warnings from `handleTmuxUpdate`, `reconcileOrder`, `startWatching`, `performLaunch`, `groupingPath`, `flushPendingData` — these fire when operations exceed their thresholds. The hang is caused by whatever was running on the main thread at the time.
+Look for timing warnings from `handleTmuxUpdate`, `reconcileOrder`, `startWatching`, `performLaunch`, `groupingPath` — these fire when operations exceed their thresholds. The hang is caused by whatever was running on the main thread at the time.
 
 **Prior hang root causes (all fixed):**
 - `watcherQueue.sync` called from main thread (deadlock) — fixed in 4d24a26
 - `NSAlert.runModal()` blocking main run loop — fixed in 4d24a26
 - Reading entire multi-MB event files on main thread — fixed in 8aa2136
 - PulseParser CPU saturation on multi-MB tmux logs — fixed in 3d9062e
-- Hidden terminals causing expensive draw cycles — fixed in 3d9062e
+- Hidden terminals causing expensive draw cycles — fixed in 3d9062e; **structurally eliminated** by single-view architecture (only one terminal view exists at a time, destroyed on session switch)
 - EventFileWatcher.startWatching file I/O on main thread — moved to background queue
-- Unbounded `pendingBytes` in NalaTerminalView — hidden terminals accumulated MB+ of PTY data, flushing it all to SwiftTerm on visibility switch blocked the main thread. Fixed with 256KB cap.
+- Unbounded `pendingBytes` in NalaTerminalView — **structurally eliminated** by single-view architecture (no hidden terminals accumulate data; view is destroyed on session switch, `tmux attach` replays ~4-8KB on reconnect)
 - `performStartupCleanup` directory listing + file deletion on main thread — moved to background Task
 
 **Pattern:** All prior hangs were synchronous I/O or blocking calls on the main thread. If a new hang appears, look for the same pattern.
@@ -151,7 +151,7 @@ Each service logs under its own category:
 - `TmuxService` — tmux process execution, session creation/deletion
 - `GitService` — git commands, worktree operations
 - `EventFileWatcher` — JSONL event file watching
-- `Terminal` — PTY data flushing, buffer cap warnings, flush timing
+- `Terminal` — PTY data flushing, flush timing
 - `TerminalLauncher` — external terminal attachment
 - `AutoNamer` — AI-based session naming
 - `Watchdog` — main-thread hang detection (DEBUG only); also writes to `~/.nala/hang.log`

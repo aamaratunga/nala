@@ -12,27 +12,6 @@ final class NalaTerminalView: LocalProcessTerminalView {
     /// The tmux session name this terminal is attached to.
     var sessionName: String = ""
 
-    /// The tmux session name of the currently selected (visible) terminal.
-    /// Only that terminal accepts first-responder status, preventing macOS
-    /// from restoring focus to a hidden terminal on app reactivation.
-    static var activeSessionName: String?
-
-    /// Whether this terminal is the currently selected (visible) one.
-    var isActiveTerminal: Bool { sessionName == Self.activeSessionName }
-
-    /// Controls whether flushed PTY data is forwarded to SwiftTerm for
-    /// rendering. When `false`, incoming bytes accumulate in `pendingBytes`
-    /// but no flush is scheduled — so SwiftTerm never calls `setNeedsDisplay`
-    /// and AppKit skips the expensive `draw()` cycle entirely.
-    var isVisible: Bool = true {
-        didSet {
-            if isVisible && !oldValue {
-                // Transitioning from hidden → visible: flush accumulated data
-                flushPendingData()
-            }
-        }
-    }
-
     private var pendingBytes: [UInt8] = []
     private var pendingOSC52: [UInt8] = []
     private var coalesceTimer: DispatchWorkItem?
@@ -45,28 +24,8 @@ final class NalaTerminalView: LocalProcessTerminalView {
     /// sustained output (e.g. `cat large_file`).
     private static let maxCoalesceWindow: TimeInterval = 0.050  // 50ms ≈ 3 frames
 
-    /// Max bytes to buffer while hidden. Prevents main-thread hang when
-    /// flushing to SwiftTerm on visibility change. 256KB covers ~10+
-    /// screens of terminal output; older content lives in tmux scrollback.
-    private static let maxPendingBytes = 256 * 1024
-
     override func dataReceived(slice: ArraySlice<UInt8>) {
         pendingBytes.append(contentsOf: slice)
-
-        // Cap the hidden-terminal buffer to prevent a main-thread hang
-        // when flushPendingData passes the entire buffer to SwiftTerm.
-        // Without this cap, a terminal hidden for hours while its session
-        // produces output can accumulate megabytes, blocking the main
-        // thread for seconds or longer on the next visibility switch.
-        if !isVisible && pendingBytes.count > Self.maxPendingBytes {
-            Self.logger.warning("pendingBytes cap hit (\(Self.maxPendingBytes) bytes) for hidden terminal '\(self.sessionName)' — clearing buffer")
-            pendingBytes.removeAll(keepingCapacity: true)
-            return
-        }
-
-        // While hidden, accumulate data silently — don't schedule flushes.
-        // SwiftTerm never calls setNeedsDisplay, so AppKit skips draw().
-        guard isVisible else { return }
 
         coalesceTimer?.cancel()
 
@@ -187,7 +146,6 @@ final class NalaTerminalView: LocalProcessTerminalView {
 /// A live PTY terminal that attaches to a tmux session via `tmux attach`.
 struct LocalTerminalView: NSViewRepresentable {
     let sessionName: String
-    let isVisible: Bool
     @Binding var isTerminated: Bool
     /// Called when the user presses Esc or Ctrl+C (cancel keys).
     var onCancel: (() -> Void)?
@@ -207,14 +165,12 @@ struct LocalTerminalView: NSViewRepresentable {
         tv.sessionName = sessionName
         Self.viewsBySession.setObject(tv, forKey: sessionName as NSString)
 
-        // Auto-focus if this terminal matches the currently selected session.
-        // Catches the race where the onChange handler's focus attempt failed
-        // because the view didn't exist yet when it ran.
-        if sessionName == NalaTerminalView.activeSessionName {
-            DispatchQueue.main.async {
-                guard let window = NSApp.keyWindow else { return }
-                window.makeFirstResponder(tv)
-            }
+        // Auto-focus: only one terminal view exists at a time, so it
+        // should always accept keyboard input. The async lets SwiftUI
+        // finish layout before we request first-responder status.
+        DispatchQueue.main.async {
+            guard let window = NSApp.keyWindow else { return }
+            window.makeFirstResponder(tv)
         }
 
         // Font — prefer JetBrains Mono per DESIGN.md, fall back to MesloLGS Nerd Font (icon glyphs)
@@ -262,7 +218,6 @@ struct LocalTerminalView: NSViewRepresentable {
     }
 
     func updateNSView(_ tv: NalaTerminalView, context: Context) {
-        tv.isVisible = isVisible
     }
 
     func makeCoordinator() -> Coordinator {

@@ -80,7 +80,7 @@ final class MainThreadWatchdog: @unchecked Sendable {
             if hangStartTime == 0 {
                 hangStartTime = pingStart
                 let message = "MAIN THREAD HANG DETECTED: unresponsive for >\(String(format: "%.1f", elapsed))s. " +
-                    "Check 'handleTmuxUpdate', 'reconcileOrder', 'startWatching', 'flushPendingData' signposts."
+                    "Check 'handleTmuxUpdate', 'reconcileOrder', 'startWatching' signposts."
                 logger.error("\(message)")
                 writeToHangLog(message)
             } else {

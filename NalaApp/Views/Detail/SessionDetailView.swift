@@ -45,7 +45,6 @@ struct SessionDetailView: View {
                 if session.hasTmuxTarget {
                     LocalTerminalView(
                         sessionName: session.tmuxSession,
-                        isVisible: session.id == store.selectedSessionId,
                         isTerminated: $isLocalTerminated,
                         onCancel: { [sessionId = session.sessionId] in
                             store.handleAgentCancel(sessionId: sessionId)
