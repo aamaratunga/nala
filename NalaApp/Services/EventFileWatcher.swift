@@ -371,6 +371,28 @@ final class EventFileWatcher: @unchecked Sendable {
             return ("prompt_submit", summary, nil, nil)
         }
 
+        // PreToolUse — must be checked before the generic tool_name check below,
+        // because PreToolUse events also carry tool_name and would otherwise be
+        // parsed as "tool_use".
+        if hookType == "PreToolUse" && !toolName.isEmpty {
+            let input = json["tool_input"] as? [String: Any] ?? [:]
+            if toolName == "AskUserQuestion" {
+                // Extract question text from tool_input.questions[0].question
+                let questionText: String
+                if let questions = input["questions"] as? [[String: Any]],
+                   let first = questions.first,
+                   let text = first["question"] as? String, !text.isEmpty {
+                    let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                    questionText = String(trimmed.prefix(200))
+                } else {
+                    questionText = "Asking a question"
+                }
+                return ("pre_tool_use", questionText, questionText, questionText)
+            }
+            let summary = makeToolSummary(toolName: toolName, input: input)
+            return ("pre_tool_use", summary, nil, nil)
+        }
+
         // Tool use
         if !toolName.isEmpty {
             let input = json["tool_input"] as? [String: Any] ?? [:]
@@ -465,6 +487,8 @@ final class EventFileWatcher: @unchecked Sendable {
                 return .sleepDetected(summary: parsed.summary, timestamp: timestamp)
             }
             return .toolUse(tool: toolName, summary: parsed.summary, timestamp: timestamp)
+        case "pre_tool_use":
+            return .preToolUse(tool: toolName, summary: parsed.summary, timestamp: timestamp)
         case "prompt_submit":
             return .promptSubmit(summary: parsed.summary, timestamp: timestamp)
         case "stop":

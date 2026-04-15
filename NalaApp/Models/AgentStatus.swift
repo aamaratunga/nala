@@ -19,6 +19,7 @@ enum AgentStatus: String, Equatable, CaseIterable {
 /// All state sources (EventFileWatcher, TmuxService polling, user actions) feed through these.
 enum StateEvent: Equatable {
     case toolUse(tool: String, summary: String, timestamp: Date)
+    case preToolUse(tool: String, summary: String, timestamp: Date)
     case promptSubmit(summary: String, timestamp: Date)
     case stop(reason: String, timestamp: Date)
     case notification(message: String, waitingReason: String?, waitingSummary: String?, timestamp: Date)
@@ -68,13 +69,30 @@ struct StateReducer {
             timestamp = ts
             next = .working
 
+        case .preToolUse(let tool, _, let ts):
+            timestamp = ts
+            if tool == "AskUserQuestion" {
+                next = .waitingForInput
+            } else {
+                next = .working
+            }
+
         case .promptSubmit(_, let ts):
             timestamp = ts
             next = .working
 
         case .stop(_, let ts):
             timestamp = ts
-            next = .done
+            // Only transition to done if the agent was actually running.
+            // Claude Code's "idle_prompt" Notification ("waiting for your input")
+            // can arrive ~60s after the Stop event. If the session was already
+            // auto-acknowledged back to idle, this late event must not re-trigger done.
+            switch current {
+            case .working, .sleeping, .stuck, .waitingForInput:
+                next = .done
+            case .idle, .done:
+                next = current
+            }
 
         case .notification(_, _, _, let ts):
             timestamp = ts

@@ -144,7 +144,7 @@ final class SessionStoreTests: XCTestCase {
         XCTAssertNotNil(store.sessions[0].stalenessSeconds)
     }
 
-    func testAcknowledgeThenNewStopProducesFreshDone() {
+    func testAcknowledgeThenLateStopStaysIdle() {
         let store = makeStore()
         store.sessions = [makeSession(sessionId: "s1", workingDirectory: "/tmp", status: .done)]
         store.reconcileOrder()
@@ -154,12 +154,13 @@ final class SessionStoreTests: XCTestCase {
         store.acknowledgeSession("s1")
         XCTAssertEqual(store.sessions[0].status, .idle)
 
-        // A new stop event arrives (agent completed again)
-        let event = StateEvent.stop(reason: "Agent stopped: end_turn", timestamp: Date())
+        // A late stop event arrives (e.g., "waiting for your input" Notification
+        // ~60s after the real Stop). Must not re-trigger done from idle.
+        let event = StateEvent.stop(reason: "Agent stopped: waiting for input", timestamp: Date())
         store.handleAgentStateUpdate(AgentStateUpdate(sessionId: "s1", event: event))
 
-        // Should show as done (fresh completion, not suppressed)
-        XCTAssertEqual(store.sessions[0].status, .done, "New done after acknowledge should be visible")
+        // Should stay idle — the agent must go through working before a new done is valid
+        XCTAssertEqual(store.sessions[0].status, .idle, "Late stop after acknowledge must not re-trigger done")
     }
 
     func testAgentStateUpdateAutoAcknowledgesSelectedSession() {
@@ -209,6 +210,58 @@ final class SessionStoreTests: XCTestCase {
 
         // latestEventSummary should NOT be updated for prompt_submit
         XCTAssertEqual(store.sessions[0].latestEventSummary, "Read main.swift")
+    }
+
+    // MARK: - PreToolUse Events
+
+    func testPreToolUseDoesNotAppendToActivityLog() {
+        let store = makeStore()
+        store.sessions = [makeSession(sessionId: "s1", workingDirectory: "/tmp")]
+        store.reconcileOrder()
+
+        let event = StateEvent.preToolUse(tool: "Read", summary: "Read main.swift", timestamp: Date())
+        store.handleAgentStateUpdate(AgentStateUpdate(sessionId: "s1", event: event))
+
+        // PreToolUse should update status but NOT append to activity log
+        XCTAssertEqual(store.sessions[0].status, .working)
+        XCTAssertEqual(store.sessions[0].latestEventSummary, "Read main.swift")
+    }
+
+    func testPreToolUseAskUserQuestionSetsWaitingMetadata() {
+        let store = makeStore()
+        store.sessions = [makeSession(sessionId: "s1", workingDirectory: "/tmp", status: .working)]
+        store.reconcileOrder()
+
+        let event = StateEvent.preToolUse(tool: "AskUserQuestion", summary: "Which option?", timestamp: Date())
+        store.handleAgentStateUpdate(AgentStateUpdate(sessionId: "s1", event: event))
+
+        XCTAssertEqual(store.sessions[0].status, .waitingForInput)
+        XCTAssertEqual(store.sessions[0].waitingReason, "Which option?")
+        XCTAssertEqual(store.sessions[0].waitingSummary, "Which option?")
+        XCTAssertEqual(store.sessions[0].latestEventSummary, "Which option?")
+    }
+
+    func testPreToolUseCancelsPendingCancelTimer() {
+        let store = makeStore()
+        store.sessions = [makeSession(sessionId: "s1", workingDirectory: "/tmp", status: .working)]
+        store.reconcileOrder()
+
+        // Trigger cancel
+        store.handleAgentCancel(sessionId: "s1")
+
+        // PreToolUse arrives — should cancel the pending timer
+        let event = StateEvent.preToolUse(tool: "Bash", summary: "Ran: npm test", timestamp: Date())
+        store.handleAgentStateUpdate(AgentStateUpdate(sessionId: "s1", event: event))
+
+        // Wait past the debounce period
+        let expectation = expectation(description: "Cancel debounce window passes")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+            expectation.fulfill()
+        }
+        wait(for: [expectation], timeout: 5.0)
+
+        // Session should still be working (cancel was debounced by the preToolUse event)
+        XCTAssertEqual(store.sessions[0].status, .working, "Session should stay working — cancel was debounced by preToolUse")
     }
 
     // MARK: - Batched Event Regression Tests

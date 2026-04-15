@@ -29,14 +29,16 @@ final class StateReducerTests: XCTestCase {
         XCTAssertTrue(t.didChange)
     }
 
-    func testIdleToDoneOnStop() {
+    func testIdleIgnoresLateStop() {
+        // A late stop (e.g., "waiting for your input" Notification arriving
+        // after the session was already auto-acknowledged) must not re-trigger done.
         let t = StateReducer.reduce(
             current: .idle,
             event: .stop(reason: "end_turn", timestamp: now),
             source: .eventWatcher
         )
-        XCTAssertEqual(t.to, .done)
-        XCTAssertTrue(t.didChange)
+        XCTAssertEqual(t.to, .idle)
+        XCTAssertFalse(t.didChange)
     }
 
     func testWorkingToDoneOnStop() {
@@ -218,6 +220,38 @@ final class StateReducerTests: XCTestCase {
             source: .userAction
         )
         XCTAssertEqual(t.to, .idle)
+        XCTAssertFalse(t.didChange)
+    }
+
+    // MARK: - PreToolUse Transitions
+
+    func testPreToolUseAskUserQuestionTransitionsToWaiting() {
+        let t = StateReducer.reduce(
+            current: .idle,
+            event: .preToolUse(tool: "AskUserQuestion", summary: "Which option?", timestamp: now),
+            source: .eventWatcher
+        )
+        XCTAssertEqual(t.to, .waitingForInput)
+        XCTAssertTrue(t.didChange)
+    }
+
+    func testPreToolUseReadTransitionsToWorking() {
+        let t = StateReducer.reduce(
+            current: .idle,
+            event: .preToolUse(tool: "Read", summary: "Read main.swift", timestamp: now),
+            source: .eventWatcher
+        )
+        XCTAssertEqual(t.to, .working)
+        XCTAssertTrue(t.didChange)
+    }
+
+    func testPreToolUseBashFromWorkingIsNoChange() {
+        let t = StateReducer.reduce(
+            current: .working,
+            event: .preToolUse(tool: "Bash", summary: "Ran: npm test", timestamp: now),
+            source: .eventWatcher
+        )
+        XCTAssertEqual(t.to, .working)
         XCTAssertFalse(t.didChange)
     }
 

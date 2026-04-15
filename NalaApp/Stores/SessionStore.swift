@@ -623,6 +623,13 @@ final class SessionStore {
         case .toolUse(_, let summary, let timestamp):
             sessions[idx].latestEventSummary = summary
             sessions[idx].stalenessSeconds = Date().timeIntervalSince(timestamp)
+        case .preToolUse(let tool, let summary, let timestamp):
+            sessions[idx].latestEventSummary = summary
+            sessions[idx].stalenessSeconds = Date().timeIntervalSince(timestamp)
+            if tool == "AskUserQuestion" {
+                sessions[idx].waitingReason = summary
+                sessions[idx].waitingSummary = summary
+            }
         case .promptSubmit(_, let timestamp):
             // Don't update latestEventSummary for prompt_submit (preserves last tool use summary)
             sessions[idx].stalenessSeconds = Date().timeIntervalSince(timestamp)
@@ -838,7 +845,7 @@ final class SessionStore {
         // because polledState is also dispatched by handleTmuxUpdate with
         // cached state every ~1s, which would incorrectly cancel the timer.
         switch event {
-        case .toolUse, .promptSubmit:
+        case .toolUse, .preToolUse, .promptSubmit:
             pendingCancelTimers[update.sessionId]?.cancel()
             pendingCancelTimers.removeValue(forKey: update.sessionId)
         default:

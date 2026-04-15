@@ -351,6 +351,9 @@ final class TmuxService: @unchecked Sendable {
 
         // Nala hooks to inject
         let nalaHooks: [(String, [String: Any])] = [
+            ("PreToolUse", [
+                "hooks": [["type": "command", "command": eventFileCmd]]
+            ]),
             ("PostToolUse", [
                 "hooks": [["type": "command", "command": eventFileCmd]]
             ]),

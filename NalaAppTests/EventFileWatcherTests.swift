@@ -108,6 +108,54 @@ final class EventFileWatcherTests: XCTestCase {
         XCTAssertTrue(result!.summary.hasSuffix("..."))
     }
 
+    // MARK: - PreToolUse Parsing
+
+    func testParsePreToolUseReadAsPretoolUse() {
+        let json: [String: Any] = [
+            "hook_event_name": "PreToolUse",
+            "tool_name": "Read",
+            "tool_input": ["file_path": "/tmp/test.swift"]
+        ]
+
+        let result = EventFileWatcher.parseHookEvent(json)
+        XCTAssertNotNil(result)
+        XCTAssertEqual(result?.eventType, "pre_tool_use", "PreToolUse should parse as pre_tool_use, not tool_use")
+        XCTAssertEqual(result?.summary, "Read test.swift")
+    }
+
+    func testParsePreToolUseAskUserQuestionExtractsQuestion() {
+        let json: [String: Any] = [
+            "hook_event_name": "PreToolUse",
+            "tool_name": "AskUserQuestion",
+            "tool_input": [
+                "questions": [
+                    ["question": "Which database should we use?", "options": []]
+                ]
+            ]
+        ]
+
+        let result = EventFileWatcher.parseHookEvent(json)
+        XCTAssertNotNil(result)
+        XCTAssertEqual(result?.eventType, "pre_tool_use")
+        XCTAssertEqual(result?.summary, "Which database should we use?")
+        XCTAssertEqual(result?.waitingReason, "Which database should we use?")
+        XCTAssertEqual(result?.waitingSummary, "Which database should we use?")
+    }
+
+    func testParsePreToolUseAskUserQuestionFallback() {
+        // Missing questions array — should fall back to default summary
+        let json: [String: Any] = [
+            "hook_event_name": "PreToolUse",
+            "tool_name": "AskUserQuestion",
+            "tool_input": [:]
+        ]
+
+        let result = EventFileWatcher.parseHookEvent(json)
+        XCTAssertNotNil(result)
+        XCTAssertEqual(result?.eventType, "pre_tool_use")
+        XCTAssertEqual(result?.summary, "Asking a question")
+    }
+
     // MARK: - State Derivation
 
     func testToolUseDerivesWorkingState() {
