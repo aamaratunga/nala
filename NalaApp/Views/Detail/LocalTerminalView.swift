@@ -12,6 +12,17 @@ final class NalaTerminalView: LocalProcessTerminalView {
     /// The tmux session name this terminal is attached to.
     var sessionName: String = ""
 
+    deinit {
+        // Cancel any pending coalesce timer to prevent stale callbacks.
+        coalesceTimer?.cancel()
+        // Explicitly terminate the PTY process and close DispatchIO.
+        // Without this, LocalProcess survives deallocation (retained by
+        // the pending io.read closure) and its drainReceivedData loop
+        // continues running on the main queue with a nil delegate —
+        // burning CPU and starving the run loop on every session switch.
+        process.terminate()
+    }
+
     private var pendingBytes: [UInt8] = []
     private var pendingOSC52: [UInt8] = []
     private var coalesceTimer: DispatchWorkItem?
