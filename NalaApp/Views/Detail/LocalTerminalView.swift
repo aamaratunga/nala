@@ -86,6 +86,12 @@ final class NalaTerminalView: LocalProcessTerminalView {
             if elapsed > 0.01 {
                 Self.logger.warning("flushPendingData took \(String(format: "%.1f", elapsed * 1000))ms (\(data.count) bytes) for '\(self.sessionName)'")
             }
+            if elapsed > 0.05 {
+                PersistentLog.shared.write(
+                    "FLUSH_SLOW \(String(format: "%.0f", elapsed * 1000))ms \(data.count)B session=\(self.sessionName)",
+                    category: "Terminal"
+                )
+            }
             return
         }
 
@@ -116,6 +122,12 @@ final class NalaTerminalView: LocalProcessTerminalView {
         if elapsed > 0.01 {
             let chunks = Int(ceil(Double(totalBytes) / Double(Self.chunkSize)))
             Self.logger.warning("flushPendingData took \(String(format: "%.1f", elapsed * 1000))ms (\(totalBytes) bytes, \(chunks) chunks) for '\(self.sessionName)'")
+            if elapsed > 0.05 {
+                PersistentLog.shared.write(
+                    "FLUSH_SLOW \(String(format: "%.0f", elapsed * 1000))ms \(totalBytes)B \(chunks)chunks session=\(self.sessionName)",
+                    category: "Terminal"
+                )
+            }
         }
 
         // Check if new data arrived during draining

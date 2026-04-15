@@ -564,6 +564,7 @@ final class SessionStore {
         self.watchdog = watchdog
 
         logger.info("startServices: all services started")
+        PersistentLog.shared.write("APP_STARTED services=all", category: "SessionStore")
     }
 
     /// Stop all services. Called on app termination.
@@ -664,6 +665,10 @@ final class SessionStore {
             let elapsed = CACurrentMediaTime() - startTime
             if elapsed > 0.1 {
                 logger.warning("handleTmuxUpdate took \(String(format: "%.1f", elapsed * 1000))ms (sessions: \(update.current.count))")
+                PersistentLog.shared.write(
+                    "TMUX_UPDATE_SLOW \(String(format: "%.0f", elapsed * 1000))ms sessions=\(update.current.count) added=\(update.added.count) removed=\(update.removed.count)",
+                    category: "SessionStore"
+                )
             }
         }
 
@@ -929,6 +934,11 @@ final class SessionStore {
             logger.debug("launchSession main-thread work took \(String(format: "%.1f", launchElapsed * 1000))ms")
         }
 
+        PersistentLog.shared.write(
+            "SESSION_LAUNCH id=\(state.id) agentType=\(agentType) dir=\(workingDir) mainThreadMs=\(String(format: "%.1f", launchElapsed * 1000))",
+            category: "SessionStore"
+        )
+
         guard !Self.isTestHost else { return }
         Task { await performLaunch(state: state) }
     }
@@ -956,12 +966,20 @@ final class SessionStore {
             )
             let createElapsed = CACurrentMediaTime() - createStart
             logger.info("performLaunch: tmux session created: \(sessionName) (\(String(format: "%.0f", createElapsed * 1000))ms)")
+            PersistentLog.shared.write(
+                "LAUNCH_TMUX_CREATED session=\(sessionName) elapsed=\(String(format: "%.0f", createElapsed * 1000))ms",
+                category: "SessionStore"
+            )
             // Extract session ID from session name (format: {type}-{uuid})
             let mainActorStart = CACurrentMediaTime()
             await MainActor.run {
                 let mainActorWait = CACurrentMediaTime() - mainActorStart
                 if mainActorWait > 0.05 {
                     self.logger.warning("performLaunch: waited \(String(format: "%.1f", mainActorWait * 1000))ms for MainActor")
+                    PersistentLog.shared.write(
+                        "LAUNCH_MAINACTOR_WAIT \(String(format: "%.0f", mainActorWait * 1000))ms for \(sessionName)",
+                        category: "SessionStore"
+                    )
                 }
                 if let parsed = TmuxService.parseSessionName(sessionName) {
                     state.realSessionId = parsed.uuid
@@ -974,6 +992,10 @@ final class SessionStore {
             }
         } catch {
             logger.error("performLaunch: failed: \(error.localizedDescription)")
+            PersistentLog.shared.write(
+                "LAUNCH_FAILED id=\(state.id) error=\(error.localizedDescription)",
+                category: "SessionStore"
+            )
             await MainActor.run {
                 state.error = error.localizedDescription
                 handleLaunchFailure(state: state)

@@ -104,7 +104,15 @@ Open `/Applications/Utilities/Console.app`, type `com.nala.app` in the search ba
 
 `MainThreadWatchdog` (DEBUG builds only) pings the main thread every 2 seconds. If the main thread is unresponsive for >3 seconds, it logs an error under the `Watchdog` category.
 
-**Important:** Watchdog events are written to **both** `os.Logger` and `~/.nala/hang.log`. The file-based log survives force-quit — `os.Logger` entries are often lost because macOS unified logging is asynchronous and in-flight entries aren't flushed when a process is killed.
+**Important:** Critical events are written to `~/.nala/hang.log` via `PersistentLog`. This file survives force-quit — `os.Logger` entries are often lost because macOS unified logging is asynchronous and in-flight entries aren't flushed when a process is killed.
+
+**What's in hang.log:**
+- **Watchdog events** — hang detection, heartbeats (DEBUG only)
+- **Operational breadcrumbs** — session launches, tmux session creation, launch failures, slow handleTmuxUpdate, slow terminal flushes (all builds)
+
+The watchdog detects two classes of hang:
+1. **Full block** (`MAIN THREAD HANG DETECTED`) — main thread completely unresponsive for >3s
+2. **Busy-hung** (`MAIN THREAD OVERLOADED`) — main thread responds to pings but with >200ms dispatch latency, indicating run loop saturation that starves user events
 
 **When a user reports a hang**, check the persistent hang log first:
 
@@ -119,11 +127,17 @@ Then check os.Logger (may be incomplete if force-quit):
 ```
 
 Look for:
-- `MAIN THREAD HANG DETECTED` — confirms the main thread was blocked, with duration
-- `MAIN THREAD STILL HUNG` — ongoing hang with total duration
-- `Main thread hang resolved after Xs` — how long it lasted
+- `MAIN THREAD HANG DETECTED` — main thread fully blocked, with duration
+- `MAIN THREAD OVERLOADED` — main thread saturated (dispatch latency + streak count)
+- `MAIN THREAD STILL HUNG` — ongoing full block with total duration
+- `Main thread hang resolved after Xs` — how long a full block lasted
+- `SESSION_LAUNCH` / `LAUNCH_TMUX_CREATED` / `LAUNCH_FAILED` — session lifecycle
+- `LAUNCH_MAINACTOR_WAIT` — MainActor contention during launch
+- `TMUX_UPDATE_SLOW` — handleTmuxUpdate exceeded 100ms
+- `FLUSH_SLOW` — terminal data flush exceeded 50ms
+- `APP_STARTED` — app startup marker
 
-Then check what else was happening at the same timestamp:
+Then check os.Logger for additional detail (may be incomplete if force-quit):
 
 ```bash
 # All Nala logs around the hang time (adjust --start/--end as needed)
@@ -144,7 +158,9 @@ Look for timing warnings from `handleTmuxUpdate`, `reconcileOrder`, `startWatchi
 - Large `flushPendingData` buffers (100-250KB) blocking main thread for 500-800ms — fixed by chunked drain (16KB per run-loop iteration)
 - `performWorktreeDeletion`/`performWorktreeCreation` mutating `@Observable` state from background tasks without MainActor — data race crash (not a hang; watchdog won't fire). Fixed by wrapping all state mutations in `await MainActor.run { }`.
 
-**Pattern:** Prior hangs were synchronous I/O or blocking calls on the main thread. Prior crashes were `@Observable` data races (background task mutations without MainActor). If a new issue appears, check for both patterns. When adding new async pipelines, follow the `performRestart`/`performLaunch` pattern: keep process execution on background tasks, dispatch all `@Observable` mutations to `MainActor.run`.
+**Pattern:** Prior hangs were synchronous I/O or blocking calls on the main thread ("full block" — watchdog detects these). A new pattern was identified: "busy-hung" where the main thread is saturated with run-loop work items (e.g., terminal data drain chunks) — the watchdog semaphore ping gets serviced between items, but user events are starved, causing an unresponsive UI that the old watchdog missed. Dispatch latency detection (`MAIN THREAD OVERLOADED`) now catches this pattern.
+
+Prior crashes were `@Observable` data races (background task mutations without MainActor). If a new issue appears, check for both hang patterns (full block and busy-hung) and data races. When adding new async pipelines, follow the `performRestart`/`performLaunch` pattern: keep process execution on background tasks, dispatch all `@Observable` mutations to `MainActor.run`.
 
 ### Log categories
 
