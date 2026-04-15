@@ -75,9 +75,57 @@ Items ordered by recommended execution sequence.
 
 ---
 
-### Tier 3 — Diff Viewer V2
+### Tier 3 — Usability
 
-#### 6. Auto-paste comments to agent terminal
+#### 6. Show saved repos in agent / terminal launch lists
+
+**What:** Pre-populate the "New Agent" and "New Terminal" sheets with repos the user has already added in Settings, so they can launch with one click instead of selecting "Other" and browsing.
+
+**Why:** Every new-agent launch currently requires navigating through the file browser even for repos the user works in daily. This is the highest-friction step in the core workflow.
+
+**Effort:** S
+**Priority:** P2
+
+#### 7. Repo-specific sidebar icons
+
+**What:** Add distinct icons or color badges per repo in the session sidebar so users can visually distinguish which repo each session belongs to at a glance.
+
+**Why:** When running agents across multiple repos, the sidebar rows look identical aside from the text label. A visual differentiator (colored dot, emoji, or auto-assigned icon) makes scanning much faster.
+
+**Effort:** S
+**Priority:** P2
+
+---
+
+### Tier 4 — Agent platform
+
+#### 8. Codex agent support
+
+**What:** Add support for launching and managing OpenAI Codex agents alongside Claude agents. This includes a Codex launch command, agent-type detection, and any Codex-specific event parsing or state tracking.
+
+**Why:** Broadens the app beyond a single AI provider. Users experimenting with multiple coding agents can manage them in one place.
+
+**Context:** Requires research into Codex CLI interface, how it reports state, and whether it supports hooks or event files similar to Claude Code. May need a provider-abstraction layer if the integration patterns diverge significantly.
+
+**Effort:** M–L
+**Priority:** P2
+
+#### 9. Multi-agent orchestration
+
+**What:** Enable multiple agents to work together — either through automated chaining (agent A's output feeds agent B) or through agent teams that communicate with each other via shared context or message passing.
+
+**Why:** Complex tasks benefit from decomposition across agents (e.g., one agent writes code, another reviews, a third writes tests). This is the natural evolution of a multi-worktree agent manager.
+
+**Context:** Two possible directions: (a) orchestrated chains — user defines a pipeline and Nala drives each step sequentially; (b) agent teams — agents run concurrently and coordinate through a shared scratchpad or message bus. Option (a) is simpler to build and reason about. Option (b) is more powerful but needs careful UX to avoid chaos. Could start with (a) and graduate to (b).
+
+**Effort:** L
+**Priority:** P3
+
+---
+
+### Tier 5 — Diff Viewer V2
+
+#### 10. Auto-paste comments to agent terminal
 
 **What:** Add a "Send to agent" button alongside "Copy all to prompt" in the diff viewer's CommentBarView. Injects formatted comments directly into the tmux session via `TmuxService` (`tmux send-keys`).
 
@@ -87,9 +135,9 @@ Items ordered by recommended execution sequence.
 
 **Effort:** S
 **Priority:** P3
-**Depends on:** Diff viewer V1 (PR4: comment system)
+**Depends on:** Diff Viewer V1 (PR4: comment system)
 
-#### 7. Keyboard-driven comment workflow
+#### 11. Keyboard-driven comment workflow
 
 **What:** Add keyboard navigation for the diff viewer — arrow keys to navigate lines in the WKWebView, press 'c' to add a comment on the focused line, Escape to cancel.
 
@@ -99,7 +147,7 @@ Items ordered by recommended execution sequence.
 
 **Effort:** M
 **Priority:** P3
-**Depends on:** Diff viewer V1 (PR4: comment system)
+**Depends on:** Diff Viewer V1 (PR4: comment system)
 
 ---
 
