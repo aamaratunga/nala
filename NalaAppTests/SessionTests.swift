@@ -3,60 +3,23 @@ import XCTest
 
 final class SessionTests: XCTestCase {
 
-    // MARK: - JSON Decoding
+    // MARK: - Status Enum
 
-    func testDecodeFullPayload() throws {
-        let data = Data(fullSessionJSON.utf8)
-        let session = try nalaJSONDecoder.decode(Session.self, from: data)
-
-        XCTAssertEqual(session.name, "claude-agent-1")
-        XCTAssertEqual(session.agentType, "claude")
-        XCTAssertEqual(session.sessionId, "abc123")
-        XCTAssertEqual(session.tmuxSession, "tmux-claude-1")
-        XCTAssertEqual(session.stalenessSeconds, 42.5)
-        XCTAssertEqual(session.branch, "feature/tests")
-        XCTAssertEqual(session.displayName, "Test Agent")
-        XCTAssertEqual(session.icon, "beaker")
-        XCTAssertEqual(session.workingDirectory, "/Users/dev/project")
-        XCTAssertFalse(session.waitingForInput)
-        XCTAssertFalse(session.done)
-        XCTAssertTrue(session.working)
-        XCTAssertFalse(session.stuck)
-        XCTAssertNil(session.waitingReason)
-        XCTAssertNil(session.waitingSummary)
-        XCTAssertEqual(session.changedFileCount, 3)
-        XCTAssertEqual(session.boardProject, "myboard")
-        XCTAssertEqual(session.boardJobTitle, "Backend Dev")
-        XCTAssertEqual(session.boardUnread, 2)
-        XCTAssertEqual(session.commands.count, 1)
-        XCTAssertEqual(session.commands.first?.name, "test")
+    func testDefaultStatusIsIdle() {
+        let session = makeSession()
+        XCTAssertEqual(session.status, .idle)
     }
 
-    func testDecodeMinimalPayload() throws {
-        let data = Data(minimalSessionJSON.utf8)
-        let session = try nalaJSONDecoder.decode(Session.self, from: data)
+    func testStatusFromExplicitParameter() {
+        let session = makeSession(status: .working)
+        XCTAssertEqual(session.status, .working)
+    }
 
-        XCTAssertEqual(session.name, "bare-agent")
-        // All optional/defaulted fields should have their defaults
-        XCTAssertEqual(session.agentType, "claude")
-        XCTAssertEqual(session.sessionId, "")
-        XCTAssertEqual(session.tmuxSession, "")
-        XCTAssertNil(session.stalenessSeconds)
-        XCTAssertNil(session.branch)
-        XCTAssertNil(session.displayName)
-        XCTAssertNil(session.icon)
-        XCTAssertEqual(session.workingDirectory, "")
-        XCTAssertFalse(session.waitingForInput)
-        XCTAssertFalse(session.done)
-        XCTAssertFalse(session.working)
-        XCTAssertFalse(session.stuck)
-        XCTAssertNil(session.waitingReason)
-        XCTAssertNil(session.waitingSummary)
-        XCTAssertEqual(session.changedFileCount, 0)
-        XCTAssertNil(session.boardProject)
-        XCTAssertNil(session.boardJobTitle)
-        XCTAssertEqual(session.boardUnread, 0)
-        XCTAssertTrue(session.commands.isEmpty)
+    func testAllStatusValues() {
+        for status in [AgentStatus.idle, .working, .done, .stuck, .sleeping, .waitingForInput] {
+            let session = makeSession(status: status)
+            XCTAssertEqual(session.status, status)
+        }
     }
 
     // MARK: - Computed Properties
@@ -99,6 +62,48 @@ final class SessionTests: XCTestCase {
     func testDisplayLabelSkipsEmptyJobTitle() {
         let session = makeSession(displayName: nil, boardJobTitle: "")
         XCTAssertEqual(session.displayLabel, "Agent")
+    }
+
+    // MARK: - effectiveSubtitle (switch on status)
+
+    func testEffectiveSubtitleDone() {
+        let session = makeSession(status: .done)
+        XCTAssertEqual(session.effectiveSubtitle, "Completed")
+    }
+
+    func testEffectiveSubtitleStuckWithReason() {
+        let session = makeSession(status: .stuck, waitingReason: "Network timeout")
+        XCTAssertEqual(session.effectiveSubtitle, "Network timeout")
+    }
+
+    func testEffectiveSubtitleStuckWithoutReason() {
+        let session = makeSession(status: .stuck)
+        XCTAssertEqual(session.effectiveSubtitle, "Stuck")
+    }
+
+    func testEffectiveSubtitleWaitingWithSummary() {
+        let session = makeSession(status: .waitingForInput, waitingSummary: "Need API key")
+        XCTAssertEqual(session.effectiveSubtitle, "Need API key")
+    }
+
+    func testEffectiveSubtitleWaitingWithoutSummary() {
+        let session = makeSession(status: .waitingForInput)
+        XCTAssertEqual(session.effectiveSubtitle, "Waiting for input")
+    }
+
+    func testEffectiveSubtitleSleeping() {
+        let session = makeSession(status: .sleeping)
+        XCTAssertEqual(session.effectiveSubtitle, "Sleeping")
+    }
+
+    func testEffectiveSubtitleWorkingWithEvent() {
+        let session = makeSession(status: .working, latestEventSummary: "Read main.swift")
+        XCTAssertEqual(session.effectiveSubtitle, "Read main.swift")
+    }
+
+    func testEffectiveSubtitleIdleNil() {
+        let session = makeSession(status: .idle)
+        XCTAssertNil(session.effectiveSubtitle)
     }
 
     // MARK: - SessionCommand

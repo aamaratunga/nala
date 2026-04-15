@@ -54,11 +54,7 @@ struct Session: Identifiable, Equatable {
     var displayName: String?
     var icon: String?
     var workingDirectory: String
-    var waitingForInput: Bool
-    var done: Bool
-    var working: Bool
-    var stuck: Bool
-    var sleeping: Bool
+    var status: AgentStatus
     var waitingReason: String?
     var waitingSummary: String?
     var latestEventSummary: String?
@@ -83,11 +79,7 @@ struct Session: Identifiable, Equatable {
         displayName: String? = nil,
         icon: String? = nil,
         workingDirectory: String = "",
-        waitingForInput: Bool = false,
-        done: Bool = false,
-        working: Bool = false,
-        stuck: Bool = false,
-        sleeping: Bool = false,
+        status: AgentStatus = .idle,
         waitingReason: String? = nil,
         waitingSummary: String? = nil,
         latestEventSummary: String? = nil,
@@ -106,11 +98,7 @@ struct Session: Identifiable, Equatable {
         self.displayName = displayName
         self.icon = icon
         self.workingDirectory = workingDirectory
-        self.waitingForInput = waitingForInput
-        self.done = done
-        self.working = working
-        self.stuck = stuck
-        self.sleeping = sleeping
+        self.status = status
         self.waitingReason = waitingReason
         self.waitingSummary = waitingSummary
         self.latestEventSummary = latestEventSummary
@@ -131,27 +119,32 @@ struct Session: Identifiable, Equatable {
 
     /// Activity subtitle shown below the name, with state-aware priority.
     var effectiveSubtitle: String? {
-        if done { return "Completed" }
-        if stuck {
+        switch status {
+        case .done:
+            return "Completed"
+        case .stuck:
             if let wr = waitingReason, !wr.isEmpty { return wr }
             return "Stuck"
-        }
-        if waitingForInput {
+        case .waitingForInput:
             if let ws = waitingSummary, !ws.isEmpty { return ws }
             return "Waiting for input"
+        case .sleeping:
+            return "Sleeping"
+        case .working, .idle:
+            if let event = latestEventSummary, !event.isEmpty { return event }
+            return nil
         }
-        if sleeping { return "Sleeping" }
-        if let event = latestEventSummary, !event.isEmpty { return event }
-        return nil
     }
 
     /// Color for the subtitle text, based on agent state.
     var subtitleColor: Color {
-        if done { return NalaTheme.green }
-        if stuck { return NalaTheme.red }
-        if waitingForInput { return NalaTheme.amber }
-        if sleeping { return NalaTheme.textTertiary }
-        return NalaTheme.textSecondary
+        switch status {
+        case .done:             return NalaTheme.green
+        case .stuck:            return NalaTheme.red
+        case .waitingForInput:  return NalaTheme.amber
+        case .sleeping:         return NalaTheme.textTertiary
+        case .working, .idle:   return NalaTheme.textSecondary
+        }
     }
 }
 
@@ -160,58 +153,3 @@ struct SessionCommand: Codable, Equatable {
     let description: String
 }
 
-// MARK: - JSON Decoding
-
-extension Session: Decodable {
-    enum CodingKeys: String, CodingKey {
-        case name
-        case agentType = "agent_type"
-        case sessionId = "session_id"
-        case tmuxSession = "tmux_session"
-        case stalenessSeconds = "staleness_seconds"
-        case branch
-        case displayName = "display_name"
-        case icon
-        case workingDirectory = "working_directory"
-        case waitingForInput = "waiting_for_input"
-        case done
-        case working
-        case stuck
-        case sleeping
-        case waitingReason = "waiting_reason"
-        case waitingSummary = "waiting_summary"
-        case latestEventSummary = "latest_event_summary"
-        case changedFileCount = "changed_file_count"
-        case boardProject = "board_project"
-        case boardJobTitle = "board_job_title"
-        case boardUnread = "board_unread"
-        case commands
-    }
-
-    init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        name = try c.decode(String.self, forKey: .name)
-        agentType = try c.decodeIfPresent(String.self, forKey: .agentType) ?? "claude"
-        sessionId = try c.decodeIfPresent(String.self, forKey: .sessionId) ?? ""
-        tmuxSession = try c.decodeIfPresent(String.self, forKey: .tmuxSession) ?? ""
-        stalenessSeconds = try c.decodeIfPresent(Double.self, forKey: .stalenessSeconds)
-        branch = try c.decodeIfPresent(String.self, forKey: .branch)
-        displayName = try c.decodeIfPresent(String.self, forKey: .displayName)
-        icon = try c.decodeIfPresent(String.self, forKey: .icon)
-        workingDirectory = try c.decodeIfPresent(String.self, forKey: .workingDirectory) ?? ""
-        waitingForInput = try c.decodeIfPresent(Bool.self, forKey: .waitingForInput) ?? false
-        done = try c.decodeIfPresent(Bool.self, forKey: .done) ?? false
-        working = try c.decodeIfPresent(Bool.self, forKey: .working) ?? false
-        stuck = try c.decodeIfPresent(Bool.self, forKey: .stuck) ?? false
-        sleeping = try c.decodeIfPresent(Bool.self, forKey: .sleeping) ?? false
-        waitingReason = try c.decodeIfPresent(String.self, forKey: .waitingReason)
-        waitingSummary = try c.decodeIfPresent(String.self, forKey: .waitingSummary)
-        latestEventSummary = try c.decodeIfPresent(String.self, forKey: .latestEventSummary)
-        changedFileCount = try c.decodeIfPresent(Int.self, forKey: .changedFileCount) ?? 0
-        boardProject = try c.decodeIfPresent(String.self, forKey: .boardProject)
-        boardJobTitle = try c.decodeIfPresent(String.self, forKey: .boardJobTitle)
-        boardUnread = try c.decodeIfPresent(Int.self, forKey: .boardUnread) ?? 0
-        commands = try c.decodeIfPresent([SessionCommand].self, forKey: .commands) ?? []
-        isPlaceholder = false
-    }
-}

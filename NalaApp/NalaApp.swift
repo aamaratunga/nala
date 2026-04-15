@@ -73,7 +73,7 @@ struct NalaApp: App {
 
                 Button("Kill Session") {
                     if let session = sessionStore.selectedSession {
-                        if session.agentType != "terminal" && (session.working || session.waitingForInput) {
+                        if session.agentType != "terminal" && (session.status == .working || session.status == .waitingForInput) {
                             sessionStore.pendingKillSession = session
                             sessionStore.showingKillConfirmation = true
                         } else {

@@ -198,11 +198,11 @@ final class EventFileWatcherTests: XCTestCase {
     /// Thread-safe update collector for async stream tests.
     private class UpdateCollector: @unchecked Sendable {
         private let lock = NSLock()
-        private var _updates: [AgentState] = []
+        private var _updates: [StateEvent] = []
 
-        func append(_ state: AgentState) {
+        func append(_ event: StateEvent) {
             lock.lock()
-            _updates.append(state)
+            _updates.append(event)
             lock.unlock()
         }
 
@@ -212,7 +212,7 @@ final class EventFileWatcherTests: XCTestCase {
             return _updates.count
         }
 
-        var updates: [AgentState] {
+        var updates: [StateEvent] {
             lock.lock()
             defer { lock.unlock() }
             return _updates
@@ -221,7 +221,7 @@ final class EventFileWatcherTests: XCTestCase {
 
     /// Verifies that when prompt_submit + stop arrive in one batch, both
     /// the intermediate working state and the final done state are emitted
-    /// as separate updates through the AsyncStream.
+    /// as separate StateEvent updates through the AsyncStream.
     func testProcessEventsBatchedPromptSubmitThenStop() {
         let watcher = EventFileWatcher()
         let sessionId = UUID().uuidString.lowercased()
@@ -241,14 +241,14 @@ final class EventFileWatcherTests: XCTestCase {
         let stream = watcher.updates()
         let collectTask = Task {
             for await update in stream {
-                collector.append(update.state)
+                collector.append(update.event)
                 gotAllUpdates.fulfill()
             }
         }
 
         watcher.startWatching(sessionId: sessionId)
 
-        // Delay to ensure the stream consumer processes the initial empty state
+        // Delay to ensure the stream consumer processes the initial idle status
         let writeDelay = expectation(description: "write delay")
         writeDelay.isInverted = true
         wait(for: [writeDelay], timeout: 0.3)
@@ -270,22 +270,25 @@ final class EventFileWatcherTests: XCTestCase {
         try? FileManager.default.removeItem(atPath: path)
 
         let all = collector.updates
-        // Expect: [initial(empty), working(prompt_submit), done(stop)]
+        // Expect: [polledState(.idle), promptSubmit, stop]
         XCTAssertGreaterThanOrEqual(all.count, 3,
             "Per-event emission should produce initial + 2 event updates")
-        // First is initial empty state
-        XCTAssertFalse(all[0].working, "Initial state should not be working")
-        XCTAssertFalse(all[0].done, "Initial state should not be done")
+        // First is initial idle status
+        if case .polledState(status: .idle) = all[0] {} else {
+            XCTFail("Initial event should be polledState(.idle), got \(all[0])")
+        }
         // Second is intermediate working from prompt_submit
-        XCTAssertTrue(all[1].working,
-            "Second update should be working (from prompt_submit)")
+        if case .promptSubmit = all[1] {} else {
+            XCTFail("Second event should be promptSubmit, got \(all[1])")
+        }
         // Third is done from stop
-        XCTAssertTrue(all[2].done,
-            "Third update should be done (from stop)")
+        if case .stop = all[2] {} else {
+            XCTFail("Third event should be stop, got \(all[2])")
+        }
     }
 
     /// Verifies that when notification + stop arrive in one batch, both
-    /// the intermediate waitingForInput state and the final done state are emitted.
+    /// the intermediate waitingForInput and the final done are emitted as StateEvents.
     func testProcessEventsBatchedNotificationThenStop() {
         let watcher = EventFileWatcher()
         let sessionId = UUID().uuidString.lowercased()
@@ -304,7 +307,7 @@ final class EventFileWatcherTests: XCTestCase {
         let stream = watcher.updates()
         let collectTask = Task {
             for await update in stream {
-                collector.append(update.state)
+                collector.append(update.event)
                 gotAllUpdates.fulfill()
             }
         }
@@ -334,12 +337,18 @@ final class EventFileWatcherTests: XCTestCase {
         let all = collector.updates
         XCTAssertGreaterThanOrEqual(all.count, 3,
             "Per-event emission should produce initial + 2 event updates")
-        XCTAssertFalse(all[0].working, "Initial state should not be working")
-        XCTAssertFalse(all[0].done, "Initial state should not be done")
-        XCTAssertTrue(all[1].waitingForInput,
-            "Second update should be waitingForInput (from notification)")
-        XCTAssertTrue(all[2].done,
-            "Third update should be done (from stop)")
+        // First is initial idle status
+        if case .polledState(status: .idle) = all[0] {} else {
+            XCTFail("Initial event should be polledState(.idle), got \(all[0])")
+        }
+        // Second is notification (waitingForInput)
+        if case .notification = all[1] {} else {
+            XCTFail("Second event should be notification, got \(all[1])")
+        }
+        // Third is stop (done)
+        if case .stop = all[2] {} else {
+            XCTFail("Third event should be stop, got \(all[2])")
+        }
     }
 
     // MARK: - Tail Recovery (Regression: main-thread hang from full file reads)
@@ -397,10 +406,9 @@ final class EventFileWatcherTests: XCTestCase {
         // Wait for async watcher setup to complete (file I/O runs on watcherQueue)
         watcher.flushQueue()
 
-        // State should reflect the final "stop" event (done = true)
-        let state = watcher.cachedState(for: sessionId)
-        XCTAssertNotNil(state, "State should be recovered from event file tail")
-        XCTAssertTrue(state?.done ?? false, "Final stop event should set done = true")
-        XCTAssertFalse(state?.working ?? true, "Done agent should not be working")
+        // Status should reflect the final "stop" event (done)
+        let status = watcher.cachedStatus(for: sessionId)
+        XCTAssertNotNil(status, "Status should be recovered from event file tail")
+        XCTAssertEqual(status, .done, "Final stop event should set status to .done")
     }
 }

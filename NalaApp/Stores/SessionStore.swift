@@ -63,9 +63,8 @@ final class SessionStore {
     /// Prevents polling from re-adding them before they actually disappear.
     @ObservationIgnored private var pendingKills: Set<String> = []
 
-    /// Session IDs whose "done" state has been acknowledged by the user.
-    /// While in this set, EventFileWatcher's done=true is suppressed to false.
-    @ObservationIgnored private var acknowledgedSessionIds: Set<String> = []
+    /// Per-session state transition logs (ring buffer) for debugging.
+    @ObservationIgnored private var transitionLogs: [String: TransitionLog] = [:]
 
     // MARK: - Ordering State (persisted via UserDefaults)
 
@@ -152,7 +151,7 @@ final class SessionStore {
 
     /// Persisted display names (keyed by sessionId)
     private static let displayNamesKey = "nala.displayNames"
-    private static let acknowledgedSessionsKey = "nala.acknowledgedSessions"
+    private let stateTransitionLogger = Logger(subsystem: "com.nala.app", category: "StateTransition")
 
     private let logger = Logger(subsystem: "com.nala.app", category: "SessionStore")
     private static let signpostLog = OSLog(subsystem: "com.nala.app", category: .pointsOfInterest)
@@ -578,44 +577,70 @@ final class SessionStore {
         watchdog?.stop()
     }
 
-    // MARK: - Agent State Application
+    // MARK: - State Dispatch (Reducer)
 
-    /// Apply agent state fields to a session at the given index.
-    /// Handles acknowledgement clearing, done suppression, and auto-acknowledge.
-    private func applyAgentState(_ state: AgentState, toSessionAt idx: Int) {
-        let sessionId = sessions[idx].sessionId
+    /// Central dispatch: run a state event through the reducer, update session, log transition.
+    /// Returns the transition result (nil if sessionId not found).
+    /// Auto-acknowledges done state for the currently selected session.
+    @discardableResult
+    private func dispatchStateEvent(_ event: StateEvent, source: StateSource, forSessionId sessionId: String) -> StateTransition? {
+        guard let idx = sessions.firstIndex(where: { $0.sessionId == sessionId }) else { return nil }
 
-        // Auto-clear acknowledgement when agent becomes active again
-        if state.working && !state.done {
-            if acknowledgedSessionIds.remove(sessionId) != nil {
-                saveAcknowledgedSessions()
-            }
+        let transition = StateReducer.reduce(current: sessions[idx].status, event: event, source: source)
+        sessions[idx].status = transition.to
+
+        // Clear waiting metadata when leaving waitingForInput
+        if transition.from == .waitingForInput && transition.to != .waitingForInput {
+            sessions[idx].waitingReason = nil
+            sessions[idx].waitingSummary = nil
         }
 
-        sessions[idx].working = state.working
-        sessions[idx].done = state.done
-        sessions[idx].waitingForInput = state.waitingForInput
-        sessions[idx].stuck = state.stuck
-        sessions[idx].sleeping = state.sleeping
-        sessions[idx].waitingReason = state.waitingReason
-        sessions[idx].waitingSummary = state.waitingSummary
-        if state.latestEventType != "prompt_submit" {
-            sessions[idx].latestEventSummary = state.latestEventSummary
-        }
-        if let lastTime = state.lastEventTime {
-            sessions[idx].stalenessSeconds = Date().timeIntervalSince(lastTime)
+        // Apply metadata from the event (always, regardless of didChange)
+        applyEventMetadata(event, toSessionAt: idx)
+
+        // Log transition
+        stateTransitionLogger.debug("\(sessionId): \(transition.from.rawValue) → \(transition.to.rawValue) [\(source.rawValue)] didChange=\(transition.didChange)")
+        transitionLogs[sessionId, default: TransitionLog()].append(transition)
+
+        // Auto-acknowledge: selected session becomes done → immediately transition to idle
+        if transition.didChange && transition.to == .done && selectedSessionId == sessions[idx].id {
+            let ackTransition = StateReducer.reduce(current: .done, event: .userAcknowledged, source: .userAction)
+            sessions[idx].status = ackTransition.to
+            stateTransitionLogger.debug("\(sessionId): auto-ack \(ackTransition.from.rawValue) → \(ackTransition.to.rawValue)")
+            transitionLogs[sessionId, default: TransitionLog()].append(ackTransition)
+            eventWatcher?.resetCachedStatus(for: sessionId)
+            // Return composite: caller sees the full journey from original → idle
+            return StateTransition(from: transition.from, to: .idle, didChange: transition.from != .idle, source: source, timestamp: transition.timestamp)
         }
 
-        // Suppress done if acknowledged
-        if acknowledgedSessionIds.contains(sessionId) {
-            sessions[idx].done = false
-        }
+        return transition
+    }
 
-        // Auto-acknowledge if this session is currently selected
-        if sessions[idx].done && selectedSessionId == sessions[idx].id {
-            acknowledgedSessionIds.insert(sessionId)
-            sessions[idx].done = false
-            saveAcknowledgedSessions()
+    /// Apply metadata fields from a state event to the session at the given index.
+    /// Called after status is updated by the reducer. Updates summary, staleness, and waiting metadata.
+    private func applyEventMetadata(_ event: StateEvent, toSessionAt idx: Int) {
+        switch event {
+        case .toolUse(_, let summary, let timestamp):
+            sessions[idx].latestEventSummary = summary
+            sessions[idx].stalenessSeconds = Date().timeIntervalSince(timestamp)
+        case .promptSubmit(_, let timestamp):
+            // Don't update latestEventSummary for prompt_submit (preserves last tool use summary)
+            sessions[idx].stalenessSeconds = Date().timeIntervalSince(timestamp)
+        case .stop(let reason, let timestamp):
+            sessions[idx].latestEventSummary = reason
+            sessions[idx].stalenessSeconds = Date().timeIntervalSince(timestamp)
+        case .notification(let message, let waitingReason, let waitingSummary, let timestamp):
+            sessions[idx].waitingReason = waitingReason
+            sessions[idx].waitingSummary = waitingSummary
+            sessions[idx].latestEventSummary = "Notification: \(message)"
+            sessions[idx].stalenessSeconds = Date().timeIntervalSince(timestamp)
+        case .sleepDetected(let summary, let timestamp):
+            sessions[idx].latestEventSummary = summary
+            sessions[idx].stalenessSeconds = Date().timeIntervalSince(timestamp)
+        case .userCancelled:
+            sessions[idx].latestEventSummary = "Cancelled"
+        case .userAcknowledged, .sessionReset, .stalenessCheck, .polledState:
+            break // No metadata to apply
         }
     }
 
@@ -628,7 +653,7 @@ final class SessionStore {
     /// Schedules a debounced transition to idle after ~2 seconds.
     func handleAgentCancel(sessionId: String) {
         guard let idx = sessions.firstIndex(where: { $0.sessionId == sessionId }),
-              sessions[idx].working else { return }
+              sessions[idx].status == .working else { return }
 
         // Cancel any existing pending timer for this session
         pendingCancelTimers[sessionId]?.cancel()
@@ -638,15 +663,10 @@ final class SessionStore {
                   self.pendingCancelTimers[sessionId] != nil else { return }
             self.pendingCancelTimers.removeValue(forKey: sessionId)
             guard let idx = self.sessions.firstIndex(where: { $0.sessionId == sessionId }),
-                  self.sessions[idx].working else { return }
+                  self.sessions[idx].status == .working else { return }
 
-            self.sessions[idx].working = false
-            self.sessions[idx].done = false
-            self.sessions[idx].waitingForInput = false
-            self.sessions[idx].stuck = false
-            self.sessions[idx].sleeping = false
-            self.sessions[idx].latestEventSummary = "Cancelled"
-            self.eventWatcher?.resetCachedState(for: sessionId)
+            self.dispatchStateEvent(.userCancelled, source: .userAction, forSessionId: sessionId)
+            self.eventWatcher?.resetCachedStatus(for: sessionId)
         }
         pendingCancelTimers[sessionId] = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.0, execute: work)
@@ -679,13 +699,12 @@ final class SessionStore {
             for name in removedNames {
                 // Find the session ID for this tmux session name
                 if let session = sessions.first(where: { $0.name == name }) {
-                    NotificationManager.shared.clearSession(session.id)
                     pendingKills.remove(session.id)
                     eventWatcher?.stopWatching(sessionId: session.sessionId)
                     autoNamer?.reset(sessionId: session.sessionId)
                     activityLog.removeValue(forKey: session.sessionId)
                     userRenamedSessions.remove(session.sessionId)
-                    acknowledgedSessionIds.remove(session.sessionId)
+                    transitionLogs.removeValue(forKey: session.sessionId)
                 }
             }
 
@@ -720,13 +739,13 @@ final class SessionStore {
             guard !pendingKills.contains(compositeKey) else { continue }
 
             // Start watchers for new sessions
-            if info.agentType == "claude", eventWatcher?.cachedState(for: sessionId) == nil {
+            if info.agentType == "claude", eventWatcher?.cachedStatus(for: sessionId) == nil {
                 eventWatcher?.startWatching(sessionId: sessionId)
                 watcherStartCount += 1
             }
 
             // Build or update the session
-            let agentState = eventWatcher?.cachedState(for: sessionId)
+            let cachedStatus = eventWatcher?.cachedStatus(for: sessionId)
 
             let existingIdx = sessions.firstIndex(where: { $0.id == compositeKey })
 
@@ -737,13 +756,13 @@ final class SessionStore {
                 // causes groupingPath() → findGitRoot() to walk the filesystem
                 // whenever an agent cd's to a new directory, which triggers TCC
                 // prompts for protected paths like /Volumes or ~/Music.
-                let old = sessions[idx]
 
-                if let state = agentState {
-                    applyAgentState(state, toSessionAt: idx)
+                if let status = cachedStatus {
+                    if let transition = dispatchStateEvent(.polledState(status: status), source: .tmuxPolling, forSessionId: sessionId),
+                       transition.didChange, transition.to == .done || transition.to == .waitingForInput {
+                        NotificationManager.shared.notify(session: sessions[idx], transition: transition)
+                    }
                 }
-
-                NotificationManager.shared.evaluateTransition(old: old, new: sessions[idx])
             } else {
                 // New session
                 var session = Session(
@@ -758,11 +777,12 @@ final class SessionStore {
 
                 sessions.append(session)
 
-                if let state = agentState {
-                    applyAgentState(state, toSessionAt: sessions.count - 1)
+                if let status = cachedStatus {
+                    if let transition = dispatchStateEvent(.polledState(status: status), source: .tmuxPolling, forSessionId: sessionId),
+                       transition.didChange, transition.to == .done || transition.to == .waitingForInput {
+                        NotificationManager.shared.notify(session: sessions[sessions.count - 1], transition: transition)
+                    }
                 }
-
-                NotificationManager.shared.evaluateTransition(old: nil, new: sessions[sessions.count - 1])
             }
 
             // Check if this new session matches a finished launch placeholder
@@ -811,73 +831,79 @@ final class SessionStore {
 
     func handleAgentStateUpdate(_ update: AgentStateUpdate) {
         guard let idx = sessions.firstIndex(where: { $0.sessionId == update.sessionId }) else { return }
-        let old = sessions[idx]
+        let event = update.event
 
         // Cancel any pending cancel-to-idle timer when a genuine new working
-        // event arrives. This is intentionally here (not in applyAgentState)
-        // because applyAgentState is also called by handleTmuxUpdate with
+        // event arrives. This is intentionally here (not in dispatchStateEvent)
+        // because polledState is also dispatched by handleTmuxUpdate with
         // cached state every ~1s, which would incorrectly cancel the timer.
-        if update.state.working {
+        switch event {
+        case .toolUse, .promptSubmit:
             pendingCancelTimers[update.sessionId]?.cancel()
             pendingCancelTimers.removeValue(forKey: update.sessionId)
+        default:
+            break
         }
 
-        applyAgentState(update.state, toSessionAt: idx)
+        let transition = dispatchStateEvent(event, source: .eventWatcher, forSessionId: update.sessionId)
 
-        NotificationManager.shared.evaluateTransition(old: old, new: sessions[idx])
+        // Notify only when state actually changed to a notifiable state
+        if let transition, transition.didChange, transition.to == .done || transition.to == .waitingForInput {
+            NotificationManager.shared.notify(session: sessions[idx], transition: transition)
+        }
 
         // Auto-naming: collect activity and trigger when ready
-        if let summary = update.state.latestEventSummary, !summary.isEmpty {
-            let eventType = update.state.latestEventType ?? ""
-            // Capture both tool_use and prompt_submit events for naming context
-            if eventType == "tool_use" || eventType == "prompt_submit" {
-                let sessionId = update.sessionId
-                activityLog[sessionId, default: []].append(summary)
+        let sessionId = update.sessionId
+        switch event {
+        case .toolUse(_, let summary, _):
+            activityLog[sessionId, default: []].append(summary)
 
-                // Immediate naming from first prompt when session has no name yet
-                if eventType == "prompt_submit",
-                   sessions[idx].displayName == nil,
-                   !userRenamedSessions.contains(sessionId),
-                   let namer = autoNamer {
-                    let promptText = summary.hasPrefix("Prompt: ") ? String(summary.dropFirst(8)) : summary
-                    Task {
-                        if let name = await namer.generateNameFromPrompt(promptText) {
-                            await MainActor.run { [weak self] in
-                                guard let self else { return }
-                                if let i = self.sessions.firstIndex(where: { $0.sessionId == sessionId }),
-                                   !self.userRenamedSessions.contains(sessionId),
-                                   self.sessions[i].displayName == nil {
-                                    self.sessions[i].displayName = name
-                                    self.saveDisplayName(name, for: sessionId)
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // Skip sessions the user explicitly renamed
-                if !userRenamedSessions.contains(sessionId),
-                   let namer = autoNamer,
-                   // Only count tool_use events for triggering (prompts alone aren't enough signal)
-                   eventType == "tool_use",
-                   namer.recordEvent(sessionId: sessionId) {
-                    let activities = activityLog[sessionId] ?? []
-                    let currentName = sessions[idx].displayName
-                    Task {
-                        if let name = await namer.generateName(activities: activities, currentName: currentName) {
-                            await MainActor.run { [weak self] in
-                                guard let self else { return }
-                                // Re-check: user may have renamed during the API call
-                                if let i = self.sessions.firstIndex(where: { $0.sessionId == sessionId }),
-                                   !self.userRenamedSessions.contains(sessionId) {
-                                    self.sessions[i].displayName = name
-                                    self.saveDisplayName(name, for: sessionId)
-                                }
+            // Activity-based naming (triggered by tool_use event count)
+            if !userRenamedSessions.contains(sessionId),
+               let namer = autoNamer,
+               namer.recordEvent(sessionId: sessionId) {
+                let activities = activityLog[sessionId] ?? []
+                let currentName = sessions[idx].displayName
+                Task {
+                    if let name = await namer.generateName(activities: activities, currentName: currentName) {
+                        await MainActor.run { [weak self] in
+                            guard let self else { return }
+                            if let i = self.sessions.firstIndex(where: { $0.sessionId == sessionId }),
+                               !self.userRenamedSessions.contains(sessionId) {
+                                self.sessions[i].displayName = name
+                                self.saveDisplayName(name, for: sessionId)
                             }
                         }
                     }
                 }
             }
+
+        case .promptSubmit(let summary, _):
+            activityLog[sessionId, default: []].append(summary)
+
+            // Immediate naming from first prompt when session has no name yet
+            if let currentIdx = sessions.firstIndex(where: { $0.sessionId == sessionId }),
+               sessions[currentIdx].displayName == nil,
+               !userRenamedSessions.contains(sessionId),
+               let namer = autoNamer {
+                let promptText = summary.hasPrefix("Prompt: ") ? String(summary.dropFirst(8)) : summary
+                Task {
+                    if let name = await namer.generateNameFromPrompt(promptText) {
+                        await MainActor.run { [weak self] in
+                            guard let self else { return }
+                            if let i = self.sessions.firstIndex(where: { $0.sessionId == sessionId }),
+                               !self.userRenamedSessions.contains(sessionId),
+                               self.sessions[i].displayName == nil {
+                                self.sessions[i].displayName = name
+                                self.saveDisplayName(name, for: sessionId)
+                            }
+                        }
+                    }
+                }
+            }
+
+        default:
+            break
         }
     }
 
@@ -910,7 +936,7 @@ final class SessionStore {
             agentType: agentType,
             sessionId: state.id,
             workingDirectory: workingDir,
-            working: true
+            status: .working
         )
         placeholder.isPlaceholder = true
 
@@ -1083,7 +1109,6 @@ final class SessionStore {
 
         pendingKills.insert(session.id)
         sessions.removeAll { $0.id == session.id }
-        NotificationManager.shared.clearSession(session.id)
         reconcileOrder()
     }
 
@@ -1203,10 +1228,9 @@ final class SessionStore {
 
     func acknowledgeSession(_ sessionId: String) {
         guard let idx = sessions.firstIndex(where: { $0.id == sessionId }),
-              sessions[idx].done else { return }
-        acknowledgedSessionIds.insert(sessions[idx].sessionId)
-        sessions[idx].done = false
-        saveAcknowledgedSessions()
+              sessions[idx].status == .done else { return }
+        dispatchStateEvent(.userAcknowledged, source: .userAction, forSessionId: sessions[idx].sessionId)
+        eventWatcher?.resetCachedStatus(for: sessions[idx].sessionId)
     }
 
     // MARK: - Display Name Persistence (UserDefaults)
@@ -1220,18 +1244,6 @@ final class SessionStore {
     private func loadDisplayName(for sessionId: String) -> String? {
         let names = defaults.dictionary(forKey: Self.displayNamesKey) as? [String: String]
         return names?[sessionId]
-    }
-
-    // MARK: - Acknowledged Sessions Persistence (UserDefaults)
-
-    private func saveAcknowledgedSessions() {
-        defaults.set(Array(acknowledgedSessionIds), forKey: Self.acknowledgedSessionsKey)
-    }
-
-    private func loadAcknowledgedSessions() {
-        if let saved = defaults.stringArray(forKey: Self.acknowledgedSessionsKey) {
-            acknowledgedSessionIds = Set(saved)
-        }
     }
 
     // MARK: - Order Reconciliation
@@ -1305,12 +1317,10 @@ final class SessionStore {
             folderLastUsed.removeValue(forKey: key)
         }
 
-        // Prune stale acknowledged session IDs
+        // Prune stale transition logs
         let currentSessionIds = Set(sessions.map(\.sessionId))
-        let staleAcknowledged = acknowledgedSessionIds.subtracting(currentSessionIds)
-        if !staleAcknowledged.isEmpty {
-            acknowledgedSessionIds.subtract(staleAcknowledged)
-            saveAcknowledgedSessions()
+        for key in transitionLogs.keys where !currentSessionIds.contains(key) {
+            transitionLogs.removeValue(forKey: key)
         }
 
         // Prune stale last-focused session timestamps
@@ -1482,7 +1492,6 @@ final class SessionStore {
            let decoded = try? JSONDecoder().decode([String: Date].self, from: data) {
             lastFocusedTimestamps = decoded
         }
-        loadAcknowledgedSessions()
     }
 
     private func saveFolderOrder() {
@@ -1586,8 +1595,7 @@ final class SessionStore {
             var placeholder = Session(
                 name: "deleting-\(folderPath)",
                 sessionId: "deleting-\(folderPath)",
-                workingDirectory: folderPath,
-                working: false
+                workingDirectory: folderPath
             )
             placeholder.isPlaceholder = true
             sessions.append(placeholder)
@@ -1753,7 +1761,7 @@ final class SessionStore {
             name: state.id,
             sessionId: state.id,
             workingDirectory: worktreePath,
-            working: true
+            status: .working
         )
         placeholder.displayName = branchName
         placeholder.branch = branchName

@@ -6,12 +6,12 @@ struct StatusDot: View {
     @State private var glowActive = false
 
     private var isStale: Bool {
-        guard session.working, let staleness = session.stalenessSeconds else { return false }
+        guard session.status == .working, let staleness = session.stalenessSeconds else { return false }
         return staleness > 300
     }
 
     private var isActivelyWorking: Bool {
-        session.working && !isStale && !session.done && !session.stuck && !session.waitingForInput
+        session.status == .working && !isStale
     }
 
     var body: some View {
@@ -40,50 +40,56 @@ struct StatusDot: View {
     }
 
     private var color: Color {
-        if session.done {
-            return NalaTheme.green
-        } else if session.stuck {
-            return NalaTheme.red
-        } else if session.waitingForInput {
-            return NalaTheme.amber
-        } else if session.working {
-            return NalaTheme.teal
-        } else {
-            return NalaTheme.textTertiary
+        switch session.status {
+        case .done:             return NalaTheme.green
+        case .stuck:            return NalaTheme.red
+        case .waitingForInput:  return NalaTheme.amber
+        case .working:          return NalaTheme.teal
+        case .sleeping:         return NalaTheme.textTertiary
+        case .idle:             return NalaTheme.textTertiary
         }
     }
 
     private var glowColor: Color { color }
 
     private var primaryGlowOpacity: Double {
-        if session.done { return 0.2 }
-        if session.stuck { return 0.2 }
-        if session.waitingForInput { return 0.2 }
-        if session.working { return 0.4 }
-        return 0
+        switch session.status {
+        case .done, .stuck, .waitingForInput: return 0.2
+        case .working:                        return 0.4
+        case .sleeping, .idle:                return 0
+        }
     }
 
     private var primaryGlowRadius: CGFloat {
-        if session.done || session.stuck || session.waitingForInput { return 4 }
-        if session.working { return 6 }
-        return 0
+        switch session.status {
+        case .done, .stuck, .waitingForInput: return 4
+        case .working:                        return 6
+        case .sleeping, .idle:                return 0
+        }
     }
 
     private var secondaryGlowOpacity: Double {
-        if session.working && !session.done && !session.stuck && !session.waitingForInput { return 0.15 }
-        return 0
+        switch session.status {
+        case .working: return 0.15
+        default:       return 0
+        }
     }
 
     private var secondaryGlowRadius: CGFloat {
-        if session.working && !session.done && !session.stuck && !session.waitingForInput { return 16 }
-        return 0
+        switch session.status {
+        case .working: return 16
+        default:       return 0
+        }
     }
 
     private var accessibilityStatus: String {
-        if session.done { return "completed" }
-        if session.stuck { return "stuck" }
-        if session.waitingForInput { return "waiting for input" }
-        if session.working { return isStale ? "stale" : "working" }
-        return "idle"
+        switch session.status {
+        case .done:             return "completed"
+        case .stuck:            return "stuck"
+        case .waitingForInput:  return "waiting for input"
+        case .working:          return isStale ? "stale" : "working"
+        case .sleeping:         return "sleeping"
+        case .idle:             return "idle"
+        }
     }
 }

@@ -1,0 +1,152 @@
+import Foundation
+
+// MARK: - AgentStatus
+
+/// Single-enum representation of agent state.
+/// Replaces the previous boolean-bag (working, done, waitingForInput, stuck, sleeping).
+enum AgentStatus: String, Equatable, CaseIterable {
+    case idle
+    case working
+    case waitingForInput
+    case sleeping
+    case done
+    case stuck
+}
+
+// MARK: - StateEvent
+
+/// Events that can trigger a state transition.
+/// All state sources (EventFileWatcher, TmuxService polling, user actions) feed through these.
+enum StateEvent: Equatable {
+    case toolUse(tool: String, summary: String, timestamp: Date)
+    case promptSubmit(summary: String, timestamp: Date)
+    case stop(reason: String, timestamp: Date)
+    case notification(message: String, waitingReason: String?, waitingSummary: String?, timestamp: Date)
+    case sessionReset
+    case userAcknowledged
+    case userCancelled
+    case stalenessCheck(elapsed: TimeInterval)
+    case sleepDetected(summary: String, timestamp: Date)
+    case polledState(status: AgentStatus)
+}
+
+// MARK: - StateSource
+
+/// Identifies which subsystem originated a state event.
+enum StateSource: String, Equatable {
+    case eventWatcher
+    case tmuxPolling
+    case userAction
+    case stalenessRefresh
+}
+
+// MARK: - StateTransition
+
+/// The result of running a state event through the reducer.
+struct StateTransition: Equatable {
+    let from: AgentStatus
+    let to: AgentStatus
+    let didChange: Bool
+    let source: StateSource
+    let timestamp: Date
+}
+
+// MARK: - StateReducer
+
+/// Pure function that computes the next agent status from the current status and an incoming event.
+/// All transition logic lives here. The reducer has no side effects -- it doesn't know about
+/// notifications, sessions, or UI.
+struct StateReducer {
+
+    /// Compute the next state given the current status and an incoming event.
+    static func reduce(current: AgentStatus, event: StateEvent, source: StateSource) -> StateTransition {
+        let next: AgentStatus
+        let timestamp: Date
+
+        switch event {
+        case .toolUse(_, _, let ts):
+            timestamp = ts
+            next = .working
+
+        case .promptSubmit(_, let ts):
+            timestamp = ts
+            next = .working
+
+        case .stop(_, let ts):
+            timestamp = ts
+            next = .done
+
+        case .notification(_, _, _, let ts):
+            timestamp = ts
+            next = .waitingForInput
+
+        case .sessionReset:
+            timestamp = Date()
+            next = .idle
+
+        case .userAcknowledged:
+            timestamp = Date()
+            next = current == .done ? .idle : current
+
+        case .userCancelled:
+            timestamp = Date()
+            next = .idle
+
+        case .stalenessCheck(let elapsed):
+            timestamp = Date()
+            // 6-minute threshold (360s), matching EventFileWatcher.stalenessThreshold.
+            if current == .working && elapsed > 360 {
+                next = .stuck
+            } else {
+                next = current
+            }
+
+        case .sleepDetected(_, let ts):
+            timestamp = ts
+            next = .sleeping
+
+        case .polledState(let polledStatus):
+            timestamp = Date()
+            next = polledStatus
+        }
+
+        return StateTransition(
+            from: current,
+            to: next,
+            didChange: current != next,
+            source: source,
+            timestamp: timestamp
+        )
+    }
+}
+
+// MARK: - TransitionLog
+
+/// In-memory ring buffer of recent state transitions for debugging.
+/// Capped at `capacity` entries; oldest entries are evicted when full.
+struct TransitionLog {
+    private var entries: [StateTransition] = []
+    private let capacity: Int
+
+    init(capacity: Int = 50) {
+        self.capacity = capacity
+    }
+
+    /// Append a transition to the log, evicting the oldest if at capacity.
+    mutating func append(_ transition: StateTransition) {
+        if entries.count >= capacity {
+            entries.removeFirst()
+        }
+        entries.append(transition)
+    }
+
+    /// All logged transitions, oldest first.
+    var recent: [StateTransition] {
+        entries
+    }
+
+    /// Number of transitions currently in the log.
+    var count: Int {
+        entries.count
+    }
+}
