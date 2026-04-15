@@ -550,6 +550,16 @@ final class SessionStore {
 
         // Main-thread hang detector (DEBUG only)
         let watchdog = MainThreadWatchdog()
+        watchdog.stateSnapshot = { [weak self] in
+            guard let self else { return "deallocated" }
+            let count = self.sessions.count
+            let selected = self.selectedSessionId ?? "none"
+            let launches = self.activeLaunches.count
+            let deletions = self.activeDeletions.count
+            let creations = self.activeCreations.count
+            let restarts = self.activeRestarts.count
+            return "sessions=\(count) selected=\(selected) launches=\(launches) deletions=\(deletions) creations=\(creations) restarts=\(restarts)"
+        }
         watchdog.start()
         self.watchdog = watchdog
 

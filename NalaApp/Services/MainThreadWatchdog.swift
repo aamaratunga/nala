@@ -15,6 +15,10 @@ import os
 /// a hung process, in-flight os.Logger entries that haven't been flushed to
 /// the log store are lost. Direct file writes survive force-quit.
 ///
+/// A periodic heartbeat is also written to hang.log so that post-mortem
+/// analysis can determine the last time the watchdog was alive and what
+/// the app was doing before a freeze.
+///
 /// Only active in DEBUG builds to avoid any overhead in release.
 final class MainThreadWatchdog: @unchecked Sendable {
     private let logger = Logger(subsystem: "com.nala.app", category: "Watchdog")
@@ -26,13 +30,31 @@ final class MainThreadWatchdog: @unchecked Sendable {
     /// How long the main thread must be unresponsive before logging (seconds).
     private static let hangThreshold: TimeInterval = 3.0
 
+    /// How often to write a heartbeat to hang.log (in check intervals).
+    /// 15 checks × 2s = every 30 seconds.
+    private static let heartbeatInterval: Int = 15
+
     /// Tracks whether we're currently in a detected hang to avoid spamming logs.
     private var hangStartTime: TimeInterval = 0
+
+    /// Counter for heartbeat cadence.
+    private var checkCount: Int = 0
 
     /// File handle for the persistent hang log, kept open to avoid open/close
     /// overhead on each write. Writes are followed by `synchronizeFile()` to
     /// ensure data reaches disk before a potential force-quit.
     private var hangLogHandle: FileHandle?
+
+    /// Closure that returns a snapshot of app state for heartbeat logging.
+    /// Called on the main thread (inside the semaphore signal block) to avoid
+    /// data races. The result is cached in `lastSnapshot` for use by the
+    /// background timer thread.
+    var stateSnapshot: (() -> String)?
+
+    /// Last state snapshot captured on the main thread. Read from the timer
+    /// thread for hang detection and heartbeat logging. Updated every check
+    /// cycle when the main thread is responsive.
+    private var lastSnapshot: String = ""
 
     /// ISO 8601 formatter for hang log timestamps.
     private static let timestampFormatter: ISO8601DateFormatter = {
@@ -44,6 +66,7 @@ final class MainThreadWatchdog: @unchecked Sendable {
     func start() {
         #if DEBUG
         openHangLog()
+        writeToHangLog("Watchdog started (check=\(Self.checkInterval)s, threshold=\(Self.hangThreshold)s)")
 
         let timer = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .utility))
         timer.schedule(
@@ -60,6 +83,9 @@ final class MainThreadWatchdog: @unchecked Sendable {
     }
 
     func stop() {
+        #if DEBUG
+        writeToHangLog("Watchdog stopped (clean shutdown)")
+        #endif
         timer?.cancel()
         timer = nil
         hangLogHandle?.closeFile()
@@ -67,10 +93,15 @@ final class MainThreadWatchdog: @unchecked Sendable {
     }
 
     private func checkMainThread() {
+        checkCount += 1
         let pingStart = CACurrentMediaTime()
         let semaphore = DispatchSemaphore(value: 0)
 
-        DispatchQueue.main.async {
+        // Capture the state snapshot on the main thread to avoid data races.
+        // If the main thread is hung, we'll use the last-known-good snapshot.
+        let snapshotProvider = stateSnapshot
+        DispatchQueue.main.async { [weak self] in
+            self?.lastSnapshot = snapshotProvider?() ?? ""
             semaphore.signal()
         }
 
@@ -79,8 +110,10 @@ final class MainThreadWatchdog: @unchecked Sendable {
             let elapsed = CACurrentMediaTime() - pingStart
             if hangStartTime == 0 {
                 hangStartTime = pingStart
+                let snapshot = lastSnapshot
                 let message = "MAIN THREAD HANG DETECTED: unresponsive for >\(String(format: "%.1f", elapsed))s. " +
-                    "Check 'handleTmuxUpdate', 'reconcileOrder', 'startWatching' signposts."
+                    "Check 'handleTmuxUpdate', 'reconcileOrder', 'startWatching' signposts." +
+                    (snapshot.isEmpty ? "" : " Last known state: \(snapshot)")
                 logger.error("\(message)")
                 writeToHangLog(message)
             } else {
@@ -96,6 +129,11 @@ final class MainThreadWatchdog: @unchecked Sendable {
                 logger.warning("\(message)")
                 writeToHangLog(message)
                 hangStartTime = 0
+            }
+
+            // Periodic heartbeat — only when main thread is responsive
+            if checkCount % Self.heartbeatInterval == 0 {
+                writeToHangLog("heartbeat: \(lastSnapshot)")
             }
         }
     }
@@ -131,13 +169,32 @@ final class MainThreadWatchdog: @unchecked Sendable {
         }
 
         hangLogHandle = FileHandle(forWritingAtPath: path)
+        if hangLogHandle == nil {
+            logger.error("Failed to open hang log for writing at: \(path)")
+        }
         hangLogHandle?.seekToEndOfFile()
     }
 
     /// Appends a timestamped line to the hang log and forces a disk sync.
     /// Uses direct file I/O so the entry survives even if the process is
-    /// force-quit immediately after.
+    /// force-quit immediately after. If the file handle was lost (nil),
+    /// recreates the file and retries before giving up.
     private func writeToHangLog(_ message: String) {
+        if hangLogHandle == nil {
+            let home = FileManager.default.homeDirectoryForCurrentUser.path
+            let dir = "\(home)/.nala"
+            let path = "\(dir)/hang.log"
+            let fm = FileManager.default
+            try? fm.createDirectory(atPath: dir, withIntermediateDirectories: true)
+            if !fm.fileExists(atPath: path) {
+                fm.createFile(atPath: path, contents: nil, attributes: [.posixPermissions: 0o600])
+            }
+            hangLogHandle = FileHandle(forWritingAtPath: path)
+            hangLogHandle?.seekToEndOfFile()
+            if hangLogHandle == nil {
+                logger.error("writeToHangLog: failed to reopen hang log at \(path)")
+            }
+        }
         let timestamp = Self.timestampFormatter.string(from: Date())
         let pid = ProcessInfo.processInfo.processIdentifier
         let line = "[\(timestamp)] [PID \(pid)] \(message)\n"
