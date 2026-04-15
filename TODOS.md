@@ -95,11 +95,22 @@ Items ordered by recommended execution sequence.
 **Effort:** S
 **Priority:** P2
 
+#### 8. State updates for long-running terminal commands
+
+**What:** Surface progress or activity indicators for terminal sessions running long-lived commands (builds, test suites, installs, etc.) so users can tell at a glance whether a session is actively working, idle, or stuck.
+
+**Why:** During long-running commands the terminal tab looks static — there's no indication in the sidebar or session detail that work is progressing. Users end up switching to the terminal to check, breaking their flow.
+
+**Context:** Possible approaches: (a) parse tmux pane output for activity (bytes-since-last-check), (b) detect running foreground process via `tmux display -p '#{pane_current_command}'`, (c) use shell integration / prompt markers to distinguish "command running" from "shell idle." Option (b) is lowest effort and already compatible with the tmux polling architecture. Could surface state as a subtle activity indicator on the sidebar row (e.g., spinner or pulsing dot while a command is running, checkmark or dash when idle).
+
+**Effort:** M
+**Priority:** P2
+
 ---
 
 ### Tier 4 — Agent platform
 
-#### 8. Codex agent support
+#### 9. Codex agent support
 
 **What:** Add support for launching and managing OpenAI Codex agents alongside Claude agents. This includes a Codex launch command, agent-type detection, and any Codex-specific event parsing or state tracking.
 
@@ -110,7 +121,7 @@ Items ordered by recommended execution sequence.
 **Effort:** M–L
 **Priority:** P2
 
-#### 9. Multi-agent orchestration
+#### 10. Multi-agent orchestration
 
 **What:** Enable multiple agents to work together — either through automated chaining (agent A's output feeds agent B) or through agent teams that communicate with each other via shared context or message passing.
 
@@ -125,7 +136,7 @@ Items ordered by recommended execution sequence.
 
 ### Tier 5 — Diff Viewer V2
 
-#### 10. Auto-paste comments to agent terminal
+#### 11. Auto-paste comments to agent terminal
 
 **What:** Add a "Send to agent" button alongside "Copy all to prompt" in the diff viewer's CommentBarView. Injects formatted comments directly into the tmux session via `TmuxService` (`tmux send-keys`).
 
@@ -137,7 +148,7 @@ Items ordered by recommended execution sequence.
 **Priority:** P3
 **Depends on:** Diff Viewer V1 (PR4: comment system)
 
-#### 11. Keyboard-driven comment workflow
+#### 12. Keyboard-driven comment workflow
 
 **What:** Add keyboard navigation for the diff viewer — arrow keys to navigate lines in the WKWebView, press 'c' to add a comment on the focused line, Escape to cancel.
 
