@@ -142,8 +142,9 @@ Look for timing warnings from `handleTmuxUpdate`, `reconcileOrder`, `startWatchi
 - Unbounded `pendingBytes` in NalaTerminalView — **structurally eliminated** by single-view architecture (no hidden terminals accumulate data; view is destroyed on session switch, `tmux attach` replays ~4-8KB on reconnect)
 - `performStartupCleanup` directory listing + file deletion on main thread — moved to background Task
 - Large `flushPendingData` buffers (100-250KB) blocking main thread for 500-800ms — fixed by chunked drain (16KB per run-loop iteration)
+- `performWorktreeDeletion`/`performWorktreeCreation` mutating `@Observable` state from background tasks without MainActor — data race crash (not a hang; watchdog won't fire). Fixed by wrapping all state mutations in `await MainActor.run { }`.
 
-**Pattern:** All prior hangs were synchronous I/O or blocking calls on the main thread. If a new hang appears, look for the same pattern.
+**Pattern:** Prior hangs were synchronous I/O or blocking calls on the main thread. Prior crashes were `@Observable` data races (background task mutations without MainActor). If a new issue appears, check for both patterns. When adding new async pipelines, follow the `performRestart`/`performLaunch` pattern: keep process execution on background tasks, dispatch all `@Observable` mutations to `MainActor.run`.
 
 ### Log categories
 

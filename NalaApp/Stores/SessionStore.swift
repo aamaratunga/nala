@@ -1571,23 +1571,27 @@ final class SessionStore {
     }
 
     /// Async pipeline: kills sessions, runs pre-delete script, removes worktree, deletes branch.
+    /// All @Observable mutations are dispatched to MainActor to prevent data races with SwiftUI.
     private func performWorktreeDeletion(state: WorktreeDeletionState) async {
         let folderPath = state.folderPath
         logger.info("deleteWorktree: starting for \(folderPath)")
 
         // Step 1: Kill all real sessions in this folder (exclude placeholders)
-        let sessionsInFolder = sessions.filter { groupingPath(for: $0.workingDirectory) == folderPath && !$0.isPlaceholder }
+        // Read sessions on MainActor since `sessions` is @Observable
+        let sessionsInFolder = await MainActor.run {
+            sessions.filter { groupingPath(for: $0.workingDirectory) == folderPath && !$0.isPlaceholder }
+        }
         logger.info("deleteWorktree: found \(sessionsInFolder.count) sessions to kill")
 
         if sessionsInFolder.isEmpty {
-            state.skipStep(.killingSessions)
+            await MainActor.run { state.skipStep(.killingSessions) }
         } else {
-            state.advance(to: .killingSessions)
+            await MainActor.run { state.advance(to: .killingSessions) }
             for session in sessionsInFolder {
                 logger.info("deleteWorktree: killing session \(session.name)")
                 await tmuxService?.killSession(name: session.name)
             }
-            state.completeCurrentStep()
+            await MainActor.run { state.completeCurrentStep() }
         }
 
         // Step 2: Find the repo config and run pre-delete script
@@ -1595,7 +1599,7 @@ final class SessionStore {
         if let config = repoConfigForWorktree(path: folderPath) {
             logger.info("deleteWorktree: matched repo config '\(config.displayName)' (repoPath=\(config.repoPath))")
             if let script = config.preDeleteScript, !script.isEmpty {
-                state.advance(to: .runningPreDeleteScript)
+                await MainActor.run { state.advance(to: .runningPreDeleteScript) }
                 let branchName = URL(fileURLWithPath: folderPath).lastPathComponent
                 logger.info("deleteWorktree: running pre-delete script: \(script)")
                 let scriptResult = await GitService.runScript(
@@ -1609,24 +1613,26 @@ final class SessionStore {
                 } else {
                     logger.info("deleteWorktree: pre-delete script succeeded")
                 }
-                state.completeCurrentStep()
+                await MainActor.run { state.completeCurrentStep() }
             } else {
-                state.skipStep(.runningPreDeleteScript)
+                await MainActor.run { state.skipStep(.runningPreDeleteScript) }
             }
             repoPath = config.repoPath
         } else if let parsed = GitService.findParentRepoPath(worktreePath: folderPath) {
             logger.info("deleteWorktree: no repo config match, parsed parent repo from .git file: \(parsed)")
-            state.skipStep(.runningPreDeleteScript)
+            await MainActor.run { state.skipStep(.runningPreDeleteScript) }
             repoPath = parsed
         } else {
             logger.error("deleteWorktree: cannot determine parent repo for \(folderPath) — aborting")
-            state.fail(at: .runningPreDeleteScript, message: "Cannot determine parent repository")
-            handleDeletionFailure(state: state)
+            await MainActor.run {
+                state.fail(at: .runningPreDeleteScript, message: "Cannot determine parent repository")
+                handleDeletionFailure(state: state)
+            }
             return
         }
 
         // Step 3: Remove the worktree
-        state.advance(to: .removingWorktree)
+        await MainActor.run { state.advance(to: .removingWorktree) }
         logger.info("deleteWorktree: removing worktree (repo=\(repoPath), path=\(folderPath))")
         var result = await GitService.removeWorktree(repoPath: repoPath, worktreePath: folderPath)
         if !result.succeeded {
@@ -1636,27 +1642,31 @@ final class SessionStore {
 
         guard result.succeeded else {
             logger.error("deleteWorktree: failed to remove worktree even with force: \(result.errorMessage)")
-            state.fail(at: .removingWorktree, message: result.errorMessage)
-            handleDeletionFailure(state: state)
+            await MainActor.run {
+                state.fail(at: .removingWorktree, message: result.errorMessage)
+                handleDeletionFailure(state: state)
+            }
             return
         }
         logger.info("deleteWorktree: worktree removed successfully")
-        state.completeCurrentStep()
+        await MainActor.run { state.completeCurrentStep() }
 
         // Step 4: Delete the branch
-        state.advance(to: .deletingBranch)
+        await MainActor.run { state.advance(to: .deletingBranch) }
         let branchName = URL(fileURLWithPath: folderPath).lastPathComponent
         logger.info("deleteWorktree: deleting branch '\(branchName)'")
         let branchResult = await GitService.deleteBranch(repoPath: repoPath, branchName: branchName)
         if !branchResult.succeeded {
             logger.warning("deleteWorktree: branch deletion failed (may not exist or is current): \(branchResult.errorMessage)")
         }
-        state.completeCurrentStep()
 
-        handleDeletionSuccess(state: state)
+        await MainActor.run {
+            state.completeCurrentStep()
+            handleDeletionSuccess(state: state)
+        }
     }
 
-    /// Cleans up after a successful deletion.
+    /// Cleans up after a successful deletion. Must be called on MainActor.
     private func handleDeletionSuccess(state: WorktreeDeletionState) {
         state.isFinished = true
 
@@ -1683,7 +1693,7 @@ final class SessionStore {
         scanWorktreeFolders()
     }
 
-    /// Cleans up after a failed deletion attempt.
+    /// Cleans up after a failed deletion attempt. Must be called on MainActor.
     private func handleDeletionFailure(state: WorktreeDeletionState) {
         activeDeletions.removeValue(forKey: state.folderPath)
         showErrorAlert(title: "Worktree Deletion Failed", message: state.error)
@@ -1732,24 +1742,27 @@ final class SessionStore {
     }
 
     /// Async pipeline: creates worktree, runs setup script, launches agent.
+    /// All @Observable mutations are dispatched to MainActor to prevent data races with SwiftUI.
     private func performWorktreeCreation(state: WorktreeCreationState, config: RepoConfig) async {
         // Step 1: Create worktree
-        state.advance(to: .creatingWorktree)
+        await MainActor.run { state.advance(to: .creatingWorktree) }
         let result = await GitService.createWorktree(
             repoPath: config.repoPath,
             worktreeFolder: config.worktreeFolderPath,
             branchName: state.branchName
         )
         guard result.succeeded else {
-            state.fail(at: .creatingWorktree, message: result.errorMessage)
-            handleCreationFailure(state: state, removeDiscoveredFolder: true)
+            await MainActor.run {
+                state.fail(at: .creatingWorktree, message: result.errorMessage)
+                handleCreationFailure(state: state, removeDiscoveredFolder: true)
+            }
             return
         }
-        state.completeCurrentStep()
+        await MainActor.run { state.completeCurrentStep() }
 
         // Step 2: Run post-create script (if configured)
         if let script = config.postCreateScript, !script.isEmpty {
-            state.advance(to: .runningSetupScript)
+            await MainActor.run { state.advance(to: .runningSetupScript) }
             let scriptResult = await GitService.runScript(
                 scriptPath: script,
                 worktreePath: state.worktreePath,
@@ -1760,19 +1773,21 @@ final class SessionStore {
                 logger.warning("Post-create script failed: \(scriptResult.errorMessage)")
                 // Non-fatal — continue with agent launch
             }
-            state.completeCurrentStep()
+            await MainActor.run { state.completeCurrentStep() }
         } else {
-            state.skipStep(.runningSetupScript)
+            await MainActor.run { state.skipStep(.runningSetupScript) }
         }
 
         // Rescan so sidebar picks up the new folder from disk
-        scanWorktreeFolders()
+        await MainActor.run { scanWorktreeFolders() }
 
         // Step 3: Launch agent
-        state.advance(to: .launchingAgent)
+        await MainActor.run { state.advance(to: .launchingAgent) }
         guard let tmux = tmuxService else {
-            state.fail(at: .launchingAgent, message: "TmuxService not available")
-            handleCreationFailure(state: state, removeDiscoveredFolder: false)
+            await MainActor.run {
+                state.fail(at: .launchingAgent, message: "TmuxService not available")
+                handleCreationFailure(state: state, removeDiscoveredFolder: false)
+            }
             return
         }
 
@@ -1781,14 +1796,18 @@ final class SessionStore {
                 agentType: "claude",
                 workingDirectory: state.worktreePath
             )
-            state.completeCurrentStep()
-            state.isFinished = true
-            if let parsed = TmuxService.parseSessionName(sessionName) {
-                replacePlaceholder(placeholderId: state.id, realSessionId: parsed.uuid)
+            await MainActor.run {
+                state.completeCurrentStep()
+                state.isFinished = true
+                if let parsed = TmuxService.parseSessionName(sessionName) {
+                    replacePlaceholder(placeholderId: state.id, realSessionId: parsed.uuid)
+                }
             }
         } catch {
-            state.fail(at: .launchingAgent, message: error.localizedDescription)
-            handleCreationFailure(state: state, removeDiscoveredFolder: false)
+            await MainActor.run {
+                state.fail(at: .launchingAgent, message: error.localizedDescription)
+                handleCreationFailure(state: state, removeDiscoveredFolder: false)
+            }
         }
     }
 
