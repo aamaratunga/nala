@@ -689,9 +689,9 @@ final class SessionStore {
     /// to working — self-corrects if wrong via the next hook event.
     func handlePermissionAccepted(sessionId: String) {
         guard let idx = sessions.firstIndex(where: { $0.sessionId == sessionId }),
-              sessions[idx].status == .waitingForInput,
-              sessions[idx].waitingSource == .permission else { return }
+              sessions[idx].status == .waitingForInput else { return }
 
+        logger.debug("handlePermissionAccepted: \(sessionId) waitingSource=\(String(describing: self.sessions[idx].waitingSource))")
         dispatchStateEvent(.permissionAccepted, source: .userAction, forSessionId: sessionId)
         eventWatcher?.setCachedStatus(for: sessionId, to: .working)
     }
