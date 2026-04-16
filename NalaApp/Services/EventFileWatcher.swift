@@ -371,6 +371,15 @@ final class EventFileWatcher: @unchecked Sendable {
             return ("prompt_submit", summary, nil, nil)
         }
 
+        // PermissionRequest — fires when Claude Code shows a permission dialog.
+        // Must be checked before the generic tool_name check (carries tool_name).
+        // Maps to "notification" event type → waitingForInput state.
+        if hookType == "PermissionRequest" && !toolName.isEmpty {
+            let input = json["tool_input"] as? [String: Any] ?? [:]
+            let summary = "Permission required: \(makeToolSummary(toolName: toolName, input: input))"
+            return ("notification", summary, summary, summary)
+        }
+
         // PreToolUse — must be checked before the generic tool_name check below,
         // because PreToolUse events also carry tool_name and would otherwise be
         // parsed as "tool_use".

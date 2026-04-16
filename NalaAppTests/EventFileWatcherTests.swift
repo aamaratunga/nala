@@ -156,6 +156,24 @@ final class EventFileWatcherTests: XCTestCase {
         XCTAssertEqual(result?.summary, "Asking a question")
     }
 
+    // MARK: - PermissionRequest Parsing
+
+    func testParsePermissionRequestEvent() {
+        let json: [String: Any] = [
+            "hook_event_name": "PermissionRequest",
+            "tool_name": "Bash",
+            "tool_input": ["command": "rm -rf /tmp/old"]
+        ]
+
+        let result = EventFileWatcher.parseHookEvent(json)
+        XCTAssertNotNil(result)
+        XCTAssertEqual(result?.eventType, "notification", "PermissionRequest should parse as notification (waitingForInput)")
+        XCTAssertTrue(result?.summary.contains("Permission required") ?? false)
+        XCTAssertTrue(result?.summary.contains("rm -rf /tmp/old") ?? false)
+        XCTAssertNotNil(result?.waitingReason, "PermissionRequest should set waitingReason")
+        XCTAssertNotNil(result?.waitingSummary, "PermissionRequest should set waitingSummary")
+    }
+
     // MARK: - State Derivation
 
     func testToolUseDerivesWorkingState() {

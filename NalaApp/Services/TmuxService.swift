@@ -354,6 +354,9 @@ final class TmuxService: @unchecked Sendable {
             ("PreToolUse", [
                 "hooks": [["type": "command", "command": eventFileCmd]]
             ]),
+            ("PermissionRequest", [
+                "hooks": [["type": "command", "command": eventFileCmd]]
+            ]),
             ("PostToolUse", [
                 "hooks": [["type": "command", "command": eventFileCmd]]
             ]),
