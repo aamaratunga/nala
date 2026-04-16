@@ -256,6 +256,21 @@ final class StateReducerTests: XCTestCase {
         XCTAssertFalse(t.didChange)
     }
 
+    // MARK: - WaitingForInput → Working via PostToolUse (tool_use)
+
+    func testWaitingForInputToWorkingOnToolUse() {
+        // After permission is accepted, PostToolUse fires and is parsed as tool_use.
+        // This must transition waitingForInput → working immediately, not wait for
+        // the next PreToolUse (which can be delayed by Claude's thinking time).
+        let t = StateReducer.reduce(
+            current: .waitingForInput,
+            event: .toolUse(tool: "Bash", summary: "Ran: rm -rf /tmp/old", timestamp: now),
+            source: .eventWatcher
+        )
+        XCTAssertEqual(t.to, .working)
+        XCTAssertTrue(t.didChange)
+    }
+
     // MARK: - Staleness only affects working
 
     func testStalenessCheckOnIdleIsNoOp() {

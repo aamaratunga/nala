@@ -55,12 +55,12 @@ final class TmuxServiceTests: XCTestCase {
         // Verify Nala hooks are present
         XCTAssertNotNil(hooks?["PreToolUse"])
         XCTAssertNotNil(hooks?["PermissionRequest"])
+        XCTAssertNotNil(hooks?["PostToolUse"])
         XCTAssertNotNil(hooks?["Stop"])
         XCTAssertNotNil(hooks?["UserPromptSubmit"])
         XCTAssertNotNil(hooks?["SessionStart"])
 
         // Verify removed hooks are not present
-        XCTAssertNil(hooks?["PostToolUse"], "PostToolUse hook should not be registered")
         XCTAssertNil(hooks?["Notification"], "Notification hook should not be registered")
     }
 
@@ -108,7 +108,7 @@ final class TmuxServiceTests: XCTestCase {
         let hooks = merged["hooks"] as! [String: [[String: Any]]]
 
         // Every hook event that tracks agent state should write to the JSONL event file
-        for event in ["PreToolUse", "PermissionRequest", "Stop", "UserPromptSubmit", "SessionStart"] {
+        for event in ["PreToolUse", "PermissionRequest", "PostToolUse", "Stop", "UserPromptSubmit", "SessionStart"] {
             let groups = hooks[event]!
             let commands = groups.flatMap { group -> [String] in
                 guard let hookList = group["hooks"] as? [[String: Any]] else { return [] }
