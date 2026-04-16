@@ -636,10 +636,10 @@ final class SessionStore {
         case .stop(let reason, let timestamp):
             sessions[idx].latestEventSummary = reason
             sessions[idx].stalenessSeconds = Date().timeIntervalSince(timestamp)
-        case .notification(let message, let waitingReason, let waitingSummary, let timestamp):
+        case .permissionRequest(_, let summary, let waitingReason, let waitingSummary, let timestamp):
             sessions[idx].waitingReason = waitingReason
             sessions[idx].waitingSummary = waitingSummary
-            sessions[idx].latestEventSummary = "Notification: \(message)"
+            sessions[idx].latestEventSummary = summary
             sessions[idx].stalenessSeconds = Date().timeIntervalSince(timestamp)
         case .sleepDetected(let summary, let timestamp):
             sessions[idx].latestEventSummary = summary

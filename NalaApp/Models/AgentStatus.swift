@@ -22,7 +22,7 @@ enum StateEvent: Equatable {
     case preToolUse(tool: String, summary: String, timestamp: Date)
     case promptSubmit(summary: String, timestamp: Date)
     case stop(reason: String, timestamp: Date)
-    case notification(message: String, waitingReason: String?, waitingSummary: String?, timestamp: Date)
+    case permissionRequest(tool: String, summary: String, waitingReason: String?, waitingSummary: String?, timestamp: Date)
     case sessionReset
     case userAcknowledged
     case userCancelled
@@ -84,9 +84,8 @@ struct StateReducer {
         case .stop(_, let ts):
             timestamp = ts
             // Only transition to done if the agent was actually running.
-            // Claude Code's "idle_prompt" Notification ("waiting for your input")
-            // can arrive ~60s after the Stop event. If the session was already
-            // auto-acknowledged back to idle, this late event must not re-trigger done.
+            // If the session was already auto-acknowledged back to idle,
+            // a late stop event must not re-trigger done.
             switch current {
             case .working, .sleeping, .stuck, .waitingForInput:
                 next = .done
@@ -94,7 +93,7 @@ struct StateReducer {
                 next = current
             }
 
-        case .notification(_, _, _, let ts):
+        case .permissionRequest(_, _, _, _, let ts):
             timestamp = ts
             next = .waitingForInput
 

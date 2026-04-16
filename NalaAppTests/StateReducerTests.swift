@@ -30,8 +30,8 @@ final class StateReducerTests: XCTestCase {
     }
 
     func testIdleIgnoresLateStop() {
-        // A late stop (e.g., "waiting for your input" Notification arriving
-        // after the session was already auto-acknowledged) must not re-trigger done.
+        // A late stop (arriving after the session was already auto-acknowledged)
+        // must not re-trigger done.
         let t = StateReducer.reduce(
             current: .idle,
             event: .stop(reason: "end_turn", timestamp: now),
@@ -51,13 +51,14 @@ final class StateReducerTests: XCTestCase {
         XCTAssertTrue(t.didChange)
     }
 
-    func testWorkingToWaitingOnNotification() {
+    func testWorkingToWaitingOnPermissionRequest() {
         let t = StateReducer.reduce(
             current: .working,
-            event: .notification(
-                message: "Permission required",
-                waitingReason: "Permission required",
-                waitingSummary: "Permission required",
+            event: .permissionRequest(
+                tool: "Bash",
+                summary: "Permission required: Ran: rm -rf /tmp/old",
+                waitingReason: "Permission required: Ran: rm -rf /tmp/old",
+                waitingSummary: "Permission required: Ran: rm -rf /tmp/old",
                 timestamp: now
             ),
             source: .eventWatcher

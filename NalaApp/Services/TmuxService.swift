@@ -357,13 +357,7 @@ final class TmuxService: @unchecked Sendable {
             ("PermissionRequest", [
                 "hooks": [["type": "command", "command": eventFileCmd]]
             ]),
-            ("PostToolUse", [
-                "hooks": [["type": "command", "command": eventFileCmd]]
-            ]),
             ("Stop", [
-                "hooks": [["type": "command", "command": eventFileCmd]]
-            ]),
-            ("Notification", [
                 "hooks": [["type": "command", "command": eventFileCmd]]
             ]),
             ("UserPromptSubmit", [

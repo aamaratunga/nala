@@ -296,26 +296,27 @@ final class SessionStoreTests: XCTestCase {
     }
 
     /// Verify that both waitingForInput and done transitions are visible
-    /// when notification + stop events batch together.
-    func testBatchedNotificationThenStopFiresBothTransitions() {
+    /// when permissionRequest + stop events batch together.
+    func testBatchedPermissionRequestThenStopFiresBothTransitions() {
         let store = makeStore()
         store.sessions = [makeSession(sessionId: "s1", workingDirectory: "/tmp", status: .working)]
         store.reconcileOrder()
         store.selectedSessionId = nil
 
-        // First: intermediate notification state
-        let notifEvent = StateEvent.notification(
-            message: "Permission required",
-            waitingReason: "Permission required",
-            waitingSummary: "Permission required",
+        // First: intermediate permissionRequest state
+        let permEvent = StateEvent.permissionRequest(
+            tool: "Bash",
+            summary: "Permission required: Ran: rm -rf /tmp/old",
+            waitingReason: "Permission required: Ran: rm -rf /tmp/old",
+            waitingSummary: "Permission required: Ran: rm -rf /tmp/old",
             timestamp: Date()
         )
-        store.handleAgentStateUpdate(AgentStateUpdate(sessionId: "s1", event: notifEvent))
+        store.handleAgentStateUpdate(AgentStateUpdate(sessionId: "s1", event: permEvent))
 
         // Session should show waitingForInput
         XCTAssertEqual(store.sessions[0].status, .waitingForInput,
-            "Intermediate notification should set waitingForInput")
-        XCTAssertEqual(store.sessions[0].waitingSummary, "Permission required")
+            "Intermediate permissionRequest should set waitingForInput")
+        XCTAssertEqual(store.sessions[0].waitingSummary, "Permission required: Ran: rm -rf /tmp/old")
 
         // Second: final stop state
         let stopEvent = StateEvent.stop(reason: "Agent stopped: end_turn", timestamp: Date())

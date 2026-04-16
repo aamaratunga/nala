@@ -31,29 +31,6 @@ final class EventFileWatcherTests: XCTestCase {
         XCTAssertTrue(result?.summary.contains("end_turn") ?? false)
     }
 
-    func testParseNotificationEvent() {
-        let json: [String: Any] = [
-            "hook_event_name": "Notification",
-            "message": "Permission required for file write"
-        ]
-
-        let result = EventFileWatcher.parseHookEvent(json)
-        XCTAssertNotNil(result)
-        XCTAssertEqual(result?.eventType, "notification")
-        XCTAssertTrue(result?.summary.contains("Permission required") ?? false)
-    }
-
-    func testParseWaitingForInputAsStop() {
-        let json: [String: Any] = [
-            "hook_event_name": "Notification",
-            "message": "Agent is waiting for your input"
-        ]
-
-        let result = EventFileWatcher.parseHookEvent(json)
-        XCTAssertNotNil(result)
-        XCTAssertEqual(result?.eventType, "stop", "'waiting for your input' should be treated as stop")
-    }
-
     func testParsePromptSubmitEvent() {
         let json: [String: Any] = [
             "hook_event_name": "UserPromptSubmit",
@@ -167,7 +144,7 @@ final class EventFileWatcherTests: XCTestCase {
 
         let result = EventFileWatcher.parseHookEvent(json)
         XCTAssertNotNil(result)
-        XCTAssertEqual(result?.eventType, "notification", "PermissionRequest should parse as notification (waitingForInput)")
+        XCTAssertEqual(result?.eventType, "permission_request", "PermissionRequest should parse as permission_request (waitingForInput)")
         XCTAssertTrue(result?.summary.contains("Permission required") ?? false)
         XCTAssertTrue(result?.summary.contains("rm -rf /tmp/old") ?? false)
         XCTAssertNotNil(result?.waitingReason, "PermissionRequest should set waitingReason")
@@ -353,9 +330,9 @@ final class EventFileWatcherTests: XCTestCase {
         }
     }
 
-    /// Verifies that when notification + stop arrive in one batch, both
+    /// Verifies that when permissionRequest + stop arrive in one batch, both
     /// the intermediate waitingForInput and the final done are emitted as StateEvents.
-    func testProcessEventsBatchedNotificationThenStop() {
+    func testProcessEventsBatchedPermissionRequestThenStop() {
         let watcher = EventFileWatcher()
         let sessionId = UUID().uuidString.lowercased()
         let path = "\(EventFileWatcher.eventsDirectory)/\(sessionId).jsonl"
@@ -386,9 +363,9 @@ final class EventFileWatcherTests: XCTestCase {
 
         // Use recent timestamps so staleness checks don't interfere
         let now = ISO8601DateFormatter().string(from: Date())
-        let notifJson = #"{"hook_event_name":"Notification","message":"Permission required","timestamp":""# + now + #""}"#
+        let permJson = #"{"hook_event_name":"PermissionRequest","tool_name":"Bash","tool_input":{"command":"rm -rf /tmp/old"},"timestamp":""# + now + #""}"#
         let stopJson = #"{"hook_event_name":"Stop","stop_hook_active":true,"reason":"end_turn","timestamp":""# + now + #""}"#
-        let batch = "\(notifJson)\n\(stopJson)\n"
+        let batch = "\(permJson)\n\(stopJson)\n"
 
         let fh = FileHandle(forWritingAtPath: path)!
         fh.seekToEndOfFile()
@@ -407,9 +384,9 @@ final class EventFileWatcherTests: XCTestCase {
         if case .polledState(status: .idle) = all[0] {} else {
             XCTFail("Initial event should be polledState(.idle), got \(all[0])")
         }
-        // Second is notification (waitingForInput)
-        if case .notification = all[1] {} else {
-            XCTFail("Second event should be notification, got \(all[1])")
+        // Second is permissionRequest (waitingForInput)
+        if case .permissionRequest = all[1] {} else {
+            XCTFail("Second event should be permissionRequest, got \(all[1])")
         }
         // Third is stop (done)
         if case .stop = all[2] {} else {

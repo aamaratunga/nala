@@ -373,11 +373,11 @@ final class EventFileWatcher: @unchecked Sendable {
 
         // PermissionRequest — fires when Claude Code shows a permission dialog.
         // Must be checked before the generic tool_name check (carries tool_name).
-        // Maps to "notification" event type → waitingForInput state.
+        // Maps to "permission_request" event type → waitingForInput state.
         if hookType == "PermissionRequest" && !toolName.isEmpty {
             let input = json["tool_input"] as? [String: Any] ?? [:]
             let summary = "Permission required: \(makeToolSummary(toolName: toolName, input: input))"
-            return ("notification", summary, summary, summary)
+            return ("permission_request", summary, summary, summary)
         }
 
         // PreToolUse — must be checked before the generic tool_name check below,
@@ -413,20 +413,6 @@ final class EventFileWatcher: @unchecked Sendable {
         if hookType == "Stop" || json["stop_hook_active"] != nil {
             let reason = json["reason"] as? String ?? "unknown"
             return ("stop", "Agent stopped: \(reason)", nil, nil)
-        }
-
-        // Notification
-        if hookType == "Notification" || json["message"] != nil {
-            let message = json["message"] as? String ?? ""
-            // "waiting for your input" is treated as stop (done).
-            // COUPLING: This string is emitted by Claude Code's notification
-            // hook when the agent finishes a turn and awaits user input. If
-            // Claude Code changes this message, this detection will break.
-            if message.lowercased().contains("waiting for your input") {
-                return ("stop", "Agent stopped: waiting for input", nil, nil)
-            }
-            let truncated = message.count > 100 ? String(message.prefix(100)) + "..." : message
-            return ("notification", "Notification: \(truncated)", message, truncated)
         }
 
         return nil
@@ -502,9 +488,10 @@ final class EventFileWatcher: @unchecked Sendable {
             return .promptSubmit(summary: parsed.summary, timestamp: timestamp)
         case "stop":
             return .stop(reason: parsed.summary, timestamp: timestamp)
-        case "notification":
-            return .notification(
-                message: parsed.waitingReason ?? "",
+        case "permission_request":
+            return .permissionRequest(
+                tool: toolName,
+                summary: parsed.summary,
                 waitingReason: parsed.waitingReason,
                 waitingSummary: parsed.waitingSummary,
                 timestamp: timestamp
