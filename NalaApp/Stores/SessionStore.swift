@@ -593,6 +593,7 @@ final class SessionStore {
         if transition.from == .waitingForInput && transition.to != .waitingForInput {
             sessions[idx].waitingReason = nil
             sessions[idx].waitingSummary = nil
+            sessions[idx].waitingSource = nil
         }
 
         // Apply metadata from the event (always, regardless of didChange)
@@ -629,6 +630,7 @@ final class SessionStore {
             if tool == "AskUserQuestion" {
                 sessions[idx].waitingReason = summary
                 sessions[idx].waitingSummary = summary
+                sessions[idx].waitingSource = .question
             }
         case .promptSubmit(_, let timestamp):
             // Don't update latestEventSummary for prompt_submit (preserves last tool use summary)
@@ -641,12 +643,13 @@ final class SessionStore {
             sessions[idx].waitingSummary = waitingSummary
             sessions[idx].latestEventSummary = summary
             sessions[idx].stalenessSeconds = Date().timeIntervalSince(timestamp)
+            sessions[idx].waitingSource = .permission
         case .sleepDetected(let summary, let timestamp):
             sessions[idx].latestEventSummary = summary
             sessions[idx].stalenessSeconds = Date().timeIntervalSince(timestamp)
         case .userCancelled:
             sessions[idx].latestEventSummary = "Cancelled"
-        case .userAcknowledged, .sessionReset, .stalenessCheck, .polledState:
+        case .userAcknowledged, .sessionReset, .stalenessCheck, .polledState, .permissionAccepted:
             break // No metadata to apply
         }
     }
@@ -677,6 +680,20 @@ final class SessionStore {
         }
         pendingCancelTimers[sessionId] = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.0, execute: work)
+    }
+
+    // MARK: - Permission Accept (Optimistic)
+
+    /// Called when the user presses Enter in the embedded terminal while the
+    /// session is waiting for a permission dialog. Optimistically transitions
+    /// to working — self-corrects if wrong via the next hook event.
+    func handlePermissionAccepted(sessionId: String) {
+        guard let idx = sessions.firstIndex(where: { $0.sessionId == sessionId }),
+              sessions[idx].status == .waitingForInput,
+              sessions[idx].waitingSource == .permission else { return }
+
+        dispatchStateEvent(.permissionAccepted, source: .userAction, forSessionId: sessionId)
+        eventWatcher?.setCachedStatus(for: sessionId, to: .working)
     }
 
     // MARK: - Tmux Update Handler

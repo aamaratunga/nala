@@ -48,6 +48,9 @@ struct SessionDetailView: View {
                         isTerminated: $isLocalTerminated,
                         onCancel: { [sessionId = session.sessionId] in
                             store.handleAgentCancel(sessionId: sessionId)
+                        },
+                        onPermissionAccepted: { [sessionId = session.sessionId] in
+                            store.handlePermissionAccepted(sessionId: sessionId)
                         }
                     )
                     .id(localTerminalGeneration)

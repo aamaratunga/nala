@@ -271,6 +271,17 @@ final class EventFileWatcher: @unchecked Sendable {
         return watcher?.currentStatus
     }
 
+    /// Set cached status for a session to a specific value.
+    /// Called for optimistic state transitions (e.g., permission accepted)
+    /// to prevent tmux polling from reverting the status.
+    func setCachedStatus(for sessionId: String, to status: AgentStatus) {
+        watchersLock.lock()
+        let watcher = watchers[sessionId]
+        watchersLock.unlock()
+        guard let watcher else { return }
+        watcher.currentStatus = status
+    }
+
     /// Reset cached status for a session to idle.
     /// Called when the user cancels an agent to prevent stale working status
     /// from being re-applied by tmux polling.

@@ -26,6 +26,7 @@ enum StateEvent: Equatable {
     case sessionReset
     case userAcknowledged
     case userCancelled
+    case permissionAccepted
     case stalenessCheck(elapsed: TimeInterval)
     case sleepDetected(summary: String, timestamp: Date)
     case polledState(status: AgentStatus)
@@ -108,6 +109,10 @@ struct StateReducer {
         case .userCancelled:
             timestamp = Date()
             next = .idle
+
+        case .permissionAccepted:
+            timestamp = Date()
+            next = current == .waitingForInput ? .working : current
 
         case .stalenessCheck(let elapsed):
             timestamp = Date()

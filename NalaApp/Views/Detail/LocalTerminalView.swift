@@ -226,6 +226,9 @@ struct LocalTerminalView: NSViewRepresentable {
     @Binding var isTerminated: Bool
     /// Called when the user presses Esc or Ctrl+C (cancel keys).
     var onCancel: (() -> Void)?
+    /// Called when the user presses Enter (plain, no modifiers) — used for
+    /// optimistic permission-accept detection.
+    var onPermissionAccepted: (() -> Void)?
 
     /// Weak map from tmux session name → terminal view, used by
     /// ContentView.focusTerminal() to find the correct visible terminal.
@@ -298,7 +301,7 @@ struct LocalTerminalView: NSViewRepresentable {
     }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(sessionName: sessionName, isTerminated: $isTerminated, onCancel: onCancel)
+        Coordinator(sessionName: sessionName, isTerminated: $isTerminated, onCancel: onCancel, onPermissionAccepted: onPermissionAccepted)
     }
 
     final class Coordinator: NSObject, LocalProcessTerminalViewDelegate {
@@ -313,11 +316,13 @@ struct LocalTerminalView: NSViewRepresentable {
         private var scrollAccumulator: CGFloat = 0
         private var lastRepeatForward: TimeInterval = 0
         private let onCancel: (() -> Void)?
+        private let onPermissionAccepted: (() -> Void)?
 
-        init(sessionName: String, isTerminated: Binding<Bool>, onCancel: (() -> Void)? = nil) {
+        init(sessionName: String, isTerminated: Binding<Bool>, onCancel: (() -> Void)? = nil, onPermissionAccepted: (() -> Void)? = nil) {
             self.sessionName = sessionName
             _isTerminated = isTerminated
             self.onCancel = onCancel
+            self.onPermissionAccepted = onPermissionAccepted
         }
 
         deinit {
@@ -575,6 +580,13 @@ struct LocalTerminalView: NSViewRepresentable {
                 // Let the key pass through to tmux so Claude Code receives the interrupt.
                 if event.keyCode == 53 || (event.keyCode == 8 && mods == .control) {
                     self.onCancel?()
+                    return event
+                }
+
+                // Plain Enter (keyCode 36, no modifiers): notify permission acceptance.
+                // Let the key pass through to tmux.
+                if event.keyCode == 36 && mods.isEmpty {
+                    self.onPermissionAccepted?()
                     return event
                 }
 

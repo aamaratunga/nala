@@ -44,6 +44,15 @@ enum FolderStatus: String, CaseIterable, Codable, Equatable {
     static var displayOrder: [FolderStatus] { allCases }
 }
 
+// MARK: - WaitingSource
+
+/// Distinguishes why a session is in the waitingForInput state.
+/// Used to gate optimistic transitions (e.g., Enter key → permissionAccepted).
+enum WaitingSource: Equatable {
+    case permission
+    case question
+}
+
 struct Session: Identifiable, Equatable {
     let name: String
     let agentType: String
@@ -64,6 +73,7 @@ struct Session: Identifiable, Equatable {
     var boardUnread: Int
     var commands: [SessionCommand]
     var isPlaceholder: Bool = false
+    var waitingSource: WaitingSource?
 
     var id: String { sessionId.isEmpty ? name : sessionId }
     var hasTmuxTarget: Bool { !tmuxSession.isEmpty }
