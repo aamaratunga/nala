@@ -68,14 +68,22 @@ struct StateReducer {
         switch event {
         case .toolUse(_, _, let ts):
             timestamp = ts
-            next = .working
+            // Guard: don't revert waitingForInput from late PostToolUse events.
+            // When Claude Code runs parallel tools, hook shell commands write to
+            // the JSONL file as separate processes — write order is non-deterministic.
+            // A PostToolUse from a previously-completed tool can arrive after a
+            // PermissionRequest, which would incorrectly revert the waiting state.
+            // waitingForInput exits only via permissionAccepted, promptSubmit, or stop.
+            next = current == .waitingForInput ? current : .working
 
         case .preToolUse(let tool, _, let ts):
             timestamp = ts
             if tool == "AskUserQuestion" {
                 next = .waitingForInput
             } else {
-                next = .working
+                // Same guard as toolUse: a PreToolUse from a concurrent tool can
+                // arrive out of order relative to PermissionRequest events.
+                next = current == .waitingForInput ? current : .working
             }
 
         case .promptSubmit(_, let ts):

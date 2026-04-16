@@ -256,19 +256,76 @@ final class StateReducerTests: XCTestCase {
         XCTAssertFalse(t.didChange)
     }
 
-    // MARK: - WaitingForInput → Working via PostToolUse (tool_use)
+    // MARK: - WaitingForInput Guards (out-of-order event protection)
 
-    func testWaitingForInputToWorkingOnToolUse() {
-        // After permission is accepted, PostToolUse fires and is parsed as tool_use.
-        // This must transition waitingForInput → working immediately, not wait for
-        // the next PreToolUse (which can be delayed by Claude's thinking time).
+    func testWaitingForInputGuardedAgainstToolUse() {
+        // PostToolUse from a previously-completed parallel tool can arrive after
+        // a PermissionRequest due to non-deterministic hook write ordering.
+        // waitingForInput must NOT revert to working from a stale toolUse event.
+        // The transition is now handled by permissionAccepted (Enter key detection).
         let t = StateReducer.reduce(
             current: .waitingForInput,
-            event: .toolUse(tool: "Bash", summary: "Ran: rm -rf /tmp/old", timestamp: now),
+            event: .toolUse(tool: "Glob", summary: "Glob: **/*.swift", timestamp: now),
+            source: .eventWatcher
+        )
+        XCTAssertEqual(t.to, .waitingForInput)
+        XCTAssertFalse(t.didChange)
+    }
+
+    func testWaitingForInputGuardedAgainstPreToolUse() {
+        // PreToolUse from a concurrent tool can arrive out of order relative
+        // to PermissionRequest events when tools run in parallel.
+        let t = StateReducer.reduce(
+            current: .waitingForInput,
+            event: .preToolUse(tool: "Read", summary: "Read main.swift", timestamp: now),
+            source: .eventWatcher
+        )
+        XCTAssertEqual(t.to, .waitingForInput)
+        XCTAssertFalse(t.didChange)
+    }
+
+    func testWaitingForInputAllowsPermissionAccepted() {
+        // permissionAccepted (Enter key detection) is the correct exit path.
+        let t = StateReducer.reduce(
+            current: .waitingForInput,
+            event: .permissionAccepted,
+            source: .userAction
+        )
+        XCTAssertEqual(t.to, .working)
+        XCTAssertTrue(t.didChange)
+    }
+
+    func testWaitingForInputAllowsPromptSubmit() {
+        // promptSubmit means the user typed a new prompt — definitely past the dialog.
+        let t = StateReducer.reduce(
+            current: .waitingForInput,
+            event: .promptSubmit(summary: "Continue", timestamp: now),
             source: .eventWatcher
         )
         XCTAssertEqual(t.to, .working)
         XCTAssertTrue(t.didChange)
+    }
+
+    func testWaitingForInputAllowsStop() {
+        // stop means the agent finished — valid exit from waitingForInput.
+        let t = StateReducer.reduce(
+            current: .waitingForInput,
+            event: .stop(reason: "end_turn", timestamp: now),
+            source: .eventWatcher
+        )
+        XCTAssertEqual(t.to, .done)
+        XCTAssertTrue(t.didChange)
+    }
+
+    func testWaitingForInputStaysOnAskUserQuestionPreToolUse() {
+        // PreToolUse(AskUserQuestion) should keep the waiting state.
+        let t = StateReducer.reduce(
+            current: .waitingForInput,
+            event: .preToolUse(tool: "AskUserQuestion", summary: "Which option?", timestamp: now),
+            source: .eventWatcher
+        )
+        XCTAssertEqual(t.to, .waitingForInput)
+        XCTAssertFalse(t.didChange)
     }
 
     // MARK: - Staleness only affects working
