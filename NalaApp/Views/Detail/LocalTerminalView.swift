@@ -12,6 +12,33 @@ final class NalaTerminalView: LocalProcessTerminalView {
     /// The tmux session name this terminal is attached to.
     var sessionName: String = ""
 
+    /// Deferred process start: stored until the view has a non-zero frame
+    /// so that `forkpty` uses the real terminal dimensions instead of the
+    /// 2×1 minimum that SwiftTerm enforces for a `.zero` frame.
+    private var deferredProcessArgs: (executable: String, args: [String])?
+    private var processStarted = false
+
+    /// Call instead of `startProcess` when the view may not yet be laid out.
+    /// Defers the actual fork until `setFrameSize` delivers real dimensions.
+    func deferredStart(executable: String, args: [String]) {
+        if bounds.width > 0 && bounds.height > 0 {
+            processStarted = true
+            startProcess(executable: executable, args: args)
+        } else {
+            deferredProcessArgs = (executable, args)
+        }
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        if !processStarted, let deferred = deferredProcessArgs,
+           newSize.width > 0, newSize.height > 0 {
+            processStarted = true
+            deferredProcessArgs = nil
+            startProcess(executable: deferred.executable, args: deferred.args)
+        }
+    }
+
     deinit {
         // Cancel any pending coalesce timer to prevent stale callbacks.
         coalesceTimer?.cancel()
@@ -284,7 +311,7 @@ struct LocalTerminalView: NSViewRepresentable {
         //   (the system terminfo lacks the Ms capability)
         // All other copy-mode bindings come from the user's tmux.conf.
         let escaped = Self.shellEscape(sessionName)
-        tv.startProcess(
+        tv.deferredStart(
             executable: "/bin/zsh",
             args: ["-l", "-c", """
                 tmux set -s set-clipboard on \\; \
