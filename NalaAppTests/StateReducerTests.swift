@@ -67,26 +67,6 @@ final class StateReducerTests: XCTestCase {
         XCTAssertTrue(t.didChange)
     }
 
-    func testWorkingToStuckOnStaleness() {
-        let t = StateReducer.reduce(
-            current: .working,
-            event: .stalenessCheck(elapsed: 400), // > 360s threshold
-            source: .stalenessRefresh
-        )
-        XCTAssertEqual(t.to, .stuck)
-        XCTAssertTrue(t.didChange)
-    }
-
-    func testWorkingNotStuckBelowThreshold() {
-        let t = StateReducer.reduce(
-            current: .working,
-            event: .stalenessCheck(elapsed: 300), // < 360s threshold
-            source: .stalenessRefresh
-        )
-        XCTAssertEqual(t.to, .working)
-        XCTAssertFalse(t.didChange)
-    }
-
     func testWorkingToSleeping() {
         let t = StateReducer.reduce(
             current: .working,
@@ -150,7 +130,7 @@ final class StateReducerTests: XCTestCase {
     // MARK: - Session Reset
 
     func testSessionResetFromAnyState() {
-        let states: [AgentStatus] = [.idle, .working, .waitingForInput, .sleeping, .done, .stuck]
+        let states: [AgentStatus] = [.idle, .working, .waitingForInput, .sleeping, .done]
         for state in states {
             let t = StateReducer.reduce(current: state, event: .sessionReset, source: .eventWatcher)
             XCTAssertEqual(t.to, .idle, "sessionReset from \(state) should go to idle")
@@ -328,25 +308,4 @@ final class StateReducerTests: XCTestCase {
         XCTAssertFalse(t.didChange)
     }
 
-    // MARK: - Staleness only affects working
-
-    func testStalenessCheckOnIdleIsNoOp() {
-        let t = StateReducer.reduce(
-            current: .idle,
-            event: .stalenessCheck(elapsed: 999),
-            source: .stalenessRefresh
-        )
-        XCTAssertEqual(t.to, .idle)
-        XCTAssertFalse(t.didChange)
-    }
-
-    func testStalenessCheckOnDoneIsNoOp() {
-        let t = StateReducer.reduce(
-            current: .done,
-            event: .stalenessCheck(elapsed: 999),
-            source: .stalenessRefresh
-        )
-        XCTAssertEqual(t.to, .done)
-        XCTAssertFalse(t.didChange)
-    }
 }

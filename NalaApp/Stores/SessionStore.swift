@@ -536,9 +536,8 @@ final class SessionStore {
             }
         }
 
-        // Staleness refresh (every 15 seconds).
-        // Also serves as a safety net for missed kqueue notifications —
-        // refreshStaleness() re-reads event files to catch dropped writes.
+        // Safety net: re-read event files every 15 seconds to catch
+        // missed kqueue notifications under high system load.
         stalenessTask = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 15_000_000_000) // 15s
@@ -649,7 +648,7 @@ final class SessionStore {
             sessions[idx].stalenessSeconds = Date().timeIntervalSince(timestamp)
         case .userCancelled:
             sessions[idx].latestEventSummary = "Cancelled"
-        case .userAcknowledged, .sessionReset, .stalenessCheck, .polledState, .permissionAccepted:
+        case .userAcknowledged, .sessionReset, .polledState, .permissionAccepted:
             break // No metadata to apply
         }
     }

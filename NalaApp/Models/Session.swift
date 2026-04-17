@@ -132,9 +132,6 @@ struct Session: Identifiable, Equatable {
         switch status {
         case .done:
             return "Completed"
-        case .stuck:
-            if let wr = waitingReason, !wr.isEmpty { return wr }
-            return "Stuck"
         case .waitingForInput:
             if let ws = waitingSummary, !ws.isEmpty { return ws }
             return "Waiting for input"
@@ -150,7 +147,6 @@ struct Session: Identifiable, Equatable {
     var subtitleColor: Color {
         switch status {
         case .done:             return NalaTheme.green
-        case .stuck:            return NalaTheme.red
         case .waitingForInput:  return NalaTheme.amber
         case .sleeping:         return NalaTheme.textTertiary
         case .working, .idle:   return NalaTheme.textSecondary

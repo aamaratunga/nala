@@ -20,11 +20,6 @@ final class EventFileWatcher: @unchecked Sendable {
         return "\(home)/.nala/events"
     }()
 
-    /// Staleness threshold in seconds (6 minutes).
-    /// A "working" session with no new events for this long is marked "stuck".
-    /// Lowered from 7 minutes to detect hook failures faster.
-    static let stalenessThreshold: TimeInterval = 360
-
     // MARK: - Per-Session Watcher State
 
     private class SessionWatcher {
@@ -110,7 +105,7 @@ final class EventFileWatcher: @unchecked Sendable {
 
     /// Start watching events for a session.
     ///
-    /// Registers the watcher immediately (so `cachedState` returns a default
+    /// Registers the watcher immediately (so `cachedStatus` returns a default
     /// state) but performs all file I/O — tail recovery, file creation, fd open,
     /// dispatch source setup — on the background `watcherQueue`. This keeps
     /// `handleTmuxUpdate` (which calls this from the main thread) responsive.
@@ -137,17 +132,6 @@ final class EventFileWatcher: @unchecked Sendable {
             } else {
                 // Create the file so dispatch source can watch it
                 FileManager.default.createFile(atPath: path, contents: nil, attributes: [.posixPermissions: 0o600])
-            }
-
-            // Post-recovery staleness check: if recovered status is .working
-            // but the last event is old, transition to .stuck via reducer.
-            if watcher._currentStatus == .working, let lastTime = watcher.latestEventTime {
-                let elapsed = Date().timeIntervalSince(lastTime)
-                if elapsed > Self.stalenessThreshold {
-                    let event = StateEvent.stalenessCheck(elapsed: elapsed)
-                    let transition = StateReducer.reduce(current: watcher._currentStatus, event: event, source: .stalenessRefresh)
-                    watcher._currentStatus = transition.to
-                }
             }
 
             // Check if the watcher was removed while we were doing I/O
@@ -328,8 +312,7 @@ final class EventFileWatcher: @unchecked Sendable {
         watcherQueue.sync {}
     }
 
-    /// Re-check staleness for all watchers and re-read event files as a safety net.
-    /// Also re-reads each event file for missed kqueue notifications.
+    /// Re-read event files as a safety net for missed kqueue notifications.
     /// Dispatches onto watcherQueue to serialize with dispatch source event handlers.
     func refreshStaleness() {
         watcherQueue.async { [weak self] in
@@ -341,17 +324,6 @@ final class EventFileWatcher: @unchecked Sendable {
                 // Safety net: re-read the file in case a kqueue notification
                 // was dropped under high system load.
                 self.readNewContent(watcher: watcher)
-
-                // Check staleness for working sessions via reducer
-                if watcher._currentStatus == .working, let lastTime = watcher.latestEventTime {
-                    let elapsed = Date().timeIntervalSince(lastTime)
-                    let event = StateEvent.stalenessCheck(elapsed: elapsed)
-                    let transition = StateReducer.reduce(current: watcher._currentStatus, event: event, source: .stalenessRefresh)
-                    if transition.didChange {
-                        watcher._currentStatus = transition.to
-                        self.emitUpdate(watcher: watcher, event: event)
-                    }
-                }
             }
         }
     }

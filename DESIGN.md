@@ -229,7 +229,7 @@ static let terminalNSCaret = NSColor(red: 1.0, green: 0.42, blue: 0.32, alpha: 1
 | 2026-03-28 | Vibrancy materials for sidebar | `.ultraThinMaterial` with blur(30px) creates depth, says "native macOS app" not "web wrapper" |
 | 2026-03-28 | Glowing status dots | Colored shadows on status dots make agent state visible at peripheral vision distance |
 | 2026-03-28 | Ambient sidebar glow | Breathing coral gradient when agents are active — the app feels alive |
-| 2026-03-28 | Quiet working rows, outline selection | Working state gets no background (dot is enough). Selection uses coral outline instead of background fill — independent visual channels for status vs navigation. Only actionable states (waiting/stuck/done) get colored backgrounds + accent bars. |
+| 2026-03-28 | Quiet working rows, outline selection | Working state gets no background (dot is enough). Selection uses coral outline instead of background fill — independent visual channels for status vs navigation. Only actionable states (waiting/done) get colored backgrounds + accent bars. |
 | 2026-03-28 | Sidebar vibrancy material added | Sidebar background changed from opaque bgSurface to semi-transparent (0.75) + .ultraThinMaterial. Matches DESIGN.md spec for native macOS depth. |
 | 2026-03-28 | Terminal font fallback chain fixed | JetBrains Mono (preferred) -> MesloLGS Nerd Font Mono -> system monospace. Matches DESIGN.md spec while keeping Nerd Font icon support. |
 | 2026-03-28 | Detail header padding corrected | Changed from 12h/8v to 16h/10v per DESIGN.md spec. |

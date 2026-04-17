@@ -66,7 +66,7 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
                 )
             }
 
-        case .idle, .working, .sleeping, .stuck:
+        case .idle, .working, .sleeping:
             break // Not notifiable states
         }
     }

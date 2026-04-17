@@ -517,7 +517,6 @@ struct SessionListView: View {
     private func sessionHighlightColor(_ session: Session) -> Color? {
         switch session.status {
         case .waitingForInput: return NalaTheme.amber
-        case .stuck:           return NalaTheme.red
         case .done:            return NalaTheme.green
         default:               return nil
         }

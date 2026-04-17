@@ -1136,7 +1136,6 @@ struct CommandPaletteView: View {
     private func accessibilityStatus(_ session: Session) -> String {
         switch session.status {
         case .done:             return "completed"
-        case .stuck:            return "stuck"
         case .waitingForInput:  return "waiting for input"
         case .working:          return "working"
         case .sleeping:         return "sleeping"

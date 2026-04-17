@@ -3,14 +3,13 @@ import Foundation
 // MARK: - AgentStatus
 
 /// Single-enum representation of agent state.
-/// Replaces the previous boolean-bag (working, done, waitingForInput, stuck, sleeping).
+/// Replaces the previous boolean-bag (working, done, waitingForInput, sleeping).
 enum AgentStatus: String, Equatable, CaseIterable {
     case idle
     case working
     case waitingForInput
     case sleeping
     case done
-    case stuck
 }
 
 // MARK: - StateEvent
@@ -27,7 +26,6 @@ enum StateEvent: Equatable {
     case userAcknowledged
     case userCancelled
     case permissionAccepted
-    case stalenessCheck(elapsed: TimeInterval)
     case sleepDetected(summary: String, timestamp: Date)
     case polledState(status: AgentStatus)
 }
@@ -39,7 +37,6 @@ enum StateSource: String, Equatable {
     case eventWatcher
     case tmuxPolling
     case userAction
-    case stalenessRefresh
 }
 
 // MARK: - StateTransition
@@ -96,7 +93,7 @@ struct StateReducer {
             // If the session was already auto-acknowledged back to idle,
             // a late stop event must not re-trigger done.
             switch current {
-            case .working, .sleeping, .stuck, .waitingForInput:
+            case .working, .sleeping, .waitingForInput:
                 next = .done
             case .idle, .done:
                 next = current
@@ -121,15 +118,6 @@ struct StateReducer {
         case .permissionAccepted:
             timestamp = Date()
             next = current == .waitingForInput ? .working : current
-
-        case .stalenessCheck(let elapsed):
-            timestamp = Date()
-            // 6-minute threshold (360s), matching EventFileWatcher.stalenessThreshold.
-            if current == .working && elapsed > 360 {
-                next = .stuck
-            } else {
-                next = current
-            }
 
         case .sleepDetected(_, let ts):
             timestamp = ts

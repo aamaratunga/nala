@@ -42,7 +42,6 @@ struct StatusDot: View {
     private var color: Color {
         switch session.status {
         case .done:             return NalaTheme.green
-        case .stuck:            return NalaTheme.red
         case .waitingForInput:  return NalaTheme.amber
         case .working:          return NalaTheme.teal
         case .sleeping:         return NalaTheme.textTertiary
@@ -54,16 +53,16 @@ struct StatusDot: View {
 
     private var primaryGlowOpacity: Double {
         switch session.status {
-        case .done, .stuck, .waitingForInput: return 0.2
-        case .working:                        return 0.4
+        case .done, .waitingForInput: return 0.2
+        case .working:                return 0.4
         case .sleeping, .idle:                return 0
         }
     }
 
     private var primaryGlowRadius: CGFloat {
         switch session.status {
-        case .done, .stuck, .waitingForInput: return 4
-        case .working:                        return 6
+        case .done, .waitingForInput: return 4
+        case .working:                return 6
         case .sleeping, .idle:                return 0
         }
     }
@@ -85,7 +84,6 @@ struct StatusDot: View {
     private var accessibilityStatus: String {
         switch session.status {
         case .done:             return "completed"
-        case .stuck:            return "stuck"
         case .waitingForInput:  return "waiting for input"
         case .working:          return isStale ? "stale" : "working"
         case .sleeping:         return "sleeping"

@@ -16,7 +16,7 @@ final class SessionTests: XCTestCase {
     }
 
     func testAllStatusValues() {
-        for status in [AgentStatus.idle, .working, .done, .stuck, .sleeping, .waitingForInput] {
+        for status in [AgentStatus.idle, .working, .done, .sleeping, .waitingForInput] {
             let session = makeSession(status: status)
             XCTAssertEqual(session.status, status)
         }
@@ -69,16 +69,6 @@ final class SessionTests: XCTestCase {
     func testEffectiveSubtitleDone() {
         let session = makeSession(status: .done)
         XCTAssertEqual(session.effectiveSubtitle, "Completed")
-    }
-
-    func testEffectiveSubtitleStuckWithReason() {
-        let session = makeSession(status: .stuck, waitingReason: "Network timeout")
-        XCTAssertEqual(session.effectiveSubtitle, "Network timeout")
-    }
-
-    func testEffectiveSubtitleStuckWithoutReason() {
-        let session = makeSession(status: .stuck)
-        XCTAssertEqual(session.effectiveSubtitle, "Stuck")
     }
 
     func testEffectiveSubtitleWaitingWithSummary() {

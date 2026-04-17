@@ -184,10 +184,6 @@ final class EventFileWatcherTests: XCTestCase {
         XCTAssertEqual(EventFileWatcher.eventsDirectory, "\(home)/.nala/events")
     }
 
-    func testStalenessThreshold() {
-        XCTAssertEqual(EventFileWatcher.stalenessThreshold, 360, "Staleness threshold should be 6 minutes")
-    }
-
     // MARK: - Concatenated JSON Splitting
 
     func testSplitConcatenatedJSON() {
@@ -296,7 +292,7 @@ final class EventFileWatcherTests: XCTestCase {
         writeDelay.isInverted = true
         wait(for: [writeDelay], timeout: 0.3)
 
-        // Use recent timestamps so the staleness check doesn't override working→stuck
+        // Use recent timestamps for realistic test data
         let now = ISO8601DateFormatter().string(from: Date())
         let promptJson = #"{"hook_event_name":"UserPromptSubmit","prompt":"fix bug","timestamp":""# + now + #""}"#
         let stopJson = #"{"hook_event_name":"Stop","stop_hook_active":true,"reason":"end_turn","timestamp":""# + now + #""}"#
@@ -361,7 +357,7 @@ final class EventFileWatcherTests: XCTestCase {
         writeDelay.isInverted = true
         wait(for: [writeDelay], timeout: 0.3)
 
-        // Use recent timestamps so staleness checks don't interfere
+        // Use recent timestamps for realistic test data
         let now = ISO8601DateFormatter().string(from: Date())
         let permJson = #"{"hook_event_name":"PermissionRequest","tool_name":"Bash","tool_input":{"command":"rm -rf /tmp/old"},"timestamp":""# + now + #""}"#
         let stopJson = #"{"hook_event_name":"Stop","stop_hook_active":true,"reason":"end_turn","timestamp":""# + now + #""}"#

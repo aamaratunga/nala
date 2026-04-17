@@ -7,7 +7,7 @@ Native macOS app for orchestrating AI coding agents in parallel git worktrees.
 Nala gives you a mission control interface for managing multiple AI coding agents (Claude) running simultaneously across git worktrees. Each agent runs in its own tmux session with an embedded terminal, and Nala tracks their state in real time.
 
 - Embedded terminals via SwiftTerm — no external terminal needed
-- Real-time agent state tracking (working, waiting for input, done, stuck)
+- Real-time agent state tracking (working, waiting for input, done, sleeping)
 - Git worktree management — create, delete, and monitor worktrees
 - Command palette for launching agents, terminals, and worktrees
 - Session naming via Claude CLI (auto-names from activity)
