@@ -18,14 +18,33 @@ final class NalaTerminalView: LocalProcessTerminalView {
     private var deferredProcessArgs: (executable: String, args: [String])?
     private var processStarted = false
 
+    /// Monotonic time when makeNSView created this view.
+    var viewCreatedTime: TimeInterval = 0
+
+    /// Whether we've logged the first data arrival.
+    private var firstDataLogged = false
+
     /// Call instead of `startProcess` when the view may not yet be laid out.
     /// Defers the actual fork until `setFrameSize` delivers real dimensions.
     func deferredStart(executable: String, args: [String]) {
         if bounds.width > 0 && bounds.height > 0 {
             processStarted = true
+            let forkStart = CACurrentMediaTime()
             startProcess(executable: executable, args: args)
+            let forkMs = (CACurrentMediaTime() - forkStart) * 1000
+            let sinceLaunch = SessionStore.launchTimestamps[sessionName].map {
+                " sincelaunch=\(String(format: "%.0f", (CACurrentMediaTime() - $0) * 1000))ms"
+            } ?? ""
+            PersistentLog.shared.write(
+                "TERMINAL_STARTED immediate fork=\(String(format: "%.0f", forkMs))ms session=\(sessionName)\(sinceLaunch)",
+                category: "Terminal"
+            )
         } else {
             deferredProcessArgs = (executable, args)
+            PersistentLog.shared.write(
+                "TERMINAL_DEFERRED_WAITING frame=\(bounds.width)x\(bounds.height) session=\(sessionName)",
+                category: "Terminal"
+            )
         }
     }
 
@@ -35,7 +54,17 @@ final class NalaTerminalView: LocalProcessTerminalView {
            newSize.width > 0, newSize.height > 0 {
             processStarted = true
             deferredProcessArgs = nil
+            let waitMs = viewCreatedTime > 0 ? (CACurrentMediaTime() - viewCreatedTime) * 1000 : 0
+            let forkStart = CACurrentMediaTime()
             startProcess(executable: deferred.executable, args: deferred.args)
+            let forkMs = (CACurrentMediaTime() - forkStart) * 1000
+            let sinceLaunch = SessionStore.launchTimestamps[sessionName].map {
+                " sincelaunch=\(String(format: "%.0f", (CACurrentMediaTime() - $0) * 1000))ms"
+            } ?? ""
+            PersistentLog.shared.write(
+                "TERMINAL_DEFERRED_FIRED size=\(String(format: "%.0f", newSize.width))x\(String(format: "%.0f", newSize.height)) waitMs=\(String(format: "%.0f", waitMs)) fork=\(String(format: "%.0f", forkMs))ms session=\(sessionName)\(sinceLaunch)",
+                category: "Terminal"
+            )
         }
     }
 
@@ -71,6 +100,20 @@ final class NalaTerminalView: LocalProcessTerminalView {
     private static let chunkSize = 16_384
 
     override func dataReceived(slice: ArraySlice<UInt8>) {
+        if !firstDataLogged {
+            firstDataLogged = true
+            let now = CACurrentMediaTime()
+            let sinceCreate = viewCreatedTime > 0 ? (now - viewCreatedTime) * 1000 : 0
+            let sinceLaunch = SessionStore.launchTimestamps[sessionName].map {
+                " sincelaunch=\(String(format: "%.0f", (now - $0) * 1000))ms"
+            } ?? ""
+            PersistentLog.shared.write(
+                "TERMINAL_FIRST_DATA \(slice.count)B sinceViewCreate=\(String(format: "%.0f", sinceCreate))ms session=\(sessionName)\(sinceLaunch)",
+                category: "Terminal"
+            )
+            // Clean up launch timestamp — no longer needed
+            SessionStore.launchTimestamps.removeValue(forKey: sessionName)
+        }
         pendingBytes.append(contentsOf: slice)
 
         // While draining, just accumulate — the drain loop picks up new data.
@@ -270,7 +313,18 @@ struct LocalTerminalView: NSViewRepresentable {
     func makeNSView(context: Context) -> NalaTerminalView {
         let tv = NalaTerminalView(frame: .zero)
         tv.sessionName = sessionName
+        tv.viewCreatedTime = CACurrentMediaTime()
         Self.viewsBySession.setObject(tv, forKey: sessionName as NSString)
+        let sinceLaunch: String
+        if let launchTime = SessionStore.launchTimestamps[sessionName] {
+            sinceLaunch = " sincelaunch=\(String(format: "%.0f", (CACurrentMediaTime() - launchTime) * 1000))ms"
+        } else {
+            sinceLaunch = ""
+        }
+        PersistentLog.shared.write(
+            "TERMINAL_VIEW_CREATED session=\(sessionName)\(sinceLaunch)",
+            category: "Terminal"
+        )
 
         // Auto-focus: only one terminal view exists at a time, so it
         // should always accept keyboard input. The async lets SwiftUI

@@ -167,6 +167,10 @@ final class SessionStore {
     /// Cache: workingDirectory → resolved git root (or self if not in a git repo).
     @ObservationIgnored private var gitRootCache: [String: String] = [:]
 
+    /// Launch timestamps (CACurrentMediaTime) keyed by tmux session name.
+    /// Set at LAUNCH_TMUX_CREATED, read by terminal view for elapsed timing.
+    static var launchTimestamps: [String: TimeInterval] = [:]
+
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
     }
@@ -1015,6 +1019,11 @@ final class SessionStore {
             )
             let createElapsed = CACurrentMediaTime() - createStart
             logger.info("performLaunch: tmux session created: \(sessionName) (\(String(format: "%.0f", createElapsed * 1000))ms)")
+            Self.launchTimestamps[sessionName] = state.launchTime
+            // Also key by sessionId (UUID) for EventFileWatcher lookup
+            if let dashIdx = sessionName.firstIndex(of: "-") {
+                Self.launchTimestamps[String(sessionName[sessionName.index(after: dashIdx)...])] = state.launchTime
+            }
             PersistentLog.shared.write(
                 "LAUNCH_TMUX_CREATED session=\(sessionName) elapsed=\(String(format: "%.0f", createElapsed * 1000))ms",
                 category: "SessionStore"
@@ -1054,12 +1063,20 @@ final class SessionStore {
 
     /// Swaps a launch placeholder session for the real session once it arrives.
     private func replaceLaunchPlaceholder(placeholderId: String, realSessionId: String) {
+        let launchTime = activeLaunches[placeholderId]?.launchTime
         sessions.removeAll { $0.id == placeholderId }
         if selectedSessionId == placeholderId {
             selectedSessionId = realSessionId
         }
         activeLaunches.removeValue(forKey: placeholderId)
         reconcileOrder()
+        if let t = launchTime {
+            let elapsed = CACurrentMediaTime() - t
+            PersistentLog.shared.write(
+                "LAUNCH_PLACEHOLDER_SWAPPED session=\(realSessionId) sincelaunch=\(String(format: "%.0f", elapsed * 1000))ms",
+                category: "SessionStore"
+            )
+        }
     }
 
     /// Cleans up after a failed session launch.

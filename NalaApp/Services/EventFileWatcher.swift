@@ -36,6 +36,8 @@ final class EventFileWatcher: @unchecked Sendable {
         var latestSummary: String?
         var waitingReason: String?
         var waitingSummary: String?
+        /// Whether the first live event has been logged for launch timing.
+        var firstEventLogged = false
 
         /// Lock protecting cross-thread reads of _currentStatus.
         let stateLock = NSLock()
@@ -585,6 +587,18 @@ final class EventFileWatcher: @unchecked Sendable {
                 let stateEvent = Self.makeStateEvent(from: parsed, toolName: toolName, timestamp: timestamp)
                 let transition = StateReducer.reduce(current: watcher._currentStatus, event: stateEvent, source: .eventWatcher)
                 watcher._currentStatus = transition.to
+
+                // Log first live event for launch-to-operational timing
+                if shouldEmit && !watcher.firstEventLogged {
+                    watcher.firstEventLogged = true
+                    let sinceLaunch = SessionStore.launchTimestamps[watcher.sessionId].map {
+                        " sincelaunch=\(String(format: "%.0f", (CACurrentMediaTime() - $0) * 1000))ms"
+                    } ?? ""
+                    PersistentLog.shared.write(
+                        "AGENT_FIRST_EVENT type=\(parsed.eventType) session=\(watcher.sessionId)\(sinceLaunch)",
+                        category: "EventFileWatcher"
+                    )
+                }
 
                 // Emit every parsed event so metadata updates (latestEventSummary,
                 // stalenessSeconds, activityLog) reach SessionStore even when
