@@ -1134,10 +1134,12 @@ struct CommandPaletteView: View {
     }
 
     private func accessibilityStatus(_ session: Session) -> String {
-        if session.done { return "completed" }
-        if session.stuck { return "stuck" }
-        if session.waitingForInput { return "waiting for input" }
-        if session.working { return "working" }
-        return "idle"
+        switch session.status {
+        case .done:             return "completed"
+        case .waitingForInput:  return "waiting for input"
+        case .working:          return "working"
+        case .sleeping:         return "sleeping"
+        case .idle:             return "idle"
+        }
     }
 }

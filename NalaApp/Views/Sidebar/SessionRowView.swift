@@ -63,7 +63,7 @@ struct SessionRowView: View {
 
             Spacer()
 
-            if let staleness = session.stalenessSeconds, staleness > 300, session.working {
+            if let staleness = session.stalenessSeconds, staleness > 300, session.status == .working {
                 Text(formatStaleness(staleness))
                     .font(.caption2)
                     .foregroundStyle(NalaTheme.textTertiary)

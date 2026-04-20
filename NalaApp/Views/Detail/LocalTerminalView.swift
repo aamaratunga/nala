@@ -12,6 +12,62 @@ final class NalaTerminalView: LocalProcessTerminalView {
     /// The tmux session name this terminal is attached to.
     var sessionName: String = ""
 
+    /// Deferred process start: stored until the view has a non-zero frame
+    /// so that `forkpty` uses the real terminal dimensions instead of the
+    /// 2×1 minimum that SwiftTerm enforces for a `.zero` frame.
+    private var deferredProcessArgs: (executable: String, args: [String])?
+    private var processStarted = false
+
+    /// Monotonic time when makeNSView created this view.
+    var viewCreatedTime: TimeInterval = 0
+
+    /// Whether we've logged the first data arrival.
+    private var firstDataLogged = false
+
+    /// Call instead of `startProcess` when the view may not yet be laid out.
+    /// Defers the actual fork until `setFrameSize` delivers real dimensions.
+    func deferredStart(executable: String, args: [String]) {
+        if bounds.width > 0 && bounds.height > 0 {
+            processStarted = true
+            let forkStart = CACurrentMediaTime()
+            startProcess(executable: executable, args: args)
+            let forkMs = (CACurrentMediaTime() - forkStart) * 1000
+            let sinceLaunch = SessionStore.launchTimestamps[sessionName].map {
+                " sincelaunch=\(String(format: "%.0f", (CACurrentMediaTime() - $0) * 1000))ms"
+            } ?? ""
+            PersistentLog.shared.write(
+                "TERMINAL_STARTED immediate fork=\(String(format: "%.0f", forkMs))ms session=\(sessionName)\(sinceLaunch)",
+                category: "Terminal"
+            )
+        } else {
+            deferredProcessArgs = (executable, args)
+            PersistentLog.shared.write(
+                "TERMINAL_DEFERRED_WAITING frame=\(bounds.width)x\(bounds.height) session=\(sessionName)",
+                category: "Terminal"
+            )
+        }
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        if !processStarted, let deferred = deferredProcessArgs,
+           newSize.width > 0, newSize.height > 0 {
+            processStarted = true
+            deferredProcessArgs = nil
+            let waitMs = viewCreatedTime > 0 ? (CACurrentMediaTime() - viewCreatedTime) * 1000 : 0
+            let forkStart = CACurrentMediaTime()
+            startProcess(executable: deferred.executable, args: deferred.args)
+            let forkMs = (CACurrentMediaTime() - forkStart) * 1000
+            let sinceLaunch = SessionStore.launchTimestamps[sessionName].map {
+                " sincelaunch=\(String(format: "%.0f", (CACurrentMediaTime() - $0) * 1000))ms"
+            } ?? ""
+            PersistentLog.shared.write(
+                "TERMINAL_DEFERRED_FIRED size=\(String(format: "%.0f", newSize.width))x\(String(format: "%.0f", newSize.height)) waitMs=\(String(format: "%.0f", waitMs)) fork=\(String(format: "%.0f", forkMs))ms session=\(sessionName)\(sinceLaunch)",
+                category: "Terminal"
+            )
+        }
+    }
+
     deinit {
         // Cancel any pending coalesce timer to prevent stale callbacks.
         coalesceTimer?.cancel()
@@ -44,6 +100,20 @@ final class NalaTerminalView: LocalProcessTerminalView {
     private static let chunkSize = 16_384
 
     override func dataReceived(slice: ArraySlice<UInt8>) {
+        if !firstDataLogged {
+            firstDataLogged = true
+            let now = CACurrentMediaTime()
+            let sinceCreate = viewCreatedTime > 0 ? (now - viewCreatedTime) * 1000 : 0
+            let sinceLaunch = SessionStore.launchTimestamps[sessionName].map {
+                " sincelaunch=\(String(format: "%.0f", (now - $0) * 1000))ms"
+            } ?? ""
+            PersistentLog.shared.write(
+                "TERMINAL_FIRST_DATA \(slice.count)B sinceViewCreate=\(String(format: "%.0f", sinceCreate))ms session=\(sessionName)\(sinceLaunch)",
+                category: "Terminal"
+            )
+            // Clean up launch timestamp — no longer needed
+            SessionStore.launchTimestamps.removeValue(forKey: sessionName)
+        }
         pendingBytes.append(contentsOf: slice)
 
         // While draining, just accumulate — the drain loop picks up new data.
@@ -226,6 +296,9 @@ struct LocalTerminalView: NSViewRepresentable {
     @Binding var isTerminated: Bool
     /// Called when the user presses Esc or Ctrl+C (cancel keys).
     var onCancel: (() -> Void)?
+    /// Called when the user presses Enter (plain, no modifiers) — used for
+    /// optimistic permission-accept detection.
+    var onPermissionAccepted: (() -> Void)?
 
     /// Weak map from tmux session name → terminal view, used by
     /// ContentView.focusTerminal() to find the correct visible terminal.
@@ -240,7 +313,18 @@ struct LocalTerminalView: NSViewRepresentable {
     func makeNSView(context: Context) -> NalaTerminalView {
         let tv = NalaTerminalView(frame: .zero)
         tv.sessionName = sessionName
+        tv.viewCreatedTime = CACurrentMediaTime()
         Self.viewsBySession.setObject(tv, forKey: sessionName as NSString)
+        let sinceLaunch: String
+        if let launchTime = SessionStore.launchTimestamps[sessionName] {
+            sinceLaunch = " sincelaunch=\(String(format: "%.0f", (CACurrentMediaTime() - launchTime) * 1000))ms"
+        } else {
+            sinceLaunch = ""
+        }
+        PersistentLog.shared.write(
+            "TERMINAL_VIEW_CREATED session=\(sessionName)\(sinceLaunch)",
+            category: "Terminal"
+        )
 
         // Auto-focus: only one terminal view exists at a time, so it
         // should always accept keyboard input. The async lets SwiftUI
@@ -281,7 +365,7 @@ struct LocalTerminalView: NSViewRepresentable {
         //   (the system terminfo lacks the Ms capability)
         // All other copy-mode bindings come from the user's tmux.conf.
         let escaped = Self.shellEscape(sessionName)
-        tv.startProcess(
+        tv.deferredStart(
             executable: "/bin/zsh",
             args: ["-l", "-c", """
                 tmux set -s set-clipboard on \\; \
@@ -298,7 +382,7 @@ struct LocalTerminalView: NSViewRepresentable {
     }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(sessionName: sessionName, isTerminated: $isTerminated, onCancel: onCancel)
+        Coordinator(sessionName: sessionName, isTerminated: $isTerminated, onCancel: onCancel, onPermissionAccepted: onPermissionAccepted)
     }
 
     final class Coordinator: NSObject, LocalProcessTerminalViewDelegate {
@@ -313,11 +397,13 @@ struct LocalTerminalView: NSViewRepresentable {
         private var scrollAccumulator: CGFloat = 0
         private var lastRepeatForward: TimeInterval = 0
         private let onCancel: (() -> Void)?
+        private let onPermissionAccepted: (() -> Void)?
 
-        init(sessionName: String, isTerminated: Binding<Bool>, onCancel: (() -> Void)? = nil) {
+        init(sessionName: String, isTerminated: Binding<Bool>, onCancel: (() -> Void)? = nil, onPermissionAccepted: (() -> Void)? = nil) {
             self.sessionName = sessionName
             _isTerminated = isTerminated
             self.onCancel = onCancel
+            self.onPermissionAccepted = onPermissionAccepted
         }
 
         deinit {
@@ -575,6 +661,13 @@ struct LocalTerminalView: NSViewRepresentable {
                 // Let the key pass through to tmux so Claude Code receives the interrupt.
                 if event.keyCode == 53 || (event.keyCode == 8 && mods == .control) {
                     self.onCancel?()
+                    return event
+                }
+
+                // Plain Enter (keyCode 36, no modifiers): notify permission acceptance.
+                // Let the key pass through to tmux.
+                if event.keyCode == 36 && mods.isEmpty {
+                    self.onPermissionAccepted?()
                     return event
                 }
 

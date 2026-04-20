@@ -35,7 +35,7 @@ struct SessionListView: View {
     }
 
     private var hasActiveAgents: Bool {
-        store.sessions.contains { $0.working && !$0.done && !$0.stuck && !$0.waitingForInput }
+        store.sessions.contains { $0.status == .working }
     }
 
     private func toggleAllFolders() {
@@ -253,7 +253,7 @@ struct SessionListView: View {
 
             if let id = newId,
                let session = store.sessions.first(where: { $0.id == id }),
-               session.done {
+               session.status == .done {
                 store.acknowledgeSession(id)
             }
         }
@@ -515,10 +515,11 @@ struct SessionListView: View {
     /// Returns a highlight color only for actionable states that need user attention.
     /// Working is intentionally excluded — the pulsing status dot is sufficient signal.
     private func sessionHighlightColor(_ session: Session) -> Color? {
-        if session.waitingForInput { return NalaTheme.amber }
-        if session.stuck { return NalaTheme.red }
-        if session.done { return NalaTheme.green }
-        return nil
+        switch session.status {
+        case .waitingForInput: return NalaTheme.amber
+        case .done:            return NalaTheme.green
+        default:               return nil
+        }
     }
 
     @ViewBuilder

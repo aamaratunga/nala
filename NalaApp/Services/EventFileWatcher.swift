@@ -4,22 +4,9 @@ import os
 
 // MARK: - Data Types
 
-struct AgentState: Equatable {
-    var working: Bool = false
-    var done: Bool = false
-    var waitingForInput: Bool = false
-    var stuck: Bool = false
-    var sleeping: Bool = false
-    var lastEventTime: Date?
-    var latestEventType: String?
-    var latestEventSummary: String?
-    var waitingReason: String?
-    var waitingSummary: String?
-}
-
 struct AgentStateUpdate: Equatable {
     let sessionId: String
-    let state: AgentState
+    let event: StateEvent
 }
 
 // MARK: - EventFileWatcher
@@ -33,11 +20,6 @@ final class EventFileWatcher: @unchecked Sendable {
         return "\(home)/.nala/events"
     }()
 
-    /// Staleness threshold in seconds (6 minutes).
-    /// A "working" session with no new events for this long is marked "stuck".
-    /// Lowered from 7 minutes to detect hook failures faster.
-    static let stalenessThreshold: TimeInterval = 360
-
     // MARK: - Per-Session Watcher State
 
     private class SessionWatcher {
@@ -47,25 +29,29 @@ final class EventFileWatcher: @unchecked Sendable {
         var fileDescriptor: Int32 = -1
         var source: DispatchSourceFileSystemObject?
         var partialLine: String = ""
-        /// Internal state mutated only on watcherQueue. Use stateLock for cross-thread reads.
-        var _currentState = AgentState()
+        /// Cached agent status, mutated only on watcherQueue. Use stateLock for cross-thread reads.
+        var _currentStatus: AgentStatus = .idle
         var latestEventType: String?
         var latestEventTime: Date?
         var latestSummary: String?
+        var waitingReason: String?
+        var waitingSummary: String?
+        /// Whether the first live event has been logged for launch timing.
+        var firstEventLogged = false
 
-        /// Lock protecting cross-thread reads of _currentState.
+        /// Lock protecting cross-thread reads of _currentStatus.
         let stateLock = NSLock()
 
-        /// Thread-safe getter: snapshot the current state under lock.
-        var currentState: AgentState {
+        /// Thread-safe getter: snapshot the current status under lock.
+        var currentStatus: AgentStatus {
             get {
                 stateLock.lock()
                 defer { stateLock.unlock() }
-                return _currentState
+                return _currentStatus
             }
             set {
                 stateLock.lock()
-                _currentState = newValue
+                _currentStatus = newValue
                 stateLock.unlock()
             }
         }
@@ -121,7 +107,7 @@ final class EventFileWatcher: @unchecked Sendable {
 
     /// Start watching events for a session.
     ///
-    /// Registers the watcher immediately (so `cachedState` returns a default
+    /// Registers the watcher immediately (so `cachedStatus` returns a default
     /// state) but performs all file I/O — tail recovery, file creation, fd open,
     /// dispatch source setup — on the background `watcherQueue`. This keeps
     /// `handleTmuxUpdate` (which calls this from the main thread) responsive.
@@ -171,8 +157,8 @@ final class EventFileWatcher: @unchecked Sendable {
             watcher.fileDescriptor = fd
             self.setupDispatchSource(watcher: watcher)
 
-            // Emit initial state
-            self.emitUpdate(watcher: watcher)
+            // Emit initial status
+            self.emitUpdate(watcher: watcher, event: .polledState(status: watcher._currentStatus))
 
             let watchElapsed = CACurrentMediaTime() - watchStart
             if watchElapsed > 0.01 {
@@ -261,30 +247,43 @@ final class EventFileWatcher: @unchecked Sendable {
         continuationsLock.unlock()
     }
 
-    /// Get the current cached state for a session (thread-safe).
+    /// Get the current cached status for a session (thread-safe).
     /// Reads through a per-watcher lock instead of dispatching to the queue,
     /// avoiding main-thread blocking when the watcher queue is busy.
-    func cachedState(for sessionId: String) -> AgentState? {
+    func cachedStatus(for sessionId: String) -> AgentStatus? {
         watchersLock.lock()
         let watcher = watchers[sessionId]
         watchersLock.unlock()
-        return watcher?.currentState
+        return watcher?.currentStatus
     }
 
-    /// Reset cached state for a session to idle.
-    /// Called when the user cancels an agent to prevent stale working state
-    /// from being re-applied by tmux polling.
-    func resetCachedState(for sessionId: String) {
+    /// Set cached status for a session to a specific value.
+    /// Called for optimistic state transitions (e.g., permission accepted)
+    /// to prevent tmux polling from reverting the status.
+    func setCachedStatus(for sessionId: String, to status: AgentStatus) {
         watchersLock.lock()
         let watcher = watchers[sessionId]
         watchersLock.unlock()
         guard let watcher else { return }
-        // Set idle state immediately (thread-safe via stateLock)
-        watcher.currentState = AgentState()
+        watcher.currentStatus = status
+    }
+
+    /// Reset cached status for a session to idle.
+    /// Called when the user cancels an agent to prevent stale working status
+    /// from being re-applied by tmux polling.
+    func resetCachedStatus(for sessionId: String) {
+        watchersLock.lock()
+        let watcher = watchers[sessionId]
+        watchersLock.unlock()
+        guard let watcher else { return }
+        // Set idle status immediately (thread-safe via stateLock)
+        watcher.currentStatus = .idle
         // Clear watcher internals on the correct queue to prevent re-derivation
         watcherQueue.async {
             watcher.latestEventType = nil
             watcher.latestSummary = nil
+            watcher.waitingReason = nil
+            watcher.waitingSummary = nil
         }
     }
 
@@ -315,8 +314,7 @@ final class EventFileWatcher: @unchecked Sendable {
         watcherQueue.sync {}
     }
 
-    /// Re-derive state for all watchers (call periodically to detect staleness).
-    /// Also re-reads each event file as a safety net for missed kqueue notifications.
+    /// Re-read event files as a safety net for missed kqueue notifications.
     /// Dispatches onto watcherQueue to serialize with dispatch source event handlers.
     func refreshStaleness() {
         watcherQueue.async { [weak self] in
@@ -328,12 +326,6 @@ final class EventFileWatcher: @unchecked Sendable {
                 // Safety net: re-read the file in case a kqueue notification
                 // was dropped under high system load.
                 self.readNewContent(watcher: watcher)
-
-                let oldState = watcher.currentState
-                self.deriveState(watcher: watcher)
-                if watcher.currentState != oldState {
-                    self.emitUpdate(watcher: watcher)
-                }
             }
         }
     }
@@ -364,6 +356,37 @@ final class EventFileWatcher: @unchecked Sendable {
             return ("prompt_submit", summary, nil, nil)
         }
 
+        // PermissionRequest — fires when Claude Code shows a permission dialog.
+        // Must be checked before the generic tool_name check (carries tool_name).
+        // Maps to "permission_request" event type → waitingForInput state.
+        if hookType == "PermissionRequest" && !toolName.isEmpty {
+            let input = json["tool_input"] as? [String: Any] ?? [:]
+            let summary = "Permission required: \(makeToolSummary(toolName: toolName, input: input))"
+            return ("permission_request", summary, summary, summary)
+        }
+
+        // PreToolUse — must be checked before the generic tool_name check below,
+        // because PreToolUse events also carry tool_name and would otherwise be
+        // parsed as "tool_use".
+        if hookType == "PreToolUse" && !toolName.isEmpty {
+            let input = json["tool_input"] as? [String: Any] ?? [:]
+            if toolName == "AskUserQuestion" {
+                // Extract question text from tool_input.questions[0].question
+                let questionText: String
+                if let questions = input["questions"] as? [[String: Any]],
+                   let first = questions.first,
+                   let text = first["question"] as? String, !text.isEmpty {
+                    let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                    questionText = String(trimmed.prefix(200))
+                } else {
+                    questionText = "Asking a question"
+                }
+                return ("pre_tool_use", questionText, questionText, questionText)
+            }
+            let summary = makeToolSummary(toolName: toolName, input: input)
+            return ("pre_tool_use", summary, nil, nil)
+        }
+
         // Tool use
         if !toolName.isEmpty {
             let input = json["tool_input"] as? [String: Any] ?? [:]
@@ -375,20 +398,6 @@ final class EventFileWatcher: @unchecked Sendable {
         if hookType == "Stop" || json["stop_hook_active"] != nil {
             let reason = json["reason"] as? String ?? "unknown"
             return ("stop", "Agent stopped: \(reason)", nil, nil)
-        }
-
-        // Notification
-        if hookType == "Notification" || json["message"] != nil {
-            let message = json["message"] as? String ?? ""
-            // "waiting for your input" is treated as stop (done).
-            // COUPLING: This string is emitted by Claude Code's notification
-            // hook when the agent finishes a turn and awaits user input. If
-            // Claude Code changes this message, this detection will break.
-            if message.lowercased().contains("waiting for your input") {
-                return ("stop", "Agent stopped: waiting for input", nil, nil)
-            }
-            let truncated = message.count > 100 ? String(message.prefix(100)) + "..." : message
-            return ("notification", "Notification: \(truncated)", message, truncated)
         }
 
         return nil
@@ -443,57 +452,40 @@ final class EventFileWatcher: @unchecked Sendable {
         return Date()
     }
 
-    // MARK: - State Derivation
+    // MARK: - Event Conversion
 
-    /// Derive agent state flags from the latest event.
-    /// Ported from live_sessions.py lines 186-195.
-    private func deriveState(watcher: SessionWatcher) {
-        var state = AgentState()
-        state.latestEventType = watcher.latestEventType
-        state.lastEventTime = watcher.latestEventTime
-        state.latestEventSummary = watcher.latestSummary
-
-        guard let eventType = watcher.latestEventType else {
-            watcher.currentState = state
-            return
-        }
-
-        switch eventType {
-        case "tool_use", "prompt_submit":
-            state.working = true
-
-            // Check if sleeping: summary starts with "Ran: sleep"
-            if let summary = watcher.latestSummary, summary.hasPrefix("Ran: sleep") {
-                state.working = false
-                state.sleeping = true
+    /// Convert a parsed hook event to a StateEvent.
+    private static func makeStateEvent(
+        from parsed: (eventType: String, summary: String, waitingReason: String?, waitingSummary: String?),
+        toolName: String,
+        timestamp: Date
+    ) -> StateEvent {
+        switch parsed.eventType {
+        case "tool_use":
+            // Sleep detection: "Ran: sleep" summary triggers sleepDetected
+            if parsed.summary.hasPrefix("Ran: sleep") {
+                return .sleepDetected(summary: parsed.summary, timestamp: timestamp)
             }
-
-            // Check staleness
-            if let lastTime = watcher.latestEventTime {
-                let elapsed = Date().timeIntervalSince(lastTime)
-                if elapsed > Self.stalenessThreshold {
-                    state.working = false
-                    state.stuck = true
-                }
-            }
-
-        case "notification":
-            state.waitingForInput = true
-            state.waitingReason = watcher.currentState.waitingReason
-            state.waitingSummary = watcher.currentState.waitingSummary
-
+            return .toolUse(tool: toolName, summary: parsed.summary, timestamp: timestamp)
+        case "pre_tool_use":
+            return .preToolUse(tool: toolName, summary: parsed.summary, timestamp: timestamp)
+        case "prompt_submit":
+            return .promptSubmit(summary: parsed.summary, timestamp: timestamp)
         case "stop":
-            state.done = true
-
+            return .stop(reason: parsed.summary, timestamp: timestamp)
+        case "permission_request":
+            return .permissionRequest(
+                tool: toolName,
+                summary: parsed.summary,
+                waitingReason: parsed.waitingReason,
+                waitingSummary: parsed.waitingSummary,
+                timestamp: timestamp
+            )
         case "session_reset":
-            // All flags false — fresh start
-            break
-
+            return .sessionReset
         default:
-            break
+            return .toolUse(tool: toolName, summary: parsed.summary, timestamp: timestamp)
         }
-
-        watcher.currentState = state
     }
 
     // MARK: - Internal
@@ -576,25 +568,45 @@ final class EventFileWatcher: @unchecked Sendable {
             for json in jsonObjects {
                 guard let parsed = Self.parseHookEvent(json) else { continue }
 
-                let oldState = watcher.currentState
+                let timestamp = Self.parseTimestamp(from: json)
+                let toolName = json["tool_name"] as? String ?? ""
+
+                // Update watcher metadata
                 watcher.latestEventType = parsed.eventType
-                watcher.latestEventTime = Self.parseTimestamp(from: json)
+                watcher.latestEventTime = timestamp
                 watcher.latestSummary = parsed.summary
 
                 if let wr = parsed.waitingReason {
-                    watcher.currentState.waitingReason = wr
+                    watcher.waitingReason = wr
                 }
                 if let ws = parsed.waitingSummary {
-                    watcher.currentState.waitingSummary = ws
+                    watcher.waitingSummary = ws
                 }
 
-                deriveState(watcher: watcher)
+                // Convert to StateEvent and run through reducer
+                let stateEvent = Self.makeStateEvent(from: parsed, toolName: toolName, timestamp: timestamp)
+                let transition = StateReducer.reduce(current: watcher._currentStatus, event: stateEvent, source: .eventWatcher)
+                watcher._currentStatus = transition.to
 
-                // Emit per-event so intermediate transitions (e.g., working
-                // between two done states) reach SessionStore for ack clearing
-                // and notification firing.
-                if watcher.currentState != oldState && shouldEmit {
-                    emitUpdate(watcher: watcher)
+                // Log first live event for launch-to-operational timing
+                if shouldEmit && !watcher.firstEventLogged {
+                    watcher.firstEventLogged = true
+                    let sinceLaunch = SessionStore.launchTimestamps[watcher.sessionId].map {
+                        " sincelaunch=\(String(format: "%.0f", (CACurrentMediaTime() - $0) * 1000))ms"
+                    } ?? ""
+                    PersistentLog.shared.write(
+                        "AGENT_FIRST_EVENT type=\(parsed.eventType) session=\(watcher.sessionId)\(sinceLaunch)",
+                        category: "EventFileWatcher"
+                    )
+                }
+
+                // Emit every parsed event so metadata updates (latestEventSummary,
+                // stalenessSeconds, activityLog) reach SessionStore even when
+                // the status doesn't change (e.g., working → working on
+                // consecutive tool_use events). Status dedup happens in
+                // SessionStore's dispatchStateEvent via the reducer.
+                if shouldEmit {
+                    emitUpdate(watcher: watcher, event: stateEvent)
                 }
             }
         }
@@ -646,8 +658,8 @@ final class EventFileWatcher: @unchecked Sendable {
         return results
     }
 
-    private func emitUpdate(watcher: SessionWatcher) {
-        let update = AgentStateUpdate(sessionId: watcher.sessionId, state: watcher.currentState)
+    private func emitUpdate(watcher: SessionWatcher, event: StateEvent) {
+        let update = AgentStateUpdate(sessionId: watcher.sessionId, event: event)
         continuationsLock.lock()
         let conts = Array(continuations.values)
         continuationsLock.unlock()

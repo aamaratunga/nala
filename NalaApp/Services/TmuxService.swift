@@ -342,7 +342,7 @@ final class TmuxService: @unchecked Sendable {
 
         // File-based hook command: appends raw hook JSON from stdin to the
         // session's JSONL event file. EventFileWatcher picks up new lines via
-        // kqueue and derives agent state (working/done/waiting/stuck).
+        // kqueue and derives agent state (working/done/waiting).
         // NOTE: Claude Code pipes hook JSON to stdin WITHOUT a trailing newline.
         // Using { cat; echo; } ensures each event ends with \n so the file is
         // valid JSONL (one JSON object per line).
@@ -351,13 +351,16 @@ final class TmuxService: @unchecked Sendable {
 
         // Nala hooks to inject
         let nalaHooks: [(String, [String: Any])] = [
+            ("PreToolUse", [
+                "hooks": [["type": "command", "command": eventFileCmd]]
+            ]),
+            ("PermissionRequest", [
+                "hooks": [["type": "command", "command": eventFileCmd]]
+            ]),
             ("PostToolUse", [
                 "hooks": [["type": "command", "command": eventFileCmd]]
             ]),
             ("Stop", [
-                "hooks": [["type": "command", "command": eventFileCmd]]
-            ]),
-            ("Notification", [
                 "hooks": [["type": "command", "command": eventFileCmd]]
             ]),
             ("UserPromptSubmit", [

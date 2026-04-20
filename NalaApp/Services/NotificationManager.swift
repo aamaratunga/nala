@@ -5,20 +5,14 @@ import os
 
 /// Manages macOS system notifications for session state changes (needs input, done).
 /// Uses UNUserNotificationCenter for banners and NSSound for reliable audio.
+///
+/// Deduplication is structural: callers only invoke `notify` when the reducer reports
+/// `transition.didChange == true`, so there is no per-session tracking here.
 final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
     static let shared = NotificationManager()
 
     private let logger = Logger(subsystem: "com.nala.app", category: "Notifications")
     private let center = UNUserNotificationCenter.current()
-
-    /// Tracks the last notified state per session to prevent duplicate notifications
-    /// when the native services re-send the same state.
-    private struct NotifiedState {
-        var waitingForInput: Bool
-        var done: Bool
-    }
-
-    private var lastNotifiedState: [String: NotifiedState] = [:]
 
     private override init() {
         super.init()
@@ -37,61 +31,44 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
         }
     }
 
-    // MARK: - State Evaluation
+    // MARK: - Notify
 
-    /// Evaluate a session transition and fire notifications when appropriate.
-    /// - Parameters:
-    ///   - old: The previous session state (nil for newly appeared sessions).
-    ///   - new: The current session state.
-    func evaluateTransition(old: Session?, new: Session) {
+    /// Fire a notification for a state transition.
+    /// Only call when `transition.didChange` is true and the new state is notifiable.
+    func notify(session: Session, transition: StateTransition) {
         let defaults = UserDefaults.standard
-        let previous = lastNotifiedState[new.id]
+        let folder = URL(fileURLWithPath: session.workingDirectory).lastPathComponent
 
-        let wasWaiting = old?.waitingForInput ?? previous?.waitingForInput ?? false
-        let wasDone = old?.done ?? previous?.done ?? false
-
-        // Update tracking state
-        lastNotifiedState[new.id] = NotifiedState(
-            waitingForInput: new.waitingForInput,
-            done: new.done
-        )
-
-        let folder = URL(fileURLWithPath: new.workingDirectory).lastPathComponent
-
-        // Needs input: false → true
-        if new.waitingForInput && !wasWaiting {
+        switch transition.to {
+        case .waitingForInput:
             let enabled = defaults.object(forKey: "nala.notifications.needsInput") as? Bool ?? true
             if enabled {
-                let detail = new.waitingSummary ?? ""
+                let detail = session.waitingSummary ?? ""
                 let body = detail.isEmpty ? folder : "\(folder) — \(detail)"
                 postNotification(
-                    id: "needs-input-\(new.id)",
-                    title: "\(new.displayLabel) needs input",
+                    id: "needs-input-\(session.id)",
+                    title: "\(session.displayLabel) needs input",
                     body: body,
                     soundName: "Funk"
                 )
             }
-        }
 
-        // Done: false → true
-        if new.done && !wasDone {
+        case .done:
             let enabled = defaults.object(forKey: "nala.notifications.done") as? Bool ?? true
             if enabled {
-                let detail = new.latestEventSummary ?? ""
+                let detail = session.latestEventSummary ?? ""
                 let body = detail.isEmpty ? folder : "\(folder) — \(detail)"
                 postNotification(
-                    id: "done-\(new.id)",
-                    title: "\(new.displayLabel) is done",
+                    id: "done-\(session.id)",
+                    title: "\(session.displayLabel) is done",
                     body: body,
                     soundName: "Glass"
                 )
             }
-        }
-    }
 
-    /// Clear tracked state for a removed session.
-    func clearSession(_ id: String) {
-        lastNotifiedState.removeValue(forKey: id)
+        case .idle, .working, .sleeping:
+            break // Not notifiable states
+        }
     }
 
     // MARK: - Notification Posting

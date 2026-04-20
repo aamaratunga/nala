@@ -19,7 +19,7 @@ struct SessionDetailView: View {
                 .frame(height: 1)
 
             // Waiting-for-input banner
-            if session.waitingForInput {
+            if session.status == .waitingForInput {
                 HStack(spacing: 8) {
                     Image(systemName: "exclamationmark.bubble.fill")
                         .foregroundStyle(NalaTheme.amber)
@@ -48,6 +48,9 @@ struct SessionDetailView: View {
                         isTerminated: $isLocalTerminated,
                         onCancel: { [sessionId = session.sessionId] in
                             store.handleAgentCancel(sessionId: sessionId)
+                        },
+                        onPermissionAccepted: { [sessionId = session.sessionId] in
+                            store.handlePermissionAccepted(sessionId: sessionId)
                         }
                     )
                     .id(localTerminalGeneration)
@@ -64,9 +67,9 @@ struct SessionDetailView: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
 
-                if session.sleeping {
+                if session.status == .sleeping {
                     sleepingOverlay
-                } else if session.done && isLocalTerminated {
+                } else if session.status == .done && isLocalTerminated {
                     sessionEndedOverlay
                 } else if isLocalTerminated {
                     detachedOverlay

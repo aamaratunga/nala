@@ -136,44 +136,31 @@ final class SessionStoreTests: XCTestCase {
         store.reconcileOrder()
 
         let now = Date()
-        let state = AgentState(
-            working: true,
-            done: false,
-            waitingForInput: false,
-            stuck: false,
-            sleeping: false,
-            lastEventTime: now,
-            latestEventType: "tool_use",
-            latestEventSummary: "Edited main.swift",
-            waitingReason: nil,
-            waitingSummary: nil
-        )
-        store.handleAgentStateUpdate(AgentStateUpdate(sessionId: "s1", state: state))
+        let event = StateEvent.toolUse(tool: "Edit", summary: "Edited main.swift", timestamp: now)
+        store.handleAgentStateUpdate(AgentStateUpdate(sessionId: "s1", event: event))
 
-        XCTAssertTrue(store.sessions[0].working)
-        XCTAssertFalse(store.sessions[0].done)
-        XCTAssertFalse(store.sessions[0].waitingForInput)
-        XCTAssertFalse(store.sessions[0].stuck)
-        XCTAssertFalse(store.sessions[0].sleeping)
+        XCTAssertEqual(store.sessions[0].status, .working)
         XCTAssertEqual(store.sessions[0].latestEventSummary, "Edited main.swift")
         XCTAssertNotNil(store.sessions[0].stalenessSeconds)
     }
 
-    func testAgentStateUpdateSuppressesDoneIfAcknowledged() {
+    func testAcknowledgeThenLateStopStaysIdle() {
         let store = makeStore()
-        store.sessions = [makeSession(sessionId: "s1", workingDirectory: "/tmp", done: true)]
+        store.sessions = [makeSession(sessionId: "s1", workingDirectory: "/tmp", status: .done)]
         store.reconcileOrder()
+        store.selectedSessionId = nil
 
-        // Pre-acknowledge the session
+        // Acknowledge the done state → transitions to .idle
         store.acknowledgeSession("s1")
-        XCTAssertFalse(store.sessions[0].done)
+        XCTAssertEqual(store.sessions[0].status, .idle)
 
-        // Agent reports done=true again
-        let state = AgentState(done: true, latestEventType: "stop", latestEventSummary: "Agent stopped")
-        store.handleAgentStateUpdate(AgentStateUpdate(sessionId: "s1", state: state))
+        // A late stop event arrives (e.g., "waiting for your input" Notification
+        // ~60s after the real Stop). Must not re-trigger done from idle.
+        let event = StateEvent.stop(reason: "Agent stopped: waiting for input", timestamp: Date())
+        store.handleAgentStateUpdate(AgentStateUpdate(sessionId: "s1", event: event))
 
-        // Should still be suppressed
-        XCTAssertFalse(store.sessions[0].done)
+        // Should stay idle — the agent must go through working before a new done is valid
+        XCTAssertEqual(store.sessions[0].status, .idle, "Late stop after acknowledge must not re-trigger done")
     }
 
     func testAgentStateUpdateAutoAcknowledgesSelectedSession() {
@@ -182,42 +169,35 @@ final class SessionStoreTests: XCTestCase {
         store.reconcileOrder()
         store.selectedSessionId = "s1"
 
-        let state = AgentState(done: true, latestEventType: "stop", latestEventSummary: "Done")
-        store.handleAgentStateUpdate(AgentStateUpdate(sessionId: "s1", state: state))
+        let event = StateEvent.stop(reason: "Agent stopped: end_turn", timestamp: Date())
+        store.handleAgentStateUpdate(AgentStateUpdate(sessionId: "s1", event: event))
 
-        // Auto-acknowledged: done should be cleared
-        XCTAssertFalse(store.sessions[0].done)
-
-        // Persisted in acknowledged set
-        let testDefaults = UserDefaults(suiteName: Self.testSuiteName)!
-        let saved = testDefaults.stringArray(forKey: "nala.acknowledgedSessions") ?? []
-        XCTAssertTrue(saved.contains("s1"))
+        // Auto-acknowledged: status should be idle (done → idle via auto-ack)
+        XCTAssertEqual(store.sessions[0].status, .idle)
+        XCTAssertEqual(store.sessions[0].status, .idle)
     }
 
-    func testAgentStateUpdateClearsAcknowledgementOnNewActivity() {
+    func testAcknowledgeThenWorkThenDoneIsVisible() {
         let store = makeStore()
-        store.sessions = [makeSession(sessionId: "s1", workingDirectory: "/tmp", done: true)]
+        store.sessions = [makeSession(sessionId: "s1", workingDirectory: "/tmp", status: .done)]
         store.reconcileOrder()
+        store.selectedSessionId = nil
 
         // Acknowledge
         store.acknowledgeSession("s1")
+        XCTAssertEqual(store.sessions[0].status, .idle)
 
         // Agent becomes active again
-        let state = AgentState(working: true, done: false, latestEventType: "tool_use", latestEventSummary: "Read file.swift")
-        store.handleAgentStateUpdate(AgentStateUpdate(sessionId: "s1", state: state))
+        let workEvent = StateEvent.toolUse(tool: "Read", summary: "Read file.swift", timestamp: Date())
+        store.handleAgentStateUpdate(AgentStateUpdate(sessionId: "s1", event: workEvent))
+        XCTAssertEqual(store.sessions[0].status, .working)
 
-        // Acknowledged set should be cleared for this session
-        let testDefaults = UserDefaults(suiteName: Self.testSuiteName)!
-        let saved = testDefaults.stringArray(forKey: "nala.acknowledgedSessions") ?? []
-        XCTAssertFalse(saved.contains("s1"), "Acknowledgement should clear on new activity")
+        // Agent completes again
+        let stopEvent = StateEvent.stop(reason: "Agent stopped: end_turn", timestamp: Date())
+        store.handleAgentStateUpdate(AgentStateUpdate(sessionId: "s1", event: stopEvent))
 
-        // Now when it becomes done again, it should show as done
-        let doneState = AgentState(done: true, latestEventType: "stop", latestEventSummary: "Stopped")
-        store.handleAgentStateUpdate(AgentStateUpdate(sessionId: "s1", state: doneState))
-
-        // Not selected, so done should remain true
-        store.selectedSessionId = nil
-        XCTAssertTrue(store.sessions[0].done, "Done should not be suppressed after acknowledgement cleared")
+        // Done should be visible (natural idle → working → done flow)
+        XCTAssertEqual(store.sessions[0].status, .done, "Done should be visible after idle → working → done")
     }
 
     func testAgentStateUpdateFiltersPromptSubmitFromEventSummary() {
@@ -225,101 +205,152 @@ final class SessionStoreTests: XCTestCase {
         store.sessions = [makeSession(sessionId: "s1", workingDirectory: "/tmp", latestEventSummary: "Read main.swift")]
         store.reconcileOrder()
 
-        let state = AgentState(
-            working: true,
-            latestEventType: "prompt_submit",
-            latestEventSummary: "User submitted prompt"
-        )
-        store.handleAgentStateUpdate(AgentStateUpdate(sessionId: "s1", state: state))
+        let event = StateEvent.promptSubmit(summary: "Prompt: fix the bug", timestamp: Date())
+        store.handleAgentStateUpdate(AgentStateUpdate(sessionId: "s1", event: event))
 
         // latestEventSummary should NOT be updated for prompt_submit
         XCTAssertEqual(store.sessions[0].latestEventSummary, "Read main.swift")
     }
 
+    // MARK: - PreToolUse Events
+
+    func testPreToolUseDoesNotAppendToActivityLog() {
+        let store = makeStore()
+        store.sessions = [makeSession(sessionId: "s1", workingDirectory: "/tmp")]
+        store.reconcileOrder()
+
+        let event = StateEvent.preToolUse(tool: "Read", summary: "Read main.swift", timestamp: Date())
+        store.handleAgentStateUpdate(AgentStateUpdate(sessionId: "s1", event: event))
+
+        // PreToolUse should update status but NOT append to activity log
+        XCTAssertEqual(store.sessions[0].status, .working)
+        XCTAssertEqual(store.sessions[0].latestEventSummary, "Read main.swift")
+    }
+
+    func testPreToolUseAskUserQuestionSetsWaitingMetadata() {
+        let store = makeStore()
+        store.sessions = [makeSession(sessionId: "s1", workingDirectory: "/tmp", status: .working)]
+        store.reconcileOrder()
+
+        let event = StateEvent.preToolUse(tool: "AskUserQuestion", summary: "Which option?", timestamp: Date())
+        store.handleAgentStateUpdate(AgentStateUpdate(sessionId: "s1", event: event))
+
+        XCTAssertEqual(store.sessions[0].status, .waitingForInput)
+        XCTAssertEqual(store.sessions[0].waitingReason, "Which option?")
+        XCTAssertEqual(store.sessions[0].waitingSummary, "Which option?")
+        XCTAssertEqual(store.sessions[0].latestEventSummary, "Which option?")
+    }
+
+    func testPreToolUseCancelsPendingCancelTimer() {
+        let store = makeStore()
+        store.sessions = [makeSession(sessionId: "s1", workingDirectory: "/tmp", status: .working)]
+        store.reconcileOrder()
+
+        // Trigger cancel
+        store.handleAgentCancel(sessionId: "s1")
+
+        // PreToolUse arrives — should cancel the pending timer
+        let event = StateEvent.preToolUse(tool: "Bash", summary: "Ran: npm test", timestamp: Date())
+        store.handleAgentStateUpdate(AgentStateUpdate(sessionId: "s1", event: event))
+
+        // Wait past the debounce period
+        let expectation = expectation(description: "Cancel debounce window passes")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+            expectation.fulfill()
+        }
+        wait(for: [expectation], timeout: 5.0)
+
+        // Session should still be working (cancel was debounced by the preToolUse event)
+        XCTAssertEqual(store.sessions[0].status, .working, "Session should stay working — cancel was debounced by preToolUse")
+    }
+
     // MARK: - Batched Event Regression Tests
 
-    /// Critical regression: session is acknowledged (done suppressed), then
-    /// prompt_submit + stop batch arrives. The intermediate working state must
-    /// clear the acknowledgement so done is visible again.
+    /// Critical regression: session is acknowledged (done → idle), then
+    /// prompt_submit + stop batch arrives. The working state naturally flows
+    /// through idle → working → done, so done is visible again.
     func testBatchedEventsFromDoneAckedToDoneAgain() {
         let store = makeStore()
-        store.sessions = [makeSession(sessionId: "s1", workingDirectory: "/tmp", done: true)]
+        store.sessions = [makeSession(sessionId: "s1", workingDirectory: "/tmp", status: .done)]
         store.reconcileOrder()
         // Don't select it — prevents auto-acknowledge
         store.selectedSessionId = nil
 
-        // Acknowledge the done state (simulates user clicking the session)
+        // Acknowledge the done state → transitions to idle
         store.acknowledgeSession("s1")
-        XCTAssertFalse(store.sessions[0].done, "Done should be suppressed after ack")
-
-        // Simulate the batched events arriving as separate AgentStateUpdates
-        // (which is what the fixed EventFileWatcher now emits per-event).
+        XCTAssertEqual(store.sessions[0].status, .idle, "Status should be idle after ack")
 
         // First: intermediate working state (from prompt_submit)
-        let workingState = AgentState(
-            working: true,
-            done: false,
-            latestEventType: "prompt_submit",
-            latestEventSummary: "Prompt: fix the bug"
-        )
-        store.handleAgentStateUpdate(AgentStateUpdate(sessionId: "s1", state: workingState))
-
-        // Acknowledgement should be cleared by the working state
-        let testDefaults = UserDefaults(suiteName: Self.testSuiteName)!
-        let savedAfterWorking = testDefaults.stringArray(forKey: "nala.acknowledgedSessions") ?? []
-        XCTAssertFalse(savedAfterWorking.contains("s1"),
-            "Acknowledgement should be cleared by intermediate working state")
+        let promptEvent = StateEvent.promptSubmit(summary: "Prompt: fix the bug", timestamp: Date())
+        store.handleAgentStateUpdate(AgentStateUpdate(sessionId: "s1", event: promptEvent))
+        XCTAssertEqual(store.sessions[0].status, .working,
+            "Intermediate prompt_submit should set working")
 
         // Second: final done state (from stop)
-        let doneState = AgentState(
-            done: true,
-            latestEventType: "stop",
-            latestEventSummary: "Agent stopped: end_turn"
-        )
-        store.handleAgentStateUpdate(AgentStateUpdate(sessionId: "s1", state: doneState))
+        let stopEvent = StateEvent.stop(reason: "Agent stopped: end_turn", timestamp: Date())
+        store.handleAgentStateUpdate(AgentStateUpdate(sessionId: "s1", event: stopEvent))
 
-        // Done should now be visible (not suppressed by stale acknowledgement)
-        XCTAssertTrue(store.sessions[0].done,
-            "Done should NOT be suppressed after ack was cleared by intermediate working state")
+        // Done should be visible (natural idle → working → done flow)
+        XCTAssertEqual(store.sessions[0].status, .done,
+            "Done should be visible after idle → working → done")
     }
 
-    /// Verify that both waitingForInput and done transitions are visible to
-    /// NotificationManager when notification + stop events batch together.
-    func testBatchedNotificationThenStopFiresBothNotifications() {
+    /// Verify that both waitingForInput and done transitions are visible
+    /// when permissionRequest + stop events batch together.
+    func testBatchedPermissionRequestThenStopFiresBothTransitions() {
         let store = makeStore()
-        store.sessions = [makeSession(sessionId: "s1", workingDirectory: "/tmp", working: true)]
+        store.sessions = [makeSession(sessionId: "s1", workingDirectory: "/tmp", status: .working)]
         store.reconcileOrder()
         store.selectedSessionId = nil
 
-        // First: intermediate notification state
-        let notificationState = AgentState(
-            waitingForInput: true,
-            latestEventType: "notification",
-            latestEventSummary: "Notification: Permission required",
-            waitingReason: "Permission required",
-            waitingSummary: "Permission required"
+        // First: intermediate permissionRequest state
+        let permEvent = StateEvent.permissionRequest(
+            tool: "Bash",
+            summary: "Permission required: Ran: rm -rf /tmp/old",
+            waitingReason: "Permission required: Ran: rm -rf /tmp/old",
+            waitingSummary: "Permission required: Ran: rm -rf /tmp/old",
+            timestamp: Date()
         )
-        store.handleAgentStateUpdate(AgentStateUpdate(sessionId: "s1", state: notificationState))
+        store.handleAgentStateUpdate(AgentStateUpdate(sessionId: "s1", event: permEvent))
 
         // Session should show waitingForInput
-        XCTAssertTrue(store.sessions[0].waitingForInput,
-            "Intermediate notification state should set waitingForInput")
-        XCTAssertFalse(store.sessions[0].done,
-            "Should not be done yet after notification")
+        XCTAssertEqual(store.sessions[0].status, .waitingForInput,
+            "Intermediate permissionRequest should set waitingForInput")
+        XCTAssertEqual(store.sessions[0].waitingSummary, "Permission required: Ran: rm -rf /tmp/old")
 
         // Second: final stop state
-        let doneState = AgentState(
-            done: true,
-            latestEventType: "stop",
-            latestEventSummary: "Agent stopped: end_turn"
-        )
-        store.handleAgentStateUpdate(AgentStateUpdate(sessionId: "s1", state: doneState))
+        let stopEvent = StateEvent.stop(reason: "Agent stopped: end_turn", timestamp: Date())
+        store.handleAgentStateUpdate(AgentStateUpdate(sessionId: "s1", event: stopEvent))
 
-        // Session should now show done (waitingForInput cleared by state derivation)
-        XCTAssertTrue(store.sessions[0].done,
-            "Final stop state should set done")
-        XCTAssertFalse(store.sessions[0].waitingForInput,
-            "waitingForInput should be cleared by stop state")
+        // Session should now show done (waitingForInput cleared by transition)
+        XCTAssertEqual(store.sessions[0].status, .done,
+            "Final stop should set done")
+        XCTAssertNil(store.sessions[0].waitingReason,
+            "waitingReason should be cleared when leaving waitingForInput")
+        XCTAssertNil(store.sessions[0].waitingSummary,
+            "waitingSummary should be cleared when leaving waitingForInput")
+    }
+
+    /// Regression: same done state arriving from two paths (event watcher + tmux polling)
+    /// should produce only one effective state change.
+    func testDuplicateDoneFromTwoPathsProducesOneTransition() {
+        let store = makeStore()
+        store.sessions = [makeSession(sessionId: "s1", workingDirectory: "/tmp", status: .working)]
+        store.reconcileOrder()
+        store.selectedSessionId = nil
+
+        // Path 1: event watcher delivers stop → done
+        let stopEvent = StateEvent.stop(reason: "Agent stopped: end_turn", timestamp: Date())
+        store.handleAgentStateUpdate(AgentStateUpdate(sessionId: "s1", event: stopEvent))
+        XCTAssertEqual(store.sessions[0].status, .done)
+
+        // Path 2: tmux polling delivers polledState(.done) — same state
+        // The session is already .done, so the reducer should return didChange: false.
+        // In the real flow, handleTmuxUpdate calls dispatchStateEvent which checks didChange.
+        // We verify the reducer's dedup behavior directly:
+        let transition = StateReducer.reduce(current: .done, event: .polledState(status: .done), source: .tmuxPolling)
+        XCTAssertFalse(transition.didChange,
+            "polledState(.done) when already .done should NOT trigger a state change")
     }
 
     // MARK: - Order Reconciliation
@@ -686,7 +717,7 @@ final class SessionStoreTests: XCTestCase {
         XCTAssertNotNil(placeholder, "Placeholder session should exist")
         XCTAssertEqual(placeholder?.workingDirectory, "/tmp")
         XCTAssertEqual(placeholder?.agentType, "claude")
-        XCTAssertTrue(placeholder?.working ?? false)
+        XCTAssertEqual(placeholder?.status, .working)
 
         // Placeholder should be selected
         XCTAssertEqual(store.selectedSessionId, placeholder?.id)
@@ -887,75 +918,25 @@ final class SessionStoreTests: XCTestCase {
 
     // MARK: - Acknowledge Done Sessions
 
-    func testAcknowledgeSessionClearsDone() {
+    func testAcknowledgeSessionTransitionsToIdle() {
         let store = makeStore()
-        store.sessions = [makeSession(sessionId: "s1", workingDirectory: "/tmp", done: true)]
+        store.sessions = [makeSession(sessionId: "s1", workingDirectory: "/tmp", status: .done)]
         store.reconcileOrder()
 
         store.acknowledgeSession("s1")
 
-        XCTAssertFalse(store.sessions[0].done, "Done should be cleared after acknowledgement")
-    }
-
-    func testAcknowledgeSessionPersists() {
-        let store = makeStore()
-        store.sessions = [makeSession(sessionId: "s1", workingDirectory: "/tmp", done: true)]
-        store.reconcileOrder()
-
-        store.acknowledgeSession("s1")
-
-        let testDefaults = UserDefaults(suiteName: Self.testSuiteName)!
-        let saved = testDefaults.stringArray(forKey: "nala.acknowledgedSessions") ?? []
-        XCTAssertTrue(saved.contains("s1"), "Acknowledged session ID should be persisted")
+        XCTAssertEqual(store.sessions[0].status, .idle, "Status should be idle after acknowledgement")
     }
 
     func testAcknowledgeNoOpWhenNotDone() {
         let store = makeStore()
-        store.sessions = [makeSession(sessionId: "s1", workingDirectory: "/tmp", done: false, working: true)]
+        store.sessions = [makeSession(sessionId: "s1", workingDirectory: "/tmp", status: .working)]
         store.reconcileOrder()
 
         store.acknowledgeSession("s1")
 
-        // Should not add to acknowledged set since session isn't done
-        let testDefaults = UserDefaults(suiteName: Self.testSuiteName)!
-        let saved = testDefaults.stringArray(forKey: "nala.acknowledgedSessions") ?? []
-        XCTAssertFalse(saved.contains("s1"), "Non-done session should not be acknowledged")
-    }
-
-    func testAcknowledgedSessionsLoadOnStartup() {
-        let testDefaults = UserDefaults(suiteName: Self.testSuiteName)!
-        testDefaults.set(["s1", "s2"], forKey: "nala.acknowledgedSessions")
-
-        let store = makeStore()
-        store.startServices() // triggers loadSavedOrder → loadAcknowledgedSessions
-
-        // Verify by checking that a done session with acknowledged ID is suppressed
-        store.sessions = [makeSession(sessionId: "s1", workingDirectory: "/tmp")]
-        store.reconcileOrder()
-
-        let state = AgentState(done: true, latestEventType: "stop", latestEventSummary: "Done")
-        store.handleAgentStateUpdate(AgentStateUpdate(sessionId: "s1", state: state))
-
-        XCTAssertFalse(store.sessions[0].done, "Done should be suppressed for pre-acknowledged session")
-    }
-
-    func testReconcilePrunesStaleAcknowledgedIds() {
-        let store = makeStore()
-        store.sessions = [makeSession(sessionId: "s1", workingDirectory: "/tmp")]
-        store.reconcileOrder()
-
-        // Manually acknowledge a session, then remove it
-        store.sessions = [makeSession(sessionId: "s1", workingDirectory: "/tmp", done: true)]
-        store.acknowledgeSession("s1")
-
-        // Now remove s1 and reconcile
-        store.sessions = [makeSession(sessionId: "s2", workingDirectory: "/tmp")]
-        store.reconcileOrder()
-
-        // s1 should be pruned from acknowledged set
-        let testDefaults = UserDefaults(suiteName: Self.testSuiteName)!
-        let saved = testDefaults.stringArray(forKey: "nala.acknowledgedSessions") ?? []
-        XCTAssertFalse(saved.contains("s1"), "Stale acknowledged ID should be pruned")
+        // Should be no-op since session isn't done
+        XCTAssertEqual(store.sessions[0].status, .working, "Status should remain working")
     }
 
     // MARK: - Startup Cleanup
@@ -1398,13 +1379,13 @@ final class SessionStoreTests: XCTestCase {
 
     func testHandleAgentCancelWhileWorking() {
         let store = makeStore()
-        store.sessions = [makeSession(sessionId: "s1", workingDirectory: "/tmp", working: true)]
+        store.sessions = [makeSession(sessionId: "s1", workingDirectory: "/tmp", status: .working)]
         store.reconcileOrder()
 
         store.handleAgentCancel(sessionId: "s1")
 
         // Immediately after calling, session should still be working (2s debounce)
-        XCTAssertTrue(store.sessions[0].working, "Session should still be working before debounce fires")
+        XCTAssertEqual(store.sessions[0].status, .working, "Session should still be working before debounce fires")
 
         // Wait for the debounce timer to fire
         let expectation = expectation(description: "Cancel debounce fires")
@@ -1413,18 +1394,14 @@ final class SessionStoreTests: XCTestCase {
         }
         wait(for: [expectation], timeout: 5.0)
 
-        // After debounce, all flags should be false (idle)
-        XCTAssertFalse(store.sessions[0].working, "working should be false after cancel")
-        XCTAssertFalse(store.sessions[0].done, "done should be false after cancel")
-        XCTAssertFalse(store.sessions[0].waitingForInput, "waitingForInput should be false after cancel")
-        XCTAssertFalse(store.sessions[0].stuck, "stuck should be false after cancel")
-        XCTAssertFalse(store.sessions[0].sleeping, "sleeping should be false after cancel")
+        // After debounce, status should be idle
+        XCTAssertEqual(store.sessions[0].status, .idle, "Status should be idle after cancel")
         XCTAssertEqual(store.sessions[0].latestEventSummary, "Cancelled")
     }
 
     func testHandleAgentCancelWhileNotWorking() {
         let store = makeStore()
-        store.sessions = [makeSession(sessionId: "s1", workingDirectory: "/tmp", working: false)]
+        store.sessions = [makeSession(sessionId: "s1", workingDirectory: "/tmp")]
         store.reconcileOrder()
 
         store.handleAgentCancel(sessionId: "s1")
@@ -1436,26 +1413,21 @@ final class SessionStoreTests: XCTestCase {
         }
         wait(for: [expectation], timeout: 1.0)
 
-        XCTAssertFalse(store.sessions[0].working, "Should remain not working")
+        XCTAssertEqual(store.sessions[0].status, .idle, "Should remain idle")
         XCTAssertNil(store.sessions[0].latestEventSummary, "Summary should not change")
     }
 
     func testHandleAgentCancelDebounce() {
         let store = makeStore()
-        store.sessions = [makeSession(sessionId: "s1", workingDirectory: "/tmp", working: true)]
+        store.sessions = [makeSession(sessionId: "s1", workingDirectory: "/tmp", status: .working)]
         store.reconcileOrder()
 
         // Trigger cancel
         store.handleAgentCancel(sessionId: "s1")
 
         // Within the 2s window, a working event arrives — should cancel the pending timer
-        let workingState = AgentState(
-            working: true,
-            done: false,
-            latestEventType: "tool_use",
-            latestEventSummary: "Read file.swift"
-        )
-        store.handleAgentStateUpdate(AgentStateUpdate(sessionId: "s1", state: workingState))
+        let event = StateEvent.toolUse(tool: "Read", summary: "Read file.swift", timestamp: Date())
+        store.handleAgentStateUpdate(AgentStateUpdate(sessionId: "s1", event: event))
 
         // Wait past the debounce period
         let expectation = expectation(description: "Cancel debounce window passes")
@@ -1465,15 +1437,15 @@ final class SessionStoreTests: XCTestCase {
         wait(for: [expectation], timeout: 5.0)
 
         // Session should still be working (cancel was debounced by the working event)
-        XCTAssertTrue(store.sessions[0].working, "Session should stay working — cancel was debounced")
+        XCTAssertEqual(store.sessions[0].status, .working, "Session should stay working — cancel was debounced")
         XCTAssertEqual(store.sessions[0].latestEventSummary, "Read file.swift")
     }
 
     func testHandleAgentCancelClearsCorrectSession() {
         let store = makeStore()
         store.sessions = [
-            makeSession(name: "a", sessionId: "s1", workingDirectory: "/tmp", working: true),
-            makeSession(name: "b", sessionId: "s2", workingDirectory: "/tmp", working: true),
+            makeSession(name: "a", sessionId: "s1", workingDirectory: "/tmp", status: .working),
+            makeSession(name: "b", sessionId: "s2", workingDirectory: "/tmp", status: .working),
         ]
         store.reconcileOrder()
 
@@ -1489,12 +1461,12 @@ final class SessionStoreTests: XCTestCase {
 
         // s1 should be idle
         let s1 = store.sessions.first { $0.sessionId == "s1" }!
-        XCTAssertFalse(s1.working, "s1 should be idle after cancel")
+        XCTAssertEqual(s1.status, .idle, "s1 should be idle after cancel")
         XCTAssertEqual(s1.latestEventSummary, "Cancelled")
 
         // s2 should still be working
         let s2 = store.sessions.first { $0.sessionId == "s2" }!
-        XCTAssertTrue(s2.working, "s2 should still be working — only s1 was cancelled")
+        XCTAssertEqual(s2.status, .working, "s2 should still be working — only s1 was cancelled")
     }
 
     // MARK: - lastFocusedTimestamps Persistence

@@ -1,9 +1,6 @@
 import Foundation
 @testable import Nala
 
-/// Shared JSON decoder for tests (Session uses custom CodingKeys, so plain JSONDecoder works)
-let nalaJSONDecoder = JSONDecoder()
-
 /// Factory for creating `Session` values with sensible defaults.
 /// Only override the fields your test cares about.
 func makeSession(
@@ -16,11 +13,7 @@ func makeSession(
     displayName: String? = nil,
     icon: String? = nil,
     workingDirectory: String = "/tmp/project",
-    waitingForInput: Bool = false,
-    done: Bool = false,
-    working: Bool = false,
-    stuck: Bool = false,
-    sleeping: Bool = false,
+    status: AgentStatus = .idle,
     waitingReason: String? = nil,
     waitingSummary: String? = nil,
     latestEventSummary: String? = nil,
@@ -40,11 +33,7 @@ func makeSession(
         displayName: displayName,
         icon: icon,
         workingDirectory: workingDirectory,
-        waitingForInput: waitingForInput,
-        done: done,
-        working: working,
-        stuck: stuck,
-        sleeping: sleeping,
+        status: status,
         waitingReason: waitingReason,
         waitingSummary: waitingSummary,
         latestEventSummary: latestEventSummary,
@@ -55,36 +44,3 @@ func makeSession(
         commands: commands
     )
 }
-
-// MARK: - Sample JSON
-
-let fullSessionJSON = """
-{
-    "name": "claude-agent-1",
-    "agent_type": "claude",
-    "session_id": "abc123",
-    "tmux_session": "tmux-claude-1",
-    "staleness_seconds": 42.5,
-    "branch": "feature/tests",
-    "display_name": "Test Agent",
-    "icon": "beaker",
-    "working_directory": "/Users/dev/project",
-    "waiting_for_input": false,
-    "done": false,
-    "working": true,
-    "stuck": false,
-    "waiting_reason": null,
-    "waiting_summary": null,
-    "changed_file_count": 3,
-    "board_project": "myboard",
-    "board_job_title": "Backend Dev",
-    "board_unread": 2,
-    "commands": [
-        {"name": "test", "description": "Run tests"}
-    ]
-}
-"""
-
-let minimalSessionJSON = """
-{"name": "bare-agent"}
-"""
