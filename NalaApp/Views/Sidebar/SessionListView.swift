@@ -91,7 +91,7 @@ struct SessionListView: View {
             }
 
             VStack(spacing: 0) {
-                // Sidebar header with toggle and add buttons
+                // Sidebar header with toggle and command palette entry point
                 HStack(spacing: 12) {
                     Menu {
                         Button {
@@ -123,34 +123,14 @@ struct SessionListView: View {
                     Spacer()
 
                     Button {
-                        store.pendingPaletteMode = .newAgent
+                        store.pendingPaletteMode = .switchSession
                         withAnimation(.easeOut(duration: 0.15)) { store.showCommandPalette = true }
                     } label: {
-                        Image(systemName: "sparkles")
+                        Image(systemName: "plus")
                             .foregroundStyle(NalaTheme.textSecondary)
                     }
                     .buttonStyle(.plain)
-                    .help("Launch new agent (⌘N)")
-
-                    Button {
-                        store.pendingPaletteMode = .newTerminal
-                        withAnimation(.easeOut(duration: 0.15)) { store.showCommandPalette = true }
-                    } label: {
-                        Image(systemName: "terminal")
-                            .foregroundStyle(NalaTheme.textSecondary)
-                    }
-                    .buttonStyle(.plain)
-                    .help("Launch new terminal (⌘T)")
-
-                    Button {
-                        store.pendingPaletteMode = .newWorktree
-                        withAnimation(.easeOut(duration: 0.15)) { store.showCommandPalette = true }
-                    } label: {
-                        Image(systemName: "arrow.triangle.branch")
-                            .foregroundStyle(NalaTheme.textSecondary)
-                    }
-                    .buttonStyle(.plain)
-                    .help("New worktree (⌥⌘N)")
+                    .help("Command Palette (⌘K)")
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 10)
@@ -193,7 +173,7 @@ struct SessionListView: View {
                                     store.pendingPaletteMode = .newAgent
                                     withAnimation(.easeOut(duration: 0.15)) { store.showCommandPalette = true }
                                 } label: {
-                                    Label("Launch Agent", systemImage: "sparkles")
+                                    Label("Launch Claude", systemImage: "sparkles")
                                         .frame(maxWidth: 180)
                                 }
                                 .controlSize(.large)
@@ -211,7 +191,7 @@ struct SessionListView: View {
                                 .buttonStyle(.bordered)
                             }
 
-                            Text("\u{2318}N agent  \u{00B7}  \u{2318}T terminal  \u{00B7}  \u{2325}\u{2318}N worktree")
+                            Text("\u{2318}N Claude \u{00B7} \u{21E7}\u{2318}N Codex \u{00B7} \u{2318}T terminal")
                                 .font(.caption)
                                 .foregroundStyle(.tertiary)
                         }

@@ -7,14 +7,15 @@ struct SessionLaunchProgressView: View {
     @State private var showTimeout = false
 
     private var headerTitle: String {
-        state.agentType == "terminal" ? "Launching Terminal" : "Launching Agent"
+        provider.id == "terminal" ? "Launching Terminal" : "Launching Agent"
     }
 
     private var agentLabel: String {
-        switch state.agentType {
-        case "terminal": "Terminal"
-        default: "Claude"
-        }
+        provider.displayName
+    }
+
+    private var provider: AgentProvider {
+        AgentProvider.provider(for: state.agentType)
     }
 
     var body: some View {

@@ -208,6 +208,12 @@ struct ContentView: View {
                 return nil
             }
 
+            // ⇧⌘N: Open New Codex directly (global)
+            if event.keyCode == 45 && mods == [.command, .shift] {
+                openPalette(mode: .newCodexAgent)
+                return nil
+            }
+
             // ⌘0: Focus sidebar (global — works even from terminal)
             if event.keyCode == 29 && mods == .command {
                 store.sidebarVisibility = .all
@@ -348,9 +354,15 @@ struct ContentView: View {
             return nil
         }
 
-        // ⌘N: Switch to New Agent mode
+        // ⌘N: Switch to New Claude mode
         if event.keyCode == 45 && mods == .command {
             NotificationCenter.default.post(name: .paletteSwitchMode, object: PaletteMode.newAgent)
+            return nil
+        }
+
+        // ⇧⌘N: Switch to New Codex mode
+        if event.keyCode == 45 && mods == [.command, .shift] {
+            NotificationCenter.default.post(name: .paletteSwitchMode, object: PaletteMode.newCodexAgent)
             return nil
         }
 

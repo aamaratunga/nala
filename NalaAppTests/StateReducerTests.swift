@@ -67,6 +67,36 @@ final class StateReducerTests: XCTestCase {
         XCTAssertTrue(t.didChange)
     }
 
+    func testWorkingToWaitingOnQuestionRequest() {
+        let t = StateReducer.reduce(
+            current: .working,
+            event: .questionRequest(summary: "Which option?", timestamp: now),
+            source: .eventWatcher
+        )
+        XCTAssertEqual(t.to, .waitingForInput)
+        XCTAssertTrue(t.didChange)
+    }
+
+    func testWaitingToWorkingOnQuestionAnswered() {
+        let t = StateReducer.reduce(
+            current: .waitingForInput,
+            event: .questionAnswered(timestamp: now),
+            source: .eventWatcher
+        )
+        XCTAssertEqual(t.to, .working)
+        XCTAssertTrue(t.didChange)
+    }
+
+    func testQuestionAnsweredFromIdleIsNoOp() {
+        let t = StateReducer.reduce(
+            current: .idle,
+            event: .questionAnswered(timestamp: now),
+            source: .eventWatcher
+        )
+        XCTAssertEqual(t.to, .idle)
+        XCTAssertFalse(t.didChange)
+    }
+
     func testWorkingToSleeping() {
         let t = StateReducer.reduce(
             current: .working,

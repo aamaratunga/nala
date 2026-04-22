@@ -175,6 +175,13 @@ final class SessionStore {
         self.defaults = defaults
     }
 
+#if DEBUG
+    func configureForTesting(eventWatcher: EventFileWatcher? = nil, autoNamer: AutoNamer? = nil) {
+        self.eventWatcher = eventWatcher
+        self.autoNamer = autoNamer
+    }
+#endif
+
     /// Returns the git root for a working directory, falling back to the path itself.
     func groupingPath(for workingDirectory: String) -> String {
         if let cached = gitRootCache[workingDirectory] { return cached }
@@ -647,6 +654,14 @@ final class SessionStore {
             sessions[idx].latestEventSummary = summary
             sessions[idx].stalenessSeconds = Date().timeIntervalSince(timestamp)
             sessions[idx].waitingSource = .permission
+        case .questionRequest(let summary, let timestamp):
+            sessions[idx].waitingReason = summary
+            sessions[idx].waitingSummary = summary
+            sessions[idx].latestEventSummary = summary
+            sessions[idx].stalenessSeconds = Date().timeIntervalSince(timestamp)
+            sessions[idx].waitingSource = .question
+        case .questionAnswered(let timestamp):
+            sessions[idx].stalenessSeconds = Date().timeIntervalSince(timestamp)
         case .sleepDetected(let summary, let timestamp):
             sessions[idx].latestEventSummary = summary
             sessions[idx].stalenessSeconds = Date().timeIntervalSince(timestamp)
@@ -766,7 +781,9 @@ final class SessionStore {
             guard !pendingKills.contains(compositeKey) else { continue }
 
             // Start watchers for new sessions
-            if info.agentType == "claude", eventWatcher?.cachedStatus(for: sessionId) == nil {
+            let provider = AgentProvider.provider(for: info.agentType)
+
+            if provider.supportsEventTracking, eventWatcher?.cachedStatus(for: sessionId) == nil {
                 eventWatcher?.startWatching(sessionId: sessionId)
                 watcherStartCount += 1
             }
@@ -865,7 +882,7 @@ final class SessionStore {
         // because polledState is also dispatched by handleTmuxUpdate with
         // cached state every ~1s, which would incorrectly cancel the timer.
         switch event {
-        case .toolUse, .preToolUse, .promptSubmit:
+        case .toolUse, .preToolUse, .promptSubmit, .questionAnswered:
             pendingCancelTimers[update.sessionId]?.cancel()
             pendingCancelTimers.removeValue(forKey: update.sessionId)
         default:
@@ -881,6 +898,9 @@ final class SessionStore {
 
         // Auto-naming: collect activity and trigger when ready
         let sessionId = update.sessionId
+        let provider = AgentProvider.provider(for: sessions[idx].agentType)
+        guard provider.supportsAutoNaming else { return }
+
         switch event {
         case .toolUse(_, let summary, _):
             activityLog[sessionId, default: []].append(summary)
@@ -937,18 +957,7 @@ final class SessionStore {
     // MARK: - Default Commands
 
     private func defaultCommands(for agentType: String) -> [SessionCommand] {
-        switch agentType {
-        case "claude":
-            return [
-                SessionCommand(name: "compact", description: "Compress conversation history"),
-                SessionCommand(name: "clear", description: "Clear conversation and start fresh"),
-                SessionCommand(name: "review", description: "Review code changes"),
-                SessionCommand(name: "cost", description: "Show token usage and cost"),
-                SessionCommand(name: "diff", description: "View changes made in session"),
-            ]
-        default:
-            return []
-        }
+        AgentProvider.provider(for: agentType).defaultCommands
     }
 
     // MARK: - Session Launch (Native)

@@ -22,6 +22,8 @@ enum StateEvent: Equatable {
     case promptSubmit(summary: String, timestamp: Date)
     case stop(reason: String, timestamp: Date)
     case permissionRequest(tool: String, summary: String, waitingReason: String?, waitingSummary: String?, timestamp: Date)
+    case questionRequest(summary: String, timestamp: Date)
+    case questionAnswered(timestamp: Date)
     case sessionReset
     case userAcknowledged
     case userCancelled
@@ -102,6 +104,14 @@ struct StateReducer {
         case .permissionRequest(_, _, _, _, let ts):
             timestamp = ts
             next = .waitingForInput
+
+        case .questionRequest(_, let ts):
+            timestamp = ts
+            next = .waitingForInput
+
+        case .questionAnswered(let ts):
+            timestamp = ts
+            next = current == .waitingForInput ? .working : current
 
         case .sessionReset:
             timestamp = Date()

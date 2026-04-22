@@ -124,7 +124,7 @@ struct Session: Identifiable, Equatable {
     var displayLabel: String {
         if let dn = displayName, !dn.isEmpty { return dn }
         if let job = boardJobTitle, !job.isEmpty { return job }
-        return agentType == "terminal" ? "Terminal" : "Agent"
+        return AgentProvider.provider(for: agentType).fallbackDisplayLabel
     }
 
     /// Activity subtitle shown below the name, with state-aware priority.
@@ -158,4 +158,3 @@ struct SessionCommand: Codable, Equatable {
     let name: String
     let description: String
 }
-

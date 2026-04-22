@@ -23,15 +23,25 @@ struct TmuxUpdate: Equatable {
 final class TmuxService: @unchecked Sendable {
     private let logger = os.Logger(subsystem: "com.nala.app", category: "TmuxService")
 
+    typealias ExecutableResolver = @Sendable (AgentProvider) -> String?
+    typealias TmuxRunner = @Sendable ([String]) async -> CommandResult
+    typealias LaunchFlagsReader = (AgentProvider) -> String
+
     /// Resolved path to the tmux binary. Checked once at init from known install locations.
     private let tmuxPath: String
+    private let executableResolver: ExecutableResolver
+    private let tmuxRunner: TmuxRunner?
+    private let launchFlagsReader: LaunchFlagsReader
 
     /// Whether tmux was found at a known install path.
     let tmuxAvailable: Bool
 
+    static let claudeAdditionalLaunchFlagsKey = "nala.claude.additionalLaunchFlags"
+    static let codexAdditionalLaunchFlagsKey = "nala.codex.additionalLaunchFlags"
+
     /// Regex for Nala-managed session names: {agentType}-{uuid}
     static let sessionNamePattern = try! NSRegularExpression(
-        pattern: #"^(claude|terminal)-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$"#,
+        pattern: #"^(claude|codex|terminal)-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$"#,
         options: .caseInsensitive
     )
 
@@ -58,7 +68,21 @@ final class TmuxService: @unchecked Sendable {
         "/usr/bin/tmux",             // unlikely, but check anyway
     ].compactMap { $0 }
 
-    init() {
+    init(
+        executableResolver: ExecutableResolver? = nil,
+        tmuxRunner: TmuxRunner? = nil,
+        launchFlagsReader: LaunchFlagsReader? = nil,
+        launchFlagsDefaults: UserDefaults = .standard
+    ) {
+        self.executableResolver = executableResolver ?? { provider in
+            Self.resolveExecutable(for: provider)
+        }
+        self.tmuxRunner = tmuxRunner
+        self.launchFlagsReader = launchFlagsReader ?? { provider in
+            guard let key = Self.additionalLaunchFlagsKey(for: provider) else { return "" }
+            return launchFlagsDefaults.string(forKey: key) ?? ""
+        }
+
         let fm = FileManager.default
         if let found = Self.knownTmuxPaths.first(where: { fm.isExecutableFile(atPath: $0) }) {
             self.tmuxPath = found
@@ -74,7 +98,10 @@ final class TmuxService: @unchecked Sendable {
     // MARK: - Process Execution
 
     func runTmux(args: [String]) async -> CommandResult {
-        await runProcess(executablePath: tmuxPath, args: args, environment: nil, label: "tmux")
+        if let tmuxRunner {
+            return await tmuxRunner(args)
+        }
+        return await runProcess(executablePath: tmuxPath, args: args, environment: nil, label: "tmux")
     }
 
     private func runProcess(
@@ -210,8 +237,12 @@ final class TmuxService: @unchecked Sendable {
         prompt: String? = nil,
         displayName: String? = nil
     ) async throws -> String {
+        let provider = AgentProvider.provider(for: agentType)
         let sessionId = UUID().uuidString.lowercased()
-        let sessionName = "\(agentType)-\(sessionId)"
+        let sessionName = "\(provider.sessionPrefix)-\(sessionId)"
+
+        try preflightLaunch(provider: provider)
+        let additionalLaunchArgs = try additionalLaunchArgs(for: provider)
 
         // Create the tmux session
         let tmuxStart = CACurrentMediaTime()
@@ -226,20 +257,17 @@ final class TmuxService: @unchecked Sendable {
         }
 
         // Launch the agent
-        if agentType == "claude" {
-            let settingsStart = CACurrentMediaTime()
-            let command = buildClaudeLaunchCommand(
-                sessionId: sessionId,
-                sessionName: sessionName,
-                workingDirectory: workingDirectory,
-                prompt: prompt
-            )
-            let settingsElapsed = CACurrentMediaTime() - settingsStart
-            if settingsElapsed > 0.05 {
-                logger.warning("createSession: buildClaudeLaunchCommand took \(String(format: "%.1f", settingsElapsed * 1000))ms (settings merge + file write)")
-            }
+        let launchCommand = try buildLaunchCommand(
+            provider: provider,
+            sessionId: sessionId,
+            sessionName: sessionName,
+            workingDirectory: workingDirectory,
+            prompt: prompt,
+            additionalArgs: additionalLaunchArgs
+        )
+        if let launchCommand {
             let sendResult = await runTmux(args: [
-                "send-keys", "-t", sessionName, command, "Enter"
+                "send-keys", "-t", sessionName, launchCommand, "Enter"
             ])
             if !sendResult.succeeded {
                 logger.warning("Failed to send launch command: \(sendResult.errorMessage)")
@@ -398,13 +426,175 @@ final class TmuxService: @unchecked Sendable {
         return json
     }
 
+    static func shellQuote(_ value: String) -> String {
+        guard !value.isEmpty else { return "''" }
+        return "'\(value.replacingOccurrences(of: "'", with: "'\\''"))'"
+    }
+
+    static func additionalLaunchFlagsKey(for provider: AgentProvider) -> String? {
+        switch provider.id {
+        case AgentProvider.claude.id:
+            return claudeAdditionalLaunchFlagsKey
+        case AgentProvider.codex.id:
+            return codexAdditionalLaunchFlagsKey
+        default:
+            return nil
+        }
+    }
+
+    static func parseAdditionalLaunchFlags(_ rawValue: String) throws -> [String] {
+        var args: [String] = []
+        var current = ""
+        var tokenStarted = false
+        var quote: Character?
+        var isEscaping = false
+
+        for character in rawValue {
+            if isEscaping {
+                current.append(character)
+                tokenStarted = true
+                isEscaping = false
+                continue
+            }
+
+            if character == "\\" {
+                isEscaping = true
+                tokenStarted = true
+                continue
+            }
+
+            if let activeQuote = quote {
+                if character == activeQuote {
+                    quote = nil
+                } else {
+                    current.append(character)
+                }
+                tokenStarted = true
+                continue
+            }
+
+            if character == "'" || character == "\"" {
+                quote = character
+                tokenStarted = true
+                continue
+            }
+
+            if character.isWhitespace {
+                if tokenStarted {
+                    args.append(current)
+                    current = ""
+                    tokenStarted = false
+                }
+                continue
+            }
+
+            current.append(character)
+            tokenStarted = true
+        }
+
+        if isEscaping {
+            throw TmuxError.invalidLaunchFlags("Trailing backslash in additional launch flags.")
+        }
+        if let quote {
+            let quoteName = quote == "'" ? "single quote" : "double quote"
+            throw TmuxError.invalidLaunchFlags("Unclosed \(quoteName) in additional launch flags.")
+        }
+        if tokenStarted {
+            args.append(current)
+        }
+
+        return args
+    }
+
+    static func resolveExecutable(for provider: AgentProvider) -> String? {
+        let fm = FileManager.default
+
+        for candidate in provider.executableCandidates {
+            let expanded = expandTilde(in: candidate)
+
+            if expanded.contains("/") {
+                if fm.isExecutableFile(atPath: expanded) {
+                    return expanded
+                }
+                continue
+            }
+
+            let pathDirs = (ProcessInfo.processInfo.environment["PATH"] ?? "")
+                .split(separator: ":")
+                .map(String.init)
+            for dir in pathDirs {
+                let path = URL(fileURLWithPath: dir).appendingPathComponent(expanded).path
+                if fm.isExecutableFile(atPath: path) {
+                    return path
+                }
+            }
+        }
+
+        return nil
+    }
+
+    private static func expandTilde(in path: String) -> String {
+        guard path == "~" || path.hasPrefix("~/") else { return path }
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        if path == "~" { return home }
+        return home + String(path.dropFirst())
+    }
+
+    private func preflightLaunch(provider: AgentProvider) throws {
+        guard provider.id == AgentProvider.codex.id else { return }
+        guard executableResolver(provider) != nil else {
+            throw TmuxError.executableNotFound(provider: provider.displayName)
+        }
+    }
+
+    private func additionalLaunchArgs(for provider: AgentProvider) throws -> [String] {
+        guard Self.additionalLaunchFlagsKey(for: provider) != nil else { return [] }
+        return try Self.parseAdditionalLaunchFlags(launchFlagsReader(provider))
+    }
+
+    private func buildLaunchCommand(
+        provider: AgentProvider,
+        sessionId: String,
+        sessionName: String,
+        workingDirectory: String,
+        prompt: String?,
+        additionalArgs: [String]
+    ) throws -> String? {
+        switch provider.id {
+        case AgentProvider.claude.id:
+            let settingsStart = CACurrentMediaTime()
+            let command = try buildClaudeLaunchCommand(
+                sessionId: sessionId,
+                sessionName: sessionName,
+                workingDirectory: workingDirectory,
+                prompt: prompt,
+                additionalArgs: additionalArgs
+            )
+            let settingsElapsed = CACurrentMediaTime() - settingsStart
+            if settingsElapsed > 0.05 {
+                logger.warning("createSession: buildClaudeLaunchCommand took \(String(format: "%.1f", settingsElapsed * 1000))ms (settings merge + file write)")
+            }
+            return command
+        case AgentProvider.codex.id:
+            return try buildCodexLaunchCommand(
+                sessionId: sessionId,
+                workingDirectory: workingDirectory,
+                prompt: prompt,
+                additionalArgs: additionalArgs
+            )
+        default:
+            return nil
+        }
+    }
+
     /// Build the Claude launch command with merged settings written to a temp file.
     func buildClaudeLaunchCommand(
         sessionId: String,
         sessionName: String,
         workingDirectory: String,
-        prompt: String?
-    ) -> String {
+        prompt: String?,
+        additionalArgs: [String] = []
+    ) throws -> String {
         let merged = Self.buildMergedSettings(workingDirectory: workingDirectory, sessionId: sessionId)
 
         // Write merged settings to temp file
@@ -415,7 +605,8 @@ final class TmuxService: @unchecked Sendable {
             ])
         }
 
-        var parts = ["env", "-u", "CLAUDECODE", "claude", "--session-id", sessionId, "--settings", settingsPath]
+        var parts = ["env", "-u", "CLAUDECODE", "claude", "--session-id", sessionId, "--settings", Self.shellQuote(settingsPath)]
+        parts.append(contentsOf: additionalArgs.map(Self.shellQuote))
 
         // If there's a prompt, write it to a file and pass via cat
         if let prompt, !prompt.isEmpty {
@@ -425,10 +616,69 @@ final class TmuxService: @unchecked Sendable {
                 contents: prompt.data(using: .utf8),
                 attributes: [.posixPermissions: 0o600]
             )
-            parts.append("\"$(cat '\(promptPath)')\"")
+            parts.append("\"$(cat \(Self.shellQuote(promptPath)))\"")
         }
 
         return parts.joined(separator: " ")
+    }
+
+    func buildClaudeLaunchCommand(
+        sessionId: String,
+        sessionName: String,
+        workingDirectory: String,
+        prompt: String?,
+        additionalLaunchFlags: String
+    ) throws -> String {
+        let additionalArgs = try Self.parseAdditionalLaunchFlags(additionalLaunchFlags)
+        return try buildClaudeLaunchCommand(
+            sessionId: sessionId,
+            sessionName: sessionName,
+            workingDirectory: workingDirectory,
+            prompt: prompt,
+            additionalArgs: additionalArgs
+        )
+    }
+
+    func buildCodexLaunchCommand(
+        sessionId: String,
+        workingDirectory: String,
+        prompt: String?,
+        additionalArgs: [String] = []
+    ) throws -> String {
+        guard let executable = executableResolver(AgentProvider.codex) else {
+            throw TmuxError.executableNotFound(provider: AgentProvider.codex.displayName)
+        }
+
+        var parts = [
+            "NALA_SESSION_ID=\(Self.shellQuote(sessionId))",
+            Self.shellQuote(executable),
+            "-C",
+            Self.shellQuote(workingDirectory),
+            "--enable",
+            "codex_hooks",
+        ]
+        parts.append(contentsOf: additionalArgs.map(Self.shellQuote))
+
+        if let prompt, !prompt.isEmpty {
+            parts.append(Self.shellQuote(prompt))
+        }
+
+        return parts.joined(separator: " ")
+    }
+
+    func buildCodexLaunchCommand(
+        sessionId: String,
+        workingDirectory: String,
+        prompt: String?,
+        additionalLaunchFlags: String
+    ) throws -> String {
+        let additionalArgs = try Self.parseAdditionalLaunchFlags(additionalLaunchFlags)
+        return try buildCodexLaunchCommand(
+            sessionId: sessionId,
+            workingDirectory: workingDirectory,
+            prompt: prompt,
+            additionalArgs: additionalArgs
+        )
     }
 
     // MARK: - Polling
@@ -527,10 +777,16 @@ final class TmuxService: @unchecked Sendable {
 
 enum TmuxError: LocalizedError {
     case sessionCreationFailed(String)
+    case executableNotFound(provider: String)
+    case invalidLaunchFlags(String)
 
     var errorDescription: String? {
         switch self {
         case .sessionCreationFailed(let msg): return "Session creation failed: \(msg)"
+        case .executableNotFound(let provider):
+            return "\(provider) executable not found. Install \(provider) CLI or add it to a standard executable path."
+        case .invalidLaunchFlags(let msg):
+            return "Invalid additional launch flags: \(msg)"
         }
     }
 }

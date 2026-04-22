@@ -81,7 +81,7 @@ struct SessionRowView: View {
     // MARK: - Agent Badge
 
     private var agentBadge: some View {
-        Text(session.agentType.capitalized)
+        Text(provider.displayName)
             .font(.caption2)
             .fontWeight(.medium)
             .padding(.horizontal, 5)
@@ -91,11 +91,12 @@ struct SessionRowView: View {
             .clipShape(Capsule())
     }
 
+    private var provider: AgentProvider {
+        AgentProvider.provider(for: session.agentType)
+    }
+
     private var agentColor: Color {
-        switch session.agentType {
-        case "terminal": return NalaTheme.teal
-        default: return NalaTheme.textSecondary
-        }
+        provider.badgeColor
     }
 
     private func formatStaleness(_ seconds: Double) -> String {

@@ -18,7 +18,8 @@ struct KeyboardShortcutsPanel: View {
         ShortcutGroup(title: "General", icon: "keyboard", shortcuts: [
             Shortcut(description: "Command Palette", keys: ["⌘", "K"]),
             Shortcut(description: "Show Shortcuts", keys: ["⌘", "/"]),
-            Shortcut(description: "New Agent", keys: ["⌘", "N"]),
+            Shortcut(description: "New Claude", keys: ["⌘", "N"]),
+            Shortcut(description: "New Codex", keys: ["⇧", "⌘", "N"]),
             Shortcut(description: "New Terminal", keys: ["⌘", "T"]),
             Shortcut(description: "New Worktree", keys: ["⌘", "⌥", "N"]),
             Shortcut(description: "Kill Session", keys: ["⌘", "W"]),

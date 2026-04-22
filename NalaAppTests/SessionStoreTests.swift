@@ -35,6 +35,107 @@ final class SessionStoreTests: XCTestCase {
         XCTAssertTrue(store.isConnected)
     }
 
+    func testTmuxUpdateAddsNewCodexSession() {
+        let store = makeStore()
+        let info = TmuxSessionInfo(
+            sessionName: "codex-abc12345-1234-1234-1234-123456789abc",
+            agentType: "codex",
+            sessionId: "abc12345-1234-1234-1234-123456789abc",
+            workingDirectory: "/tmp",
+            paneTarget: "codex-abc:0.0"
+        )
+        let update = TmuxUpdate(added: [info], removed: [], current: [info])
+
+        store.handleTmuxUpdate(update)
+
+        XCTAssertEqual(store.sessions.count, 1)
+        XCTAssertEqual(store.sessions[0].sessionId, "abc12345-1234-1234-1234-123456789abc")
+        XCTAssertEqual(store.sessions[0].agentType, "codex")
+        XCTAssertEqual(store.sessions[0].commands, [])
+        XCTAssertTrue(store.isConnected)
+    }
+
+    func testTmuxUpdateStartsWatcherForCodexSession() {
+        let store = makeStore()
+        let watcher = EventFileWatcher()
+        store.configureForTesting(eventWatcher: watcher)
+        let sessionId = UUID().uuidString.lowercased()
+        defer {
+            watcher.stopWatching(sessionId: sessionId)
+            try? FileManager.default.removeItem(atPath: "\(EventFileWatcher.eventsDirectory)/\(sessionId).jsonl")
+        }
+
+        let info = TmuxSessionInfo(
+            sessionName: "codex-\(sessionId)",
+            agentType: "codex",
+            sessionId: sessionId,
+            workingDirectory: "/tmp",
+            paneTarget: "codex-\(sessionId):0.0"
+        )
+
+        store.handleTmuxUpdate(TmuxUpdate(added: [info], removed: [], current: [info]))
+        watcher.flushQueue()
+
+        XCTAssertEqual(watcher.cachedStatus(for: sessionId), .idle)
+    }
+
+    func testTmuxUpdateDoesNotStartWatcherForTerminalSession() {
+        let store = makeStore()
+        let watcher = EventFileWatcher()
+        store.configureForTesting(eventWatcher: watcher)
+        let sessionId = UUID().uuidString.lowercased()
+
+        let info = TmuxSessionInfo(
+            sessionName: "terminal-\(sessionId)",
+            agentType: "terminal",
+            sessionId: sessionId,
+            workingDirectory: "/tmp",
+            paneTarget: "terminal-\(sessionId):0.0"
+        )
+
+        store.handleTmuxUpdate(TmuxUpdate(added: [info], removed: [], current: [info]))
+        watcher.flushQueue()
+
+        XCTAssertNil(watcher.cachedStatus(for: sessionId))
+    }
+
+    func testCodexSessionWithoutEventsFallsBackToIdleAndRemainsManageable() {
+        let store = makeStore()
+        let watcher = EventFileWatcher()
+        store.configureForTesting(eventWatcher: watcher)
+        let sessionId = UUID().uuidString.lowercased()
+        defer {
+            watcher.stopWatching(sessionId: sessionId)
+            try? FileManager.default.removeItem(atPath: "\(EventFileWatcher.eventsDirectory)/\(sessionId).jsonl")
+        }
+
+        let info = TmuxSessionInfo(
+            sessionName: "codex-\(sessionId)",
+            agentType: "codex",
+            sessionId: sessionId,
+            workingDirectory: "/tmp",
+            paneTarget: "codex-\(sessionId):0.0"
+        )
+
+        store.handleTmuxUpdate(TmuxUpdate(added: [info], removed: [], current: [info]))
+        watcher.flushQueue()
+        store.handleTmuxUpdate(TmuxUpdate(added: [], removed: [], current: [info]))
+
+        XCTAssertEqual(store.sessions.count, 1)
+        XCTAssertEqual(store.sessions[0].status, .idle)
+        XCTAssertFalse(store.sessions[0].isPlaceholder)
+
+        store.selectedSessionId = sessionId
+        XCTAssertEqual(store.selectedSession?.sessionId, sessionId)
+
+        let codexSession = store.sessions[0]
+        store.restartSession(codexSession)
+        XCTAssertEqual(store.activeRestarts[sessionId]?.originalSession.agentType, "codex")
+
+        store.killSession(codexSession)
+        XCTAssertTrue(store.sessions.isEmpty)
+    }
+
     func testTmuxUpdateRemovesSession() {
         let store = makeStore()
         store.sessions = [makeSession(name: "claude-s1", sessionId: "s1", workingDirectory: "/tmp")]
@@ -212,6 +313,26 @@ final class SessionStoreTests: XCTestCase {
         XCTAssertEqual(store.sessions[0].latestEventSummary, "Read main.swift")
     }
 
+    func testCodexPromptSubmitSkipsAutoNaming() {
+        let store = makeStore()
+        store.sessions = [
+            makeSession(
+                name: "codex-s1",
+                agentType: "codex",
+                sessionId: "s1",
+                displayName: nil,
+                workingDirectory: "/tmp"
+            )
+        ]
+        store.reconcileOrder()
+
+        let event = StateEvent.promptSubmit(summary: "Prompt: implement the feature", timestamp: Date())
+        store.handleAgentStateUpdate(AgentStateUpdate(sessionId: "s1", event: event))
+
+        XCTAssertEqual(store.sessions[0].status, .working)
+        XCTAssertNil(store.sessions[0].displayName)
+    }
+
     // MARK: - PreToolUse Events
 
     func testPreToolUseDoesNotAppendToActivityLog() {
@@ -239,6 +360,44 @@ final class SessionStoreTests: XCTestCase {
         XCTAssertEqual(store.sessions[0].waitingReason, "Which option?")
         XCTAssertEqual(store.sessions[0].waitingSummary, "Which option?")
         XCTAssertEqual(store.sessions[0].latestEventSummary, "Which option?")
+    }
+
+    func testQuestionRequestSetsWaitingMetadata() {
+        let store = makeStore()
+        store.sessions = [makeSession(sessionId: "s1", workingDirectory: "/tmp", status: .working)]
+        store.reconcileOrder()
+
+        let event = StateEvent.questionRequest(summary: "Which option?", timestamp: Date())
+        store.handleAgentStateUpdate(AgentStateUpdate(sessionId: "s1", event: event))
+
+        XCTAssertEqual(store.sessions[0].status, .waitingForInput)
+        XCTAssertEqual(store.sessions[0].waitingReason, "Which option?")
+        XCTAssertEqual(store.sessions[0].waitingSummary, "Which option?")
+        XCTAssertEqual(store.sessions[0].latestEventSummary, "Which option?")
+        XCTAssertEqual(store.sessions[0].waitingSource, .question)
+    }
+
+    func testQuestionAnsweredClearsWaitingMetadata() {
+        let store = makeStore()
+        store.sessions = [
+            makeSession(
+                sessionId: "s1",
+                workingDirectory: "/tmp",
+                status: .waitingForInput,
+                waitingReason: "Which option?",
+                waitingSummary: "Which option?"
+            )
+        ]
+        store.sessions[0].waitingSource = .question
+        store.reconcileOrder()
+
+        let event = StateEvent.questionAnswered(timestamp: Date())
+        store.handleAgentStateUpdate(AgentStateUpdate(sessionId: "s1", event: event))
+
+        XCTAssertEqual(store.sessions[0].status, .working)
+        XCTAssertNil(store.sessions[0].waitingReason)
+        XCTAssertNil(store.sessions[0].waitingSummary)
+        XCTAssertNil(store.sessions[0].waitingSource)
     }
 
     func testPreToolUseCancelsPendingCancelTimer() {
@@ -724,6 +883,65 @@ final class SessionStoreTests: XCTestCase {
 
         // activeLaunches should have an entry
         XCTAssertNotNil(store.activeLaunches[placeholder!.id])
+    }
+
+    func testLaunchSessionCreatesCodexPlaceholder() {
+        let store = makeStore()
+        store.sessions = []
+        store.reconcileOrder()
+
+        store.launchSession(agentType: "codex", in: "/tmp/project")
+
+        let placeholder = store.sessions.first { $0.isPlaceholder }
+        XCTAssertNotNil(placeholder, "Codex launch should create a placeholder session")
+        XCTAssertEqual(placeholder?.workingDirectory, "/tmp/project")
+        XCTAssertEqual(placeholder?.agentType, "codex")
+        XCTAssertEqual(placeholder?.status, .working)
+        XCTAssertEqual(store.selectedSessionId, placeholder?.id)
+        XCTAssertNotNil(store.activeLaunches[placeholder!.id])
+    }
+
+    func testRestartSessionTracksOriginalCodexProvider() {
+        let store = makeStore()
+        let codex = makeSession(
+            name: "codex-s1",
+            agentType: "codex",
+            sessionId: "s1",
+            workingDirectory: "/tmp"
+        )
+        store.sessions = [codex]
+        store.reconcileOrder()
+
+        store.restartSession(codex)
+
+        XCTAssertEqual(store.activeRestarts["s1"]?.originalSession.agentType, "codex")
+    }
+
+    func testClaudeAndCodexSessionsCoexistInSameFolderGroup() {
+        let store = makeStore()
+        let claude = makeSession(
+            name: "claude-s1",
+            agentType: "claude",
+            sessionId: "s1",
+            workingDirectory: "/tmp/project"
+        )
+        let codex = makeSession(
+            name: "codex-s2",
+            agentType: "codex",
+            sessionId: "s2",
+            workingDirectory: "/tmp/project"
+        )
+        store.sessions = [claude, codex]
+        store.reconcileOrder()
+
+        XCTAssertEqual(store.orderedGroups.count, 1)
+        XCTAssertEqual(store.orderedGroups[0].sessions.map(\.agentType), ["claude", "codex"])
+
+        store.removeSessionOptimistically(codex)
+
+        XCTAssertEqual(store.sessions.count, 1)
+        XCTAssertEqual(store.sessions[0].agentType, "claude")
+        XCTAssertFalse(store.sessions.contains(where: { $0.agentType == "codex" }))
     }
 
     // MARK: - Optimistic Kill
