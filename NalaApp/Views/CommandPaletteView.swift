@@ -5,12 +5,30 @@ import AppKit
 
 enum PathBrowseOrigin: Equatable {
     case newAgent
+    case newCodexAgent
     case newTerminal
+
+    var launchAgentType: String {
+        switch self {
+        case .newAgent: return AgentProvider.claude.id
+        case .newCodexAgent: return AgentProvider.codex.id
+        case .newTerminal: return AgentProvider.terminal.id
+        }
+    }
+
+    var returnMode: PaletteMode {
+        switch self {
+        case .newAgent: return .newAgent
+        case .newCodexAgent: return .newCodexAgent
+        case .newTerminal: return .newTerminal
+        }
+    }
 }
 
 enum PaletteMode: Equatable {
     case switchSession
     case newAgent
+    case newCodexAgent
     case newTerminal
     case newWorktree
     case browsePath(origin: PathBrowseOrigin)
@@ -19,6 +37,7 @@ enum PaletteMode: Equatable {
         switch self {
         case .switchSession: return "Switch"
         case .newAgent: return "New Agent"
+        case .newCodexAgent: return "New Codex Agent"
         case .newTerminal: return "New Terminal"
         case .newWorktree: return "New Worktree"
         case .browsePath: return "Browse"
@@ -29,6 +48,7 @@ enum PaletteMode: Equatable {
         switch self {
         case .switchSession: return NalaTheme.coralPrimary
         case .newAgent: return NalaTheme.coralPrimary
+        case .newCodexAgent: return NalaTheme.openaiGreen
         case .newTerminal: return NalaTheme.teal
         case .newWorktree: return NalaTheme.coralPrimary
         case .browsePath: return NalaTheme.blueAccent
@@ -39,9 +59,28 @@ enum PaletteMode: Equatable {
         switch self {
         case .switchSession: return "Search sessions..."
         case .newAgent: return "Select folder..."
+        case .newCodexAgent: return "Select folder..."
         case .newTerminal: return "Select folder..."
         case .newWorktree: return "Search repos..."
         case .browsePath: return "Type a path..."
+        }
+    }
+
+    var launchAgentType: String? {
+        switch self {
+        case .newAgent: return AgentProvider.claude.id
+        case .newCodexAgent: return AgentProvider.codex.id
+        case .newTerminal: return AgentProvider.terminal.id
+        default: return nil
+        }
+    }
+
+    var browseOrigin: PathBrowseOrigin? {
+        switch self {
+        case .newAgent: return .newAgent
+        case .newCodexAgent: return .newCodexAgent
+        case .newTerminal: return .newTerminal
+        default: return nil
         }
     }
 }
@@ -351,7 +390,7 @@ struct CommandPaletteView: View {
         switch mode {
         case .switchSession:
             return switchModeItems
-        case .newAgent, .newTerminal:
+        case .newAgent, .newCodexAgent, .newTerminal:
             return folderModeItems
         case .newWorktree:
             return worktreeModeItems
@@ -379,6 +418,7 @@ struct CommandPaletteView: View {
 
         // Action items always at bottom
         items.append(.action(ActionItem(id: "new-agent", label: "New Agent...", icon: "sparkles", shortcut: "⌘N")))
+        items.append(.action(ActionItem(id: "new-codex-agent", label: "New Codex Agent...", icon: "chevron.left.forwardslash.chevron.right", shortcut: "")))
         items.append(.action(ActionItem(id: "new-terminal", label: "New Terminal...", icon: "terminal", shortcut: "⌘T")))
         items.append(.action(ActionItem(id: "new-worktree", label: "New Worktree...", icon: "arrow.triangle.branch", shortcut: "⌥⌘N")))
 
@@ -975,7 +1015,7 @@ struct CommandPaletteView: View {
         switch mode {
         case .browsePath(let origin):
             // Exit browse mode, return to the originating mode
-            mode = origin == .newAgent ? .newAgent : .newTerminal
+            mode = origin.returnMode
 
         case .newWorktree:
             if worktreeSelectedConfig != nil {
@@ -1005,7 +1045,7 @@ struct CommandPaletteView: View {
 
     func handleBackspaceEmpty() {
         switch mode {
-        case .newAgent, .newTerminal, .browsePath:
+        case .newAgent, .newCodexAgent, .newTerminal, .browsePath:
             mode = .switchSession
         default:
             break
@@ -1058,7 +1098,7 @@ struct CommandPaletteView: View {
             }
 
         case .folder(let path, _):
-            let agentType = mode == .newAgent ? "claude" : "terminal"
+            guard let agentType = mode.launchAgentType else { return }
             store.showCommandPalette = false
             store.launchSession(agentType: agentType, in: path)
 
@@ -1076,16 +1116,18 @@ struct CommandPaletteView: View {
 
         case .pathResult(let result):
             if case .browsePath(let origin) = mode {
-                let agentType = origin == .newAgent ? "claude" : "terminal"
                 store.addRecentBrowsePath(result.path)
                 store.showCommandPalette = false
-                store.launchSession(agentType: agentType, in: result.path)
+                store.launchSession(agentType: origin.launchAgentType, in: result.path)
             }
 
         case .action(let action):
             switch action.id {
             case "new-agent":
                 mode = .newAgent
+
+            case "new-codex-agent":
+                mode = .newCodexAgent
 
             case "new-terminal":
                 mode = .newTerminal
@@ -1094,8 +1136,9 @@ struct CommandPaletteView: View {
                 mode = .newWorktree
 
             case "browse-other":
-                let origin: PathBrowseOrigin = mode == .newAgent ? .newAgent : .newTerminal
-                mode = .browsePath(origin: origin)
+                if let origin = mode.browseOrigin {
+                    mode = .browsePath(origin: origin)
+                }
 
             case "add-repository":
                 store.showCommandPalette = false

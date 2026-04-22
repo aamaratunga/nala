@@ -746,6 +746,22 @@ final class SessionStoreTests: XCTestCase {
         XCTAssertNotNil(store.activeLaunches[placeholder!.id])
     }
 
+    func testLaunchSessionCreatesCodexPlaceholder() {
+        let store = makeStore()
+        store.sessions = []
+        store.reconcileOrder()
+
+        store.launchSession(agentType: "codex", in: "/tmp/project")
+
+        let placeholder = store.sessions.first { $0.isPlaceholder }
+        XCTAssertNotNil(placeholder, "Codex launch should create a placeholder session")
+        XCTAssertEqual(placeholder?.workingDirectory, "/tmp/project")
+        XCTAssertEqual(placeholder?.agentType, "codex")
+        XCTAssertEqual(placeholder?.status, .working)
+        XCTAssertEqual(store.selectedSessionId, placeholder?.id)
+        XCTAssertNotNil(store.activeLaunches[placeholder!.id])
+    }
+
     func testRestartSessionTracksOriginalCodexProvider() {
         let store = makeStore()
         let codex = makeSession(
