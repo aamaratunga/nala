@@ -55,6 +55,87 @@ final class SessionStoreTests: XCTestCase {
         XCTAssertTrue(store.isConnected)
     }
 
+    func testTmuxUpdateStartsWatcherForCodexSession() {
+        let store = makeStore()
+        let watcher = EventFileWatcher()
+        store.configureForTesting(eventWatcher: watcher)
+        let sessionId = UUID().uuidString.lowercased()
+        defer {
+            watcher.stopWatching(sessionId: sessionId)
+            try? FileManager.default.removeItem(atPath: "\(EventFileWatcher.eventsDirectory)/\(sessionId).jsonl")
+        }
+
+        let info = TmuxSessionInfo(
+            sessionName: "codex-\(sessionId)",
+            agentType: "codex",
+            sessionId: sessionId,
+            workingDirectory: "/tmp",
+            paneTarget: "codex-\(sessionId):0.0"
+        )
+
+        store.handleTmuxUpdate(TmuxUpdate(added: [info], removed: [], current: [info]))
+        watcher.flushQueue()
+
+        XCTAssertEqual(watcher.cachedStatus(for: sessionId), .idle)
+    }
+
+    func testTmuxUpdateDoesNotStartWatcherForTerminalSession() {
+        let store = makeStore()
+        let watcher = EventFileWatcher()
+        store.configureForTesting(eventWatcher: watcher)
+        let sessionId = UUID().uuidString.lowercased()
+
+        let info = TmuxSessionInfo(
+            sessionName: "terminal-\(sessionId)",
+            agentType: "terminal",
+            sessionId: sessionId,
+            workingDirectory: "/tmp",
+            paneTarget: "terminal-\(sessionId):0.0"
+        )
+
+        store.handleTmuxUpdate(TmuxUpdate(added: [info], removed: [], current: [info]))
+        watcher.flushQueue()
+
+        XCTAssertNil(watcher.cachedStatus(for: sessionId))
+    }
+
+    func testCodexSessionWithoutEventsFallsBackToIdleAndRemainsManageable() {
+        let store = makeStore()
+        let watcher = EventFileWatcher()
+        store.configureForTesting(eventWatcher: watcher)
+        let sessionId = UUID().uuidString.lowercased()
+        defer {
+            watcher.stopWatching(sessionId: sessionId)
+            try? FileManager.default.removeItem(atPath: "\(EventFileWatcher.eventsDirectory)/\(sessionId).jsonl")
+        }
+
+        let info = TmuxSessionInfo(
+            sessionName: "codex-\(sessionId)",
+            agentType: "codex",
+            sessionId: sessionId,
+            workingDirectory: "/tmp",
+            paneTarget: "codex-\(sessionId):0.0"
+        )
+
+        store.handleTmuxUpdate(TmuxUpdate(added: [info], removed: [], current: [info]))
+        watcher.flushQueue()
+        store.handleTmuxUpdate(TmuxUpdate(added: [], removed: [], current: [info]))
+
+        XCTAssertEqual(store.sessions.count, 1)
+        XCTAssertEqual(store.sessions[0].status, .idle)
+        XCTAssertFalse(store.sessions[0].isPlaceholder)
+
+        store.selectedSessionId = sessionId
+        XCTAssertEqual(store.selectedSession?.sessionId, sessionId)
+
+        let codexSession = store.sessions[0]
+        store.restartSession(codexSession)
+        XCTAssertEqual(store.activeRestarts[sessionId]?.originalSession.agentType, "codex")
+
+        store.killSession(codexSession)
+        XCTAssertTrue(store.sessions.isEmpty)
+    }
+
     func testTmuxUpdateRemovesSession() {
         let store = makeStore()
         store.sessions = [makeSession(name: "claude-s1", sessionId: "s1", workingDirectory: "/tmp")]
@@ -230,6 +311,26 @@ final class SessionStoreTests: XCTestCase {
 
         // latestEventSummary should NOT be updated for prompt_submit
         XCTAssertEqual(store.sessions[0].latestEventSummary, "Read main.swift")
+    }
+
+    func testCodexPromptSubmitSkipsAutoNaming() {
+        let store = makeStore()
+        store.sessions = [
+            makeSession(
+                name: "codex-s1",
+                agentType: "codex",
+                sessionId: "s1",
+                displayName: nil,
+                workingDirectory: "/tmp"
+            )
+        ]
+        store.reconcileOrder()
+
+        let event = StateEvent.promptSubmit(summary: "Prompt: implement the feature", timestamp: Date())
+        store.handleAgentStateUpdate(AgentStateUpdate(sessionId: "s1", event: event))
+
+        XCTAssertEqual(store.sessions[0].status, .working)
+        XCTAssertNil(store.sessions[0].displayName)
     }
 
     // MARK: - PreToolUse Events

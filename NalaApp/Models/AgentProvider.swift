@@ -8,6 +8,7 @@ struct AgentProvider: Identifiable, Equatable {
     let executableCandidates: [String]
     let defaultCommands: [SessionCommand]
     let supportsEventTracking: Bool
+    let supportsAutoNaming: Bool
     let fallbackDisplayLabel: String
 
     static let claude = AgentProvider(
@@ -24,6 +25,7 @@ struct AgentProvider: Identifiable, Equatable {
             SessionCommand(name: "diff", description: "View changes made in session"),
         ],
         supportsEventTracking: true,
+        supportsAutoNaming: true,
         fallbackDisplayLabel: "Agent"
     )
 
@@ -40,6 +42,7 @@ struct AgentProvider: Identifiable, Equatable {
         ],
         defaultCommands: [],
         supportsEventTracking: true,
+        supportsAutoNaming: false,
         fallbackDisplayLabel: "Agent"
     )
 
@@ -51,6 +54,7 @@ struct AgentProvider: Identifiable, Equatable {
         executableCandidates: [],
         defaultCommands: [],
         supportsEventTracking: false,
+        supportsAutoNaming: false,
         fallbackDisplayLabel: "Terminal"
     )
 
@@ -70,6 +74,7 @@ struct AgentProvider: Identifiable, Equatable {
             executableCandidates: [],
             defaultCommands: [],
             supportsEventTracking: false,
+            supportsAutoNaming: false,
             fallbackDisplayLabel: "Agent"
         )
     }

@@ -175,6 +175,13 @@ final class SessionStore {
         self.defaults = defaults
     }
 
+#if DEBUG
+    func configureForTesting(eventWatcher: EventFileWatcher? = nil, autoNamer: AutoNamer? = nil) {
+        self.eventWatcher = eventWatcher
+        self.autoNamer = autoNamer
+    }
+#endif
+
     /// Returns the git root for a working directory, falling back to the path itself.
     func groupingPath(for workingDirectory: String) -> String {
         if let cached = gitRootCache[workingDirectory] { return cached }
@@ -766,7 +773,9 @@ final class SessionStore {
             guard !pendingKills.contains(compositeKey) else { continue }
 
             // Start watchers for new sessions
-            if info.agentType == "claude", eventWatcher?.cachedStatus(for: sessionId) == nil {
+            let provider = AgentProvider.provider(for: info.agentType)
+
+            if provider.supportsEventTracking, eventWatcher?.cachedStatus(for: sessionId) == nil {
                 eventWatcher?.startWatching(sessionId: sessionId)
                 watcherStartCount += 1
             }
@@ -881,6 +890,9 @@ final class SessionStore {
 
         // Auto-naming: collect activity and trigger when ready
         let sessionId = update.sessionId
+        let provider = AgentProvider.provider(for: sessions[idx].agentType)
+        guard provider.supportsAutoNaming else { return }
+
         switch event {
         case .toolUse(_, let summary, _):
             activityLog[sessionId, default: []].append(summary)

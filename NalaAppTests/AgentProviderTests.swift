@@ -17,6 +17,7 @@ final class AgentProviderTests: XCTestCase {
         XCTAssertEqual(provider.fallbackDisplayLabel, "Agent")
         XCTAssertEqual(provider.defaultCommands, [])
         XCTAssertFalse(provider.supportsEventTracking)
+        XCTAssertFalse(provider.supportsAutoNaming)
     }
 
     func testProviderLabelsAndPrefixes() {
@@ -63,6 +64,12 @@ final class AgentProviderTests: XCTestCase {
         XCTAssertTrue(AgentProvider.claude.supportsEventTracking)
         XCTAssertTrue(AgentProvider.codex.supportsEventTracking)
         XCTAssertFalse(AgentProvider.terminal.supportsEventTracking)
+    }
+
+    func testAutoNamingCapabilityIsClaudeOnly() {
+        XCTAssertTrue(AgentProvider.claude.supportsAutoNaming)
+        XCTAssertFalse(AgentProvider.codex.supportsAutoNaming)
+        XCTAssertFalse(AgentProvider.terminal.supportsAutoNaming)
     }
 
     private func assertColor(

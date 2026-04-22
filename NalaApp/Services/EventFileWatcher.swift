@@ -431,6 +431,12 @@ final class EventFileWatcher: @unchecked Sendable {
         case "Task":
             let desc = input["description"] as? String ?? ""
             return "Launched subagent: \(desc.count > 60 ? String(desc.prefix(60)) + "..." : desc)"
+        case "apply_patch":
+            return "Applied patch"
+        case "web_search":
+            let query = input["query"] as? String ?? ""
+            guard !query.isEmpty else { return "Searched web" }
+            return "Searched web for '\(query.count > 40 ? String(query.prefix(40)) + "..." : query)'"
         default:
             return "Used \(toolName)"
         }
