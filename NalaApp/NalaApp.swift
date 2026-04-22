@@ -42,13 +42,21 @@ struct NalaApp: App {
 
                 Divider()
 
-                Button("New Agent…") {
+                Button("New Claude…") {
                     sessionStore.pendingPaletteMode = .newAgent
                     withAnimation(.easeOut(duration: 0.15)) {
                         sessionStore.showCommandPalette = true
                     }
                 }
                 .keyboardShortcut("n")
+
+                Button("New Codex…") {
+                    sessionStore.pendingPaletteMode = .newCodexAgent
+                    withAnimation(.easeOut(duration: 0.15)) {
+                        sessionStore.showCommandPalette = true
+                    }
+                }
+                .keyboardShortcut("n", modifiers: [.command, .shift])
 
                 Button("New Terminal…") {
                     sessionStore.pendingPaletteMode = .newTerminal

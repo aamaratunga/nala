@@ -36,8 +36,8 @@ enum PaletteMode: Equatable {
     var label: String {
         switch self {
         case .switchSession: return "Switch"
-        case .newAgent: return "New Agent"
-        case .newCodexAgent: return "New Codex Agent"
+        case .newAgent: return "New Claude"
+        case .newCodexAgent: return "New Codex"
         case .newTerminal: return "New Terminal"
         case .newWorktree: return "New Worktree"
         case .browsePath: return "Browse"
@@ -47,7 +47,7 @@ enum PaletteMode: Equatable {
     var chipColor: Color {
         switch self {
         case .switchSession: return NalaTheme.coralPrimary
-        case .newAgent: return NalaTheme.coralPrimary
+        case .newAgent: return NalaTheme.claudeOrange
         case .newCodexAgent: return NalaTheme.openaiGreen
         case .newTerminal: return NalaTheme.teal
         case .newWorktree: return NalaTheme.coralPrimary
@@ -417,8 +417,8 @@ struct CommandPaletteView: View {
         var items: [PaletteItem] = sorted.map { .session($0, isCurrent: $0.id == currentId) }
 
         // Action items always at bottom
-        items.append(.action(ActionItem(id: "new-agent", label: "New Agent...", icon: "sparkles", shortcut: "⌘N")))
-        items.append(.action(ActionItem(id: "new-codex-agent", label: "New Codex Agent...", icon: "chevron.left.forwardslash.chevron.right", shortcut: "")))
+        items.append(.action(ActionItem(id: "new-agent", label: "New Claude…", icon: "sparkles", shortcut: "⌘N")))
+        items.append(.action(ActionItem(id: "new-codex-agent", label: "New Codex…", icon: "chevron.left.forwardslash.chevron.right", shortcut: "⇧⌘N")))
         items.append(.action(ActionItem(id: "new-terminal", label: "New Terminal...", icon: "terminal", shortcut: "⌘T")))
         items.append(.action(ActionItem(id: "new-worktree", label: "New Worktree...", icon: "arrow.triangle.branch", shortcut: "⌥⌘N")))
 

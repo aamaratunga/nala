@@ -51,6 +51,10 @@ final class AgentProviderTests: XCTestCase {
         assertColor(AgentProvider.codex.badgeColor, equals: NalaTheme.openaiGreen)
     }
 
+    func testClaudeBadgeColorIsClaudeOrange() {
+        assertColor(AgentProvider.claude.badgeColor, equals: NalaTheme.claudeOrange)
+    }
+
     func testProviderExecutableCandidates() {
         XCTAssertEqual(AgentProvider.claude.executableCandidates, ["claude"])
         XCTAssertEqual(

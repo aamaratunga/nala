@@ -1,3 +1,4 @@
+import SwiftUI
 import XCTest
 @testable import Nala
 
@@ -10,11 +11,11 @@ final class PaletteModeTests: XCTestCase {
     }
 
     func testNewAgentLabel() {
-        XCTAssertEqual(PaletteMode.newAgent.label, "New Agent")
+        XCTAssertEqual(PaletteMode.newAgent.label, "New Claude")
     }
 
     func testNewCodexAgentLabel() {
-        XCTAssertEqual(PaletteMode.newCodexAgent.label, "New Codex Agent")
+        XCTAssertEqual(PaletteMode.newCodexAgent.label, "New Codex")
     }
 
     func testNewTerminalLabel() {
@@ -27,6 +28,11 @@ final class PaletteModeTests: XCTestCase {
 
     func testBrowsePathLabel() {
         XCTAssertEqual(PaletteMode.browsePath(origin: .newAgent).label, "Browse")
+    }
+
+    func testLaunchModeChipColors() {
+        assertColor(PaletteMode.newAgent.chipColor, equals: NalaTheme.claudeOrange)
+        assertColor(PaletteMode.newCodexAgent.chipColor, equals: NalaTheme.openaiGreen)
     }
 
     // MARK: - Search Placeholders
@@ -147,6 +153,20 @@ final class PaletteModeTests: XCTestCase {
         default:
             return nil
         }
+    }
+
+    private func assertColor(
+        _ actual: Color,
+        equals expected: Color,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let actualColor = NSColor(actual)
+        let expectedColor = NSColor(expected)
+
+        XCTAssertEqual(actualColor.redComponent, expectedColor.redComponent, accuracy: 0.001, file: file, line: line)
+        XCTAssertEqual(actualColor.greenComponent, expectedColor.greenComponent, accuracy: 0.001, file: file, line: line)
+        XCTAssertEqual(actualColor.blueComponent, expectedColor.blueComponent, accuracy: 0.001, file: file, line: line)
     }
 
     func testBackspaceEmptyInNewAgentPopsToSwitchSession() {

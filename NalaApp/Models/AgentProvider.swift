@@ -15,7 +15,7 @@ struct AgentProvider: Identifiable, Equatable {
         id: "claude",
         displayName: "Claude",
         sessionPrefix: "claude",
-        badgeColor: NalaTheme.textSecondary,
+        badgeColor: NalaTheme.claudeOrange,
         executableCandidates: ["claude"],
         defaultCommands: [
             SessionCommand(name: "compact", description: "Compress conversation history"),
