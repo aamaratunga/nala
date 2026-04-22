@@ -6,6 +6,8 @@ struct SettingsView: View {
     @AppStorage("nala.terminalAppPath") private var terminalAppPath: String = ""
     @AppStorage("nala.notifications.needsInput") private var needsInputEnabled = true
     @AppStorage("nala.notifications.done") private var doneEnabled = true
+    @AppStorage(TmuxService.claudeAdditionalLaunchFlagsKey) private var claudeAdditionalLaunchFlags: String = ""
+    @AppStorage(TmuxService.codexAdditionalLaunchFlagsKey) private var codexAdditionalLaunchFlags: String = ""
     @State private var codexHookStatus: CodexHookBridge.InstallationStatus = .missing
     @State private var codexHookFeatureState: CodexHookBridge.FeatureState?
     @State private var isInstallingCodexHooks = false
@@ -142,6 +144,23 @@ struct SettingsView: View {
             }
 
             Section {
+                LabeledContent("Claude") {
+                    TextField("", text: $claudeAdditionalLaunchFlags)
+                        .textFieldStyle(.roundedBorder)
+                }
+
+                LabeledContent("Codex") {
+                    TextField("", text: $codexAdditionalLaunchFlags)
+                        .textFieldStyle(.roundedBorder)
+                }
+            } header: {
+                Text("Agent Launch Flags")
+            } footer: {
+                Text("Optional flags appended when Nala launches new sessions.")
+                    .foregroundStyle(.secondary)
+            }
+
+            Section {
                 HStack(alignment: .top, spacing: 12) {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(codexHookStatusText)
@@ -181,7 +200,7 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 450, height: 590)
+        .frame(width: 450, height: 690)
         .task {
             refreshCodexHookStatus()
             codexHookFeatureState = await codexHookBridge.detectFeatureState()

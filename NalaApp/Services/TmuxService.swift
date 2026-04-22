@@ -25,14 +25,19 @@ final class TmuxService: @unchecked Sendable {
 
     typealias ExecutableResolver = @Sendable (AgentProvider) -> String?
     typealias TmuxRunner = @Sendable ([String]) async -> CommandResult
+    typealias LaunchFlagsReader = (AgentProvider) -> String
 
     /// Resolved path to the tmux binary. Checked once at init from known install locations.
     private let tmuxPath: String
     private let executableResolver: ExecutableResolver
     private let tmuxRunner: TmuxRunner?
+    private let launchFlagsReader: LaunchFlagsReader
 
     /// Whether tmux was found at a known install path.
     let tmuxAvailable: Bool
+
+    static let claudeAdditionalLaunchFlagsKey = "nala.claude.additionalLaunchFlags"
+    static let codexAdditionalLaunchFlagsKey = "nala.codex.additionalLaunchFlags"
 
     /// Regex for Nala-managed session names: {agentType}-{uuid}
     static let sessionNamePattern = try! NSRegularExpression(
@@ -65,12 +70,18 @@ final class TmuxService: @unchecked Sendable {
 
     init(
         executableResolver: ExecutableResolver? = nil,
-        tmuxRunner: TmuxRunner? = nil
+        tmuxRunner: TmuxRunner? = nil,
+        launchFlagsReader: LaunchFlagsReader? = nil,
+        launchFlagsDefaults: UserDefaults = .standard
     ) {
         self.executableResolver = executableResolver ?? { provider in
             Self.resolveExecutable(for: provider)
         }
         self.tmuxRunner = tmuxRunner
+        self.launchFlagsReader = launchFlagsReader ?? { provider in
+            guard let key = Self.additionalLaunchFlagsKey(for: provider) else { return "" }
+            return launchFlagsDefaults.string(forKey: key) ?? ""
+        }
 
         let fm = FileManager.default
         if let found = Self.knownTmuxPaths.first(where: { fm.isExecutableFile(atPath: $0) }) {
@@ -231,6 +242,7 @@ final class TmuxService: @unchecked Sendable {
         let sessionName = "\(provider.sessionPrefix)-\(sessionId)"
 
         try preflightLaunch(provider: provider)
+        let additionalLaunchArgs = try additionalLaunchArgs(for: provider)
 
         // Create the tmux session
         let tmuxStart = CACurrentMediaTime()
@@ -250,7 +262,8 @@ final class TmuxService: @unchecked Sendable {
             sessionId: sessionId,
             sessionName: sessionName,
             workingDirectory: workingDirectory,
-            prompt: prompt
+            prompt: prompt,
+            additionalArgs: additionalLaunchArgs
         )
         if let launchCommand {
             let sendResult = await runTmux(args: [
@@ -418,6 +431,81 @@ final class TmuxService: @unchecked Sendable {
         return "'\(value.replacingOccurrences(of: "'", with: "'\\''"))'"
     }
 
+    static func additionalLaunchFlagsKey(for provider: AgentProvider) -> String? {
+        switch provider.id {
+        case AgentProvider.claude.id:
+            return claudeAdditionalLaunchFlagsKey
+        case AgentProvider.codex.id:
+            return codexAdditionalLaunchFlagsKey
+        default:
+            return nil
+        }
+    }
+
+    static func parseAdditionalLaunchFlags(_ rawValue: String) throws -> [String] {
+        var args: [String] = []
+        var current = ""
+        var tokenStarted = false
+        var quote: Character?
+        var isEscaping = false
+
+        for character in rawValue {
+            if isEscaping {
+                current.append(character)
+                tokenStarted = true
+                isEscaping = false
+                continue
+            }
+
+            if character == "\\" {
+                isEscaping = true
+                tokenStarted = true
+                continue
+            }
+
+            if let activeQuote = quote {
+                if character == activeQuote {
+                    quote = nil
+                } else {
+                    current.append(character)
+                }
+                tokenStarted = true
+                continue
+            }
+
+            if character == "'" || character == "\"" {
+                quote = character
+                tokenStarted = true
+                continue
+            }
+
+            if character.isWhitespace {
+                if tokenStarted {
+                    args.append(current)
+                    current = ""
+                    tokenStarted = false
+                }
+                continue
+            }
+
+            current.append(character)
+            tokenStarted = true
+        }
+
+        if isEscaping {
+            throw TmuxError.invalidLaunchFlags("Trailing backslash in additional launch flags.")
+        }
+        if let quote {
+            let quoteName = quote == "'" ? "single quote" : "double quote"
+            throw TmuxError.invalidLaunchFlags("Unclosed \(quoteName) in additional launch flags.")
+        }
+        if tokenStarted {
+            args.append(current)
+        }
+
+        return args
+    }
+
     static func resolveExecutable(for provider: AgentProvider) -> String? {
         let fm = FileManager.default
 
@@ -459,21 +547,28 @@ final class TmuxService: @unchecked Sendable {
         }
     }
 
+    private func additionalLaunchArgs(for provider: AgentProvider) throws -> [String] {
+        guard Self.additionalLaunchFlagsKey(for: provider) != nil else { return [] }
+        return try Self.parseAdditionalLaunchFlags(launchFlagsReader(provider))
+    }
+
     private func buildLaunchCommand(
         provider: AgentProvider,
         sessionId: String,
         sessionName: String,
         workingDirectory: String,
-        prompt: String?
+        prompt: String?,
+        additionalArgs: [String]
     ) throws -> String? {
         switch provider.id {
         case AgentProvider.claude.id:
             let settingsStart = CACurrentMediaTime()
-            let command = buildClaudeLaunchCommand(
+            let command = try buildClaudeLaunchCommand(
                 sessionId: sessionId,
                 sessionName: sessionName,
                 workingDirectory: workingDirectory,
-                prompt: prompt
+                prompt: prompt,
+                additionalArgs: additionalArgs
             )
             let settingsElapsed = CACurrentMediaTime() - settingsStart
             if settingsElapsed > 0.05 {
@@ -484,7 +579,8 @@ final class TmuxService: @unchecked Sendable {
             return try buildCodexLaunchCommand(
                 sessionId: sessionId,
                 workingDirectory: workingDirectory,
-                prompt: prompt
+                prompt: prompt,
+                additionalArgs: additionalArgs
             )
         default:
             return nil
@@ -496,8 +592,9 @@ final class TmuxService: @unchecked Sendable {
         sessionId: String,
         sessionName: String,
         workingDirectory: String,
-        prompt: String?
-    ) -> String {
+        prompt: String?,
+        additionalArgs: [String] = []
+    ) throws -> String {
         let merged = Self.buildMergedSettings(workingDirectory: workingDirectory, sessionId: sessionId)
 
         // Write merged settings to temp file
@@ -509,6 +606,7 @@ final class TmuxService: @unchecked Sendable {
         }
 
         var parts = ["env", "-u", "CLAUDECODE", "claude", "--session-id", sessionId, "--settings", Self.shellQuote(settingsPath)]
+        parts.append(contentsOf: additionalArgs.map(Self.shellQuote))
 
         // If there's a prompt, write it to a file and pass via cat
         if let prompt, !prompt.isEmpty {
@@ -524,10 +622,28 @@ final class TmuxService: @unchecked Sendable {
         return parts.joined(separator: " ")
     }
 
+    func buildClaudeLaunchCommand(
+        sessionId: String,
+        sessionName: String,
+        workingDirectory: String,
+        prompt: String?,
+        additionalLaunchFlags: String
+    ) throws -> String {
+        let additionalArgs = try Self.parseAdditionalLaunchFlags(additionalLaunchFlags)
+        return try buildClaudeLaunchCommand(
+            sessionId: sessionId,
+            sessionName: sessionName,
+            workingDirectory: workingDirectory,
+            prompt: prompt,
+            additionalArgs: additionalArgs
+        )
+    }
+
     func buildCodexLaunchCommand(
         sessionId: String,
         workingDirectory: String,
-        prompt: String?
+        prompt: String?,
+        additionalArgs: [String] = []
     ) throws -> String {
         guard let executable = executableResolver(AgentProvider.codex) else {
             throw TmuxError.executableNotFound(provider: AgentProvider.codex.displayName)
@@ -541,12 +657,28 @@ final class TmuxService: @unchecked Sendable {
             "--enable",
             "codex_hooks",
         ]
+        parts.append(contentsOf: additionalArgs.map(Self.shellQuote))
 
         if let prompt, !prompt.isEmpty {
             parts.append(Self.shellQuote(prompt))
         }
 
         return parts.joined(separator: " ")
+    }
+
+    func buildCodexLaunchCommand(
+        sessionId: String,
+        workingDirectory: String,
+        prompt: String?,
+        additionalLaunchFlags: String
+    ) throws -> String {
+        let additionalArgs = try Self.parseAdditionalLaunchFlags(additionalLaunchFlags)
+        return try buildCodexLaunchCommand(
+            sessionId: sessionId,
+            workingDirectory: workingDirectory,
+            prompt: prompt,
+            additionalArgs: additionalArgs
+        )
     }
 
     // MARK: - Polling
@@ -646,12 +778,15 @@ final class TmuxService: @unchecked Sendable {
 enum TmuxError: LocalizedError {
     case sessionCreationFailed(String)
     case executableNotFound(provider: String)
+    case invalidLaunchFlags(String)
 
     var errorDescription: String? {
         switch self {
         case .sessionCreationFailed(let msg): return "Session creation failed: \(msg)"
         case .executableNotFound(let provider):
             return "\(provider) executable not found. Install \(provider) CLI or add it to a standard executable path."
+        case .invalidLaunchFlags(let msg):
+            return "Invalid additional launch flags: \(msg)"
         }
     }
 }
