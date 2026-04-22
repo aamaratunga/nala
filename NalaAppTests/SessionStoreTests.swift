@@ -35,6 +35,26 @@ final class SessionStoreTests: XCTestCase {
         XCTAssertTrue(store.isConnected)
     }
 
+    func testTmuxUpdateAddsNewCodexSession() {
+        let store = makeStore()
+        let info = TmuxSessionInfo(
+            sessionName: "codex-abc12345-1234-1234-1234-123456789abc",
+            agentType: "codex",
+            sessionId: "abc12345-1234-1234-1234-123456789abc",
+            workingDirectory: "/tmp",
+            paneTarget: "codex-abc:0.0"
+        )
+        let update = TmuxUpdate(added: [info], removed: [], current: [info])
+
+        store.handleTmuxUpdate(update)
+
+        XCTAssertEqual(store.sessions.count, 1)
+        XCTAssertEqual(store.sessions[0].sessionId, "abc12345-1234-1234-1234-123456789abc")
+        XCTAssertEqual(store.sessions[0].agentType, "codex")
+        XCTAssertEqual(store.sessions[0].commands, [])
+        XCTAssertTrue(store.isConnected)
+    }
+
     func testTmuxUpdateRemovesSession() {
         let store = makeStore()
         store.sessions = [makeSession(name: "claude-s1", sessionId: "s1", workingDirectory: "/tmp")]
@@ -724,6 +744,49 @@ final class SessionStoreTests: XCTestCase {
 
         // activeLaunches should have an entry
         XCTAssertNotNil(store.activeLaunches[placeholder!.id])
+    }
+
+    func testRestartSessionTracksOriginalCodexProvider() {
+        let store = makeStore()
+        let codex = makeSession(
+            name: "codex-s1",
+            agentType: "codex",
+            sessionId: "s1",
+            workingDirectory: "/tmp"
+        )
+        store.sessions = [codex]
+        store.reconcileOrder()
+
+        store.restartSession(codex)
+
+        XCTAssertEqual(store.activeRestarts["s1"]?.originalSession.agentType, "codex")
+    }
+
+    func testClaudeAndCodexSessionsCoexistInSameFolderGroup() {
+        let store = makeStore()
+        let claude = makeSession(
+            name: "claude-s1",
+            agentType: "claude",
+            sessionId: "s1",
+            workingDirectory: "/tmp/project"
+        )
+        let codex = makeSession(
+            name: "codex-s2",
+            agentType: "codex",
+            sessionId: "s2",
+            workingDirectory: "/tmp/project"
+        )
+        store.sessions = [claude, codex]
+        store.reconcileOrder()
+
+        XCTAssertEqual(store.orderedGroups.count, 1)
+        XCTAssertEqual(store.orderedGroups[0].sessions.map(\.agentType), ["claude", "codex"])
+
+        store.removeSessionOptimistically(codex)
+
+        XCTAssertEqual(store.sessions.count, 1)
+        XCTAssertEqual(store.sessions[0].agentType, "claude")
+        XCTAssertFalse(store.sessions.contains(where: { $0.agentType == "codex" }))
     }
 
     // MARK: - Optimistic Kill
