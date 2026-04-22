@@ -362,6 +362,44 @@ final class SessionStoreTests: XCTestCase {
         XCTAssertEqual(store.sessions[0].latestEventSummary, "Which option?")
     }
 
+    func testQuestionRequestSetsWaitingMetadata() {
+        let store = makeStore()
+        store.sessions = [makeSession(sessionId: "s1", workingDirectory: "/tmp", status: .working)]
+        store.reconcileOrder()
+
+        let event = StateEvent.questionRequest(summary: "Which option?", timestamp: Date())
+        store.handleAgentStateUpdate(AgentStateUpdate(sessionId: "s1", event: event))
+
+        XCTAssertEqual(store.sessions[0].status, .waitingForInput)
+        XCTAssertEqual(store.sessions[0].waitingReason, "Which option?")
+        XCTAssertEqual(store.sessions[0].waitingSummary, "Which option?")
+        XCTAssertEqual(store.sessions[0].latestEventSummary, "Which option?")
+        XCTAssertEqual(store.sessions[0].waitingSource, .question)
+    }
+
+    func testQuestionAnsweredClearsWaitingMetadata() {
+        let store = makeStore()
+        store.sessions = [
+            makeSession(
+                sessionId: "s1",
+                workingDirectory: "/tmp",
+                status: .waitingForInput,
+                waitingReason: "Which option?",
+                waitingSummary: "Which option?"
+            )
+        ]
+        store.sessions[0].waitingSource = .question
+        store.reconcileOrder()
+
+        let event = StateEvent.questionAnswered(timestamp: Date())
+        store.handleAgentStateUpdate(AgentStateUpdate(sessionId: "s1", event: event))
+
+        XCTAssertEqual(store.sessions[0].status, .working)
+        XCTAssertNil(store.sessions[0].waitingReason)
+        XCTAssertNil(store.sessions[0].waitingSummary)
+        XCTAssertNil(store.sessions[0].waitingSource)
+    }
+
     func testPreToolUseCancelsPendingCancelTimer() {
         let store = makeStore()
         store.sessions = [makeSession(sessionId: "s1", workingDirectory: "/tmp", status: .working)]

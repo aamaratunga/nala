@@ -654,6 +654,14 @@ final class SessionStore {
             sessions[idx].latestEventSummary = summary
             sessions[idx].stalenessSeconds = Date().timeIntervalSince(timestamp)
             sessions[idx].waitingSource = .permission
+        case .questionRequest(let summary, let timestamp):
+            sessions[idx].waitingReason = summary
+            sessions[idx].waitingSummary = summary
+            sessions[idx].latestEventSummary = summary
+            sessions[idx].stalenessSeconds = Date().timeIntervalSince(timestamp)
+            sessions[idx].waitingSource = .question
+        case .questionAnswered(let timestamp):
+            sessions[idx].stalenessSeconds = Date().timeIntervalSince(timestamp)
         case .sleepDetected(let summary, let timestamp):
             sessions[idx].latestEventSummary = summary
             sessions[idx].stalenessSeconds = Date().timeIntervalSince(timestamp)
@@ -874,7 +882,7 @@ final class SessionStore {
         // because polledState is also dispatched by handleTmuxUpdate with
         // cached state every ~1s, which would incorrectly cancel the timer.
         switch event {
-        case .toolUse, .preToolUse, .promptSubmit:
+        case .toolUse, .preToolUse, .promptSubmit, .questionAnswered:
             pendingCancelTimers[update.sessionId]?.cancel()
             pendingCancelTimers.removeValue(forKey: update.sessionId)
         default:

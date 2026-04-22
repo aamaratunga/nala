@@ -361,6 +361,210 @@ final class EventFileWatcherTests: XCTestCase {
         }
     }
 
+    private func jsonLine(_ object: [String: Any]) -> String {
+        let data = try! JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+        return String(data: data, encoding: .utf8)!
+    }
+
+    private func appendLine(_ line: String, to path: String) {
+        let fh = FileHandle(forWritingAtPath: path)!
+        fh.seekToEndOfFile()
+        fh.write((line + "\n").data(using: .utf8)!)
+        fh.closeFile()
+    }
+
+    private func prepareFiles(sessionId: String, transcriptName: String = UUID().uuidString) -> (eventPath: String, transcriptPath: String) {
+        let eventPath = "\(EventFileWatcher.eventsDirectory)/\(sessionId).jsonl"
+        let transcriptPath = "\(EventFileWatcher.eventsDirectory)/\(transcriptName)-transcript.jsonl"
+
+        try? FileManager.default.createDirectory(
+            atPath: EventFileWatcher.eventsDirectory,
+            withIntermediateDirectories: true
+        )
+        FileManager.default.createFile(atPath: eventPath, contents: nil, attributes: [.posixPermissions: 0o600])
+        FileManager.default.createFile(atPath: transcriptPath, contents: nil, attributes: [.posixPermissions: 0o600])
+        return (eventPath, transcriptPath)
+    }
+
+    func testTranscriptRequestUserInputEmitsQuestionRequest() {
+        let watcher = EventFileWatcher()
+        let sessionId = UUID().uuidString.lowercased()
+        let paths = prepareFiles(sessionId: sessionId)
+        defer {
+            watcher.stopWatching(sessionId: sessionId)
+            try? FileManager.default.removeItem(atPath: paths.eventPath)
+            try? FileManager.default.removeItem(atPath: paths.transcriptPath)
+        }
+
+        let collector = UpdateCollector()
+        let gotUpdates = expectation(description: "Got initial + transcript question")
+        gotUpdates.expectedFulfillmentCount = 2
+
+        let collectTask = Task {
+            for await update in watcher.updates() {
+                collector.append(update.event)
+                gotUpdates.fulfill()
+            }
+        }
+        defer { collectTask.cancel() }
+
+        let arguments = #"{"questions":[{"question":"Which path should we take?","options":[]}]}"#
+        appendLine(jsonLine([
+            "type": "response_item",
+            "payload": [
+                "type": "function_call",
+                "name": "request_user_input",
+                "call_id": "call_question_1",
+                "arguments": arguments
+            ]
+        ]), to: paths.transcriptPath)
+
+        watcher.startWatching(sessionId: sessionId)
+
+        let writeDelay = expectation(description: "write delay")
+        writeDelay.isInverted = true
+        wait(for: [writeDelay], timeout: 0.3)
+
+        appendLine(jsonLine(["transcript_path": paths.transcriptPath]), to: paths.eventPath)
+
+        wait(for: [gotUpdates], timeout: 5.0)
+        watcher.flushQueue()
+
+        XCTAssertEqual(watcher.cachedStatus(for: sessionId), .waitingForInput)
+        guard case .questionRequest(let summary, _) = collector.updates.last else {
+            return XCTFail("Expected questionRequest, got \(String(describing: collector.updates.last))")
+        }
+        XCTAssertEqual(summary, "Which path should we take?")
+    }
+
+    func testTranscriptFunctionCallOutputEmitsQuestionAnswered() {
+        let watcher = EventFileWatcher()
+        let sessionId = UUID().uuidString.lowercased()
+        let paths = prepareFiles(sessionId: sessionId)
+        defer {
+            watcher.stopWatching(sessionId: sessionId)
+            try? FileManager.default.removeItem(atPath: paths.eventPath)
+            try? FileManager.default.removeItem(atPath: paths.transcriptPath)
+        }
+
+        let collector = UpdateCollector()
+        let gotUpdates = expectation(description: "Got initial + question + answer")
+        gotUpdates.expectedFulfillmentCount = 3
+
+        let collectTask = Task {
+            for await update in watcher.updates() {
+                collector.append(update.event)
+                gotUpdates.fulfill()
+            }
+        }
+        defer { collectTask.cancel() }
+
+        let arguments = #"{"questions":[{"question":"Deploy now?","options":[]}]}"#
+        appendLine(jsonLine([
+            "type": "response_item",
+            "payload": [
+                "type": "function_call",
+                "name": "request_user_input",
+                "call_id": "call_question_2",
+                "arguments": arguments
+            ]
+        ]), to: paths.transcriptPath)
+
+        watcher.startWatching(sessionId: sessionId)
+
+        let writeDelay = expectation(description: "write delay")
+        writeDelay.isInverted = true
+        wait(for: [writeDelay], timeout: 0.3)
+
+        appendLine(jsonLine(["transcript_path": paths.transcriptPath]), to: paths.eventPath)
+
+        let answerDelay = expectation(description: "answer delay")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            answerDelay.fulfill()
+        }
+        wait(for: [answerDelay], timeout: 1.0)
+
+        appendLine(jsonLine([
+            "type": "response_item",
+            "payload": [
+                "type": "function_call_output",
+                "call_id": "call_question_2",
+                "output": "{}"
+            ]
+        ]), to: paths.transcriptPath)
+
+        wait(for: [gotUpdates], timeout: 5.0)
+        watcher.flushQueue()
+
+        XCTAssertEqual(watcher.cachedStatus(for: sessionId), .working)
+        guard case .questionAnswered = collector.updates.last else {
+            return XCTFail("Expected questionAnswered, got \(String(describing: collector.updates.last))")
+        }
+    }
+
+    func testStopHookSuppressedWhileTranscriptQuestionOpen() {
+        let watcher = EventFileWatcher()
+        let sessionId = UUID().uuidString.lowercased()
+        let paths = prepareFiles(sessionId: sessionId)
+        defer {
+            watcher.stopWatching(sessionId: sessionId)
+            try? FileManager.default.removeItem(atPath: paths.eventPath)
+            try? FileManager.default.removeItem(atPath: paths.transcriptPath)
+        }
+
+        let collector = UpdateCollector()
+        let gotQuestion = expectation(description: "Got initial + transcript question")
+        gotQuestion.expectedFulfillmentCount = 2
+
+        let collectTask = Task {
+            for await update in watcher.updates() {
+                collector.append(update.event)
+                gotQuestion.fulfill()
+            }
+        }
+        defer { collectTask.cancel() }
+
+        let arguments = #"{"questions":[{"question":"Pick an option","options":[]}]}"#
+        appendLine(jsonLine([
+            "type": "response_item",
+            "payload": [
+                "type": "function_call",
+                "name": "request_user_input",
+                "call_id": "call_question_3",
+                "arguments": arguments
+            ]
+        ]), to: paths.transcriptPath)
+
+        watcher.startWatching(sessionId: sessionId)
+
+        let writeDelay = expectation(description: "write delay")
+        writeDelay.isInverted = true
+        wait(for: [writeDelay], timeout: 0.3)
+
+        appendLine(jsonLine(["transcript_path": paths.transcriptPath]), to: paths.eventPath)
+        appendLine(jsonLine([
+            "hook_event_name": "Stop",
+            "stop_hook_active": true,
+            "reason": "end_turn",
+            "transcript_path": paths.transcriptPath
+        ]), to: paths.eventPath)
+
+        wait(for: [gotQuestion], timeout: 5.0)
+        watcher.flushQueue()
+        let countAfterQuestion = collector.count
+
+        let settle = expectation(description: "settle")
+        settle.isInverted = true
+        wait(for: [settle], timeout: 0.3)
+
+        XCTAssertEqual(watcher.cachedStatus(for: sessionId), .waitingForInput)
+        XCTAssertEqual(collector.count, countAfterQuestion)
+        XCTAssertFalse(collector.updates.contains { event in
+            if case .stop = event { return true }
+            return false
+        })
+    }
+
     /// Verifies that when prompt_submit + stop arrive in one batch, both
     /// the intermediate working state and the final done state are emitted
     /// as separate StateEvent updates through the AsyncStream.

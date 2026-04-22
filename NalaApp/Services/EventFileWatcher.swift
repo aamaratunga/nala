@@ -29,6 +29,12 @@ final class EventFileWatcher: @unchecked Sendable {
         var fileDescriptor: Int32 = -1
         var source: DispatchSourceFileSystemObject?
         var partialLine: String = ""
+        var transcriptPath: String?
+        var transcriptLastOffset: UInt64 = 0
+        var transcriptFileDescriptor: Int32 = -1
+        var transcriptSource: DispatchSourceFileSystemObject?
+        var transcriptPartialLine: String = ""
+        var openQuestionCallIds: Set<String> = []
         /// Cached agent status, mutated only on watcherQueue. Use stateLock for cross-thread reads.
         var _currentStatus: AgentStatus = .idle
         var latestEventType: String?
@@ -69,6 +75,11 @@ final class EventFileWatcher: @unchecked Sendable {
     private var continuations: [Int: AsyncStream<AgentStateUpdate>.Continuation] = [:]
     private let continuationsLock = NSLock()
 
+    private enum TranscriptRecordEvent {
+        case questionRequest(callId: String, summary: String, timestamp: Date)
+        case questionAnswered(callId: String, timestamp: Date)
+    }
+
     /// ISO 8601 date formatter for parsing event timestamps.
     private static let iso8601Formatter: ISO8601DateFormatter = {
         let f = ISO8601DateFormatter()
@@ -98,6 +109,7 @@ final class EventFileWatcher: @unchecked Sendable {
         watchers.removeAll()
         for (_, watcher) in allWatchers {
             watcher.source?.cancel()
+            cancelTranscriptWatcher(watcher)
         }
         for (_, c) in continuations { c.finish() }
         continuations.removeAll()
@@ -141,6 +153,7 @@ final class EventFileWatcher: @unchecked Sendable {
             self.watchersLock.lock()
             guard self.watchers[sessionId] === watcher else {
                 self.watchersLock.unlock()
+                self.cancelTranscriptWatcher(watcher)
                 return
             }
             self.watchersLock.unlock()
@@ -229,6 +242,10 @@ final class EventFileWatcher: @unchecked Sendable {
             // Setup was interrupted before dispatch source was created
             Darwin.close(watcher.fileDescriptor)
         }
+        watcherQueue.async { [weak self] in
+            guard let self else { return }
+            self.cancelTranscriptWatcher(watcher)
+        }
     }
 
     /// Stop all watchers.
@@ -239,6 +256,7 @@ final class EventFileWatcher: @unchecked Sendable {
         watchersLock.unlock()
         for (_, watcher) in allWatchers {
             watcher.source?.cancel()
+            cancelTranscriptWatcher(watcher)
             // FD is closed in setCancelHandler
         }
         continuationsLock.lock()
@@ -403,6 +421,100 @@ final class EventFileWatcher: @unchecked Sendable {
         return nil
     }
 
+    private static func extractTranscriptPath(from json: [String: Any]) -> String? {
+        let keys = ["transcript_path", "transcriptPath"]
+        for key in keys {
+            if let path = json[key] as? String, !path.isEmpty {
+                return (path as NSString).expandingTildeInPath
+            }
+        }
+
+        if let session = json["session"] as? [String: Any] {
+            for key in keys {
+                if let path = session[key] as? String, !path.isEmpty {
+                    return (path as NSString).expandingTildeInPath
+                }
+            }
+        }
+
+        return nil
+    }
+
+    private static func parseTranscriptRecord(_ json: [String: Any]) -> TranscriptRecordEvent? {
+        guard let payload = transcriptPayload(from: json) else { return nil }
+        let payloadType = payload["type"] as? String ?? ""
+        let timestamp = parseTranscriptTimestamp(json: json, payload: payload)
+
+        if payloadType == "function_call",
+           payload["name"] as? String == "request_user_input",
+           let callId = transcriptCallId(from: payload) {
+            let summary = questionSummary(from: payload["arguments"] ?? payload["input"])
+            return .questionRequest(callId: callId, summary: summary, timestamp: timestamp)
+        }
+
+        if payloadType == "function_call_output",
+           let callId = transcriptCallId(from: payload) {
+            return .questionAnswered(callId: callId, timestamp: timestamp)
+        }
+
+        return nil
+    }
+
+    private static func transcriptPayload(from json: [String: Any]) -> [String: Any]? {
+        if json["type"] as? String == "response_item" {
+            return json["payload"] as? [String: Any] ?? json["item"] as? [String: Any]
+        }
+
+        if let payload = json["payload"] as? [String: Any],
+           payload["type"] as? String == "response_item" {
+            return payload["payload"] as? [String: Any] ?? payload["item"] as? [String: Any]
+        }
+
+        return nil
+    }
+
+    private static func transcriptCallId(from payload: [String: Any]) -> String? {
+        for key in ["call_id", "callId", "id"] {
+            if let callId = payload[key] as? String, !callId.isEmpty {
+                return callId
+            }
+        }
+        return nil
+    }
+
+    private static func questionSummary(from rawArguments: Any?) -> String {
+        let arguments: [String: Any]
+        if let dict = rawArguments as? [String: Any] {
+            arguments = dict
+        } else if let string = rawArguments as? String,
+                  let data = string.data(using: .utf8),
+                  let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            arguments = dict
+        } else {
+            arguments = [:]
+        }
+
+        let directQuestions = arguments["questions"] as? [[String: Any]]
+        let nestedInput = arguments["input"] as? [String: Any]
+        let nestedQuestions = nestedInput?["questions"] as? [[String: Any]]
+        let questions = directQuestions ?? nestedQuestions
+        if let text = questions?.first?["question"] as? String {
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+                return String(trimmed.prefix(200))
+            }
+        }
+
+        return "Asking a question"
+    }
+
+    private static func parseTranscriptTimestamp(json: [String: Any], payload: [String: Any]) -> Date {
+        if json["timestamp"] != nil || json["ts"] != nil {
+            return parseTimestamp(from: json)
+        }
+        return parseTimestamp(from: payload)
+    }
+
     /// Generate a human-readable summary for a tool use event.
     private static func makeToolSummary(toolName: String, input: [String: Any]) -> String {
         switch toolName {
@@ -519,6 +631,98 @@ final class EventFileWatcher: @unchecked Sendable {
         source.resume()
     }
 
+    private func ensureTranscriptWatcher(path: String, watcher: SessionWatcher, emitRecovered: Bool) {
+        let expandedPath = (path as NSString).expandingTildeInPath
+        if watcher.transcriptPath == expandedPath, watcher.transcriptSource != nil {
+            return
+        }
+
+        cancelTranscriptWatcher(watcher)
+        watcher.transcriptPath = expandedPath
+        watcher.transcriptLastOffset = 0
+        watcher.transcriptPartialLine = ""
+        watcher.openQuestionCallIds.removeAll()
+
+        guard FileManager.default.fileExists(atPath: expandedPath) else {
+            logger.debug("Transcript path does not exist for \(watcher.sessionId): \(expandedPath)")
+            return
+        }
+
+        recoverTranscriptStateFromTail(watcher: watcher, emitUpdate: emitRecovered)
+
+        let fd = open(expandedPath, O_RDONLY | O_NONBLOCK)
+        guard fd >= 0 else {
+            logger.warning("Failed to open transcript file for watching: \(expandedPath)")
+            return
+        }
+
+        watcher.transcriptFileDescriptor = fd
+        setupTranscriptDispatchSource(watcher: watcher)
+    }
+
+    private func recoverTranscriptStateFromTail(watcher: SessionWatcher, emitUpdate shouldEmit: Bool) {
+        guard let transcriptPath = watcher.transcriptPath,
+              let attrs = try? FileManager.default.attributesOfItem(atPath: transcriptPath),
+              let fileSize = attrs[.size] as? UInt64,
+              fileSize > 0 else { return }
+
+        let tailSize: UInt64 = min(fileSize, 256 * 1024)
+        let readOffset = fileSize - tailSize
+
+        guard let fh = FileHandle(forReadingAtPath: transcriptPath) else { return }
+        defer { fh.closeFile() }
+
+        fh.seek(toFileOffset: readOffset)
+        let data = fh.readData(ofLength: Int(tailSize))
+        watcher.transcriptLastOffset = fileSize
+
+        let text = String(decoding: data, as: UTF8.self)
+        guard !text.isEmpty else { return }
+
+        var processText = text
+        if readOffset > 0, let firstNewline = text.firstIndex(of: "\n") {
+            processText = String(text[text.index(after: firstNewline)...])
+        }
+
+        processTranscriptEvents(text: processText, watcher: watcher, emitUpdate: shouldEmit)
+    }
+
+    private func setupTranscriptDispatchSource(watcher: SessionWatcher) {
+        let source = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: watcher.transcriptFileDescriptor,
+            eventMask: [.write, .extend],
+            queue: watcherQueue
+        )
+
+        source.setEventHandler { [weak self, weak watcher] in
+            guard let self, let watcher else { return }
+            self.readNewTranscriptContent(watcher: watcher)
+        }
+
+        let fd = watcher.transcriptFileDescriptor
+        source.setCancelHandler {
+            if fd >= 0 { Darwin.close(fd) }
+        }
+
+        watcher.transcriptSource = source
+        source.resume()
+    }
+
+    private func cancelTranscriptWatcher(_ watcher: SessionWatcher) {
+        if let source = watcher.transcriptSource {
+            source.cancel()
+        } else if watcher.transcriptFileDescriptor >= 0 {
+            Darwin.close(watcher.transcriptFileDescriptor)
+        }
+
+        watcher.transcriptSource = nil
+        watcher.transcriptFileDescriptor = -1
+        watcher.transcriptPath = nil
+        watcher.transcriptLastOffset = 0
+        watcher.transcriptPartialLine = ""
+        watcher.openQuestionCallIds.removeAll()
+    }
+
     private func readNewContent(watcher: SessionWatcher) {
         guard let attrs = try? FileManager.default.attributesOfItem(atPath: watcher.path),
               let fileSize = attrs[.size] as? UInt64 else { return }
@@ -541,6 +745,31 @@ final class EventFileWatcher: @unchecked Sendable {
         guard let text = String(data: data, encoding: .utf8), !text.isEmpty else { return }
 
         processEvents(text: text, watcher: watcher, emitUpdate: true)
+    }
+
+    private func readNewTranscriptContent(watcher: SessionWatcher) {
+        guard let transcriptPath = watcher.transcriptPath,
+              let attrs = try? FileManager.default.attributesOfItem(atPath: transcriptPath),
+              let fileSize = attrs[.size] as? UInt64 else { return }
+
+        if fileSize < watcher.transcriptLastOffset {
+            watcher.transcriptLastOffset = 0
+            watcher.transcriptPartialLine = ""
+            watcher.openQuestionCallIds.removeAll()
+        }
+
+        guard fileSize > watcher.transcriptLastOffset else { return }
+
+        guard let fileHandle = FileHandle(forReadingAtPath: transcriptPath) else { return }
+        defer { fileHandle.closeFile() }
+
+        fileHandle.seek(toFileOffset: watcher.transcriptLastOffset)
+        let data = fileHandle.readData(ofLength: Int(fileSize - watcher.transcriptLastOffset))
+        watcher.transcriptLastOffset = fileSize
+
+        guard let text = String(data: data, encoding: .utf8), !text.isEmpty else { return }
+
+        processTranscriptEvents(text: text, watcher: watcher, emitUpdate: true)
     }
 
     private func processEvents(text: String, watcher: SessionWatcher, emitUpdate shouldEmit: Bool) {
@@ -572,7 +801,16 @@ final class EventFileWatcher: @unchecked Sendable {
             }
 
             for json in jsonObjects {
+                if let transcriptPath = Self.extractTranscriptPath(from: json) {
+                    ensureTranscriptWatcher(path: transcriptPath, watcher: watcher, emitRecovered: shouldEmit)
+                }
+
                 guard let parsed = Self.parseHookEvent(json) else { continue }
+
+                if parsed.eventType == "stop", !watcher.openQuestionCallIds.isEmpty {
+                    logger.debug("Suppressing Stop hook while Codex question is open for \(watcher.sessionId)")
+                    continue
+                }
 
                 let timestamp = Self.parseTimestamp(from: json)
                 let toolName = json["tool_name"] as? String ?? ""
@@ -611,6 +849,84 @@ final class EventFileWatcher: @unchecked Sendable {
                 // the status doesn't change (e.g., working → working on
                 // consecutive tool_use events). Status dedup happens in
                 // SessionStore's dispatchStateEvent via the reducer.
+                if shouldEmit {
+                    emitUpdate(watcher: watcher, event: stateEvent)
+                }
+            }
+        }
+    }
+
+    private func processTranscriptEvents(text: String, watcher: SessionWatcher, emitUpdate shouldEmit: Bool) {
+        let fullText = watcher.transcriptPartialLine + text
+        let lines = fullText.split(separator: "\n", omittingEmptySubsequences: false)
+
+        if text.hasSuffix("\n") {
+            watcher.transcriptPartialLine = ""
+        } else if let last = lines.last {
+            watcher.transcriptPartialLine = String(last)
+        }
+
+        let completeLines = text.hasSuffix("\n") ? lines : lines.dropLast()
+
+        for line in completeLines {
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+
+            let jsonObjects: [[String: Any]]
+            if let data = trimmed.data(using: .utf8),
+               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                jsonObjects = [json]
+            } else {
+                jsonObjects = Self.splitConcatenatedJSON(trimmed)
+            }
+
+            for json in jsonObjects {
+                guard let transcriptEvent = Self.parseTranscriptRecord(json) else { continue }
+
+                let stateEvent: StateEvent
+                let eventType: String
+                let summary: String?
+                let eventTimestamp: Date
+
+                switch transcriptEvent {
+                case .questionRequest(let callId, let questionSummary, let timestamp):
+                    guard !watcher.openQuestionCallIds.contains(callId) else { continue }
+                    watcher.openQuestionCallIds.insert(callId)
+                    watcher.waitingReason = questionSummary
+                    watcher.waitingSummary = questionSummary
+                    stateEvent = .questionRequest(summary: questionSummary, timestamp: timestamp)
+                    eventType = "question_request"
+                    summary = questionSummary
+                    eventTimestamp = timestamp
+
+                case .questionAnswered(let callId, let timestamp):
+                    guard watcher.openQuestionCallIds.remove(callId) != nil else { continue }
+                    stateEvent = .questionAnswered(timestamp: timestamp)
+                    eventType = "question_answered"
+                    summary = "Question answered"
+                    eventTimestamp = timestamp
+                }
+
+                watcher.latestEventType = eventType
+                watcher.latestEventTime = eventTimestamp
+                if let summary {
+                    watcher.latestSummary = summary
+                }
+
+                let transition = StateReducer.reduce(current: watcher._currentStatus, event: stateEvent, source: .eventWatcher)
+                watcher._currentStatus = transition.to
+
+                if shouldEmit && !watcher.firstEventLogged {
+                    watcher.firstEventLogged = true
+                    let sinceLaunch = SessionStore.launchTimestamps[watcher.sessionId].map {
+                        " sincelaunch=\(String(format: "%.0f", (CACurrentMediaTime() - $0) * 1000))ms"
+                    } ?? ""
+                    PersistentLog.shared.write(
+                        "AGENT_FIRST_EVENT type=\(eventType) session=\(watcher.sessionId)\(sinceLaunch)",
+                        category: "EventFileWatcher"
+                    )
+                }
+
                 if shouldEmit {
                     emitUpdate(watcher: watcher, event: stateEvent)
                 }
