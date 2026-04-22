@@ -91,10 +91,11 @@ struct SessionDetailView: View {
     }
 
     private var agentBadgeColor: Color {
-        switch session.agentType {
-        case "terminal": return NalaTheme.teal
-        default: return NalaTheme.textSecondary
-        }
+        provider.badgeColor
+    }
+
+    private var provider: AgentProvider {
+        AgentProvider.provider(for: session.agentType)
     }
 
     private var sessionHeader: some View {
@@ -122,7 +123,7 @@ struct SessionDetailView: View {
                     .background(NalaTheme.blueAccent.opacity(0.12), in: Capsule())
             }
 
-            Text(session.agentType.capitalized)
+            Text(provider.displayName)
                 .font(.caption)
                 .fontWeight(.medium)
                 .padding(.horizontal, 6)

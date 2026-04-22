@@ -937,18 +937,7 @@ final class SessionStore {
     // MARK: - Default Commands
 
     private func defaultCommands(for agentType: String) -> [SessionCommand] {
-        switch agentType {
-        case "claude":
-            return [
-                SessionCommand(name: "compact", description: "Compress conversation history"),
-                SessionCommand(name: "clear", description: "Clear conversation and start fresh"),
-                SessionCommand(name: "review", description: "Review code changes"),
-                SessionCommand(name: "cost", description: "Show token usage and cost"),
-                SessionCommand(name: "diff", description: "View changes made in session"),
-            ]
-        default:
-            return []
-        }
+        AgentProvider.provider(for: agentType).defaultCommands
     }
 
     // MARK: - Session Launch (Native)

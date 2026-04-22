@@ -20,6 +20,7 @@ enum NalaTheme {
     static let red = Color(red: 1.0, green: 0.42, blue: 0.42)              // #FF6B6B
     static let teal = Color(red: 0.337, green: 0.831, blue: 0.867)         // #56D4DD
     static let magenta = Color(red: 0.824, green: 0.659, blue: 1.0)        // #D2A8FF
+    static let openaiGreen = Color(red: 0.063, green: 0.639, blue: 0.498)  // #10A37F
 
     // MARK: - Backgrounds
 
