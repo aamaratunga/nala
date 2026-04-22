@@ -110,6 +110,7 @@ final class CodexHookBridgeTests: XCTestCase {
         }
 
         XCTAssertTrue(CodexHookBridge.nalaHookCommand.contains(#"[ -z "$NALA_SESSION_ID" ] && exit 0"#))
+        XCTAssertTrue(CodexHookBridge.nalaHookCommand.contains("umask 077"))
         XCTAssertTrue(CodexHookBridge.nalaHookCommand.contains(#"~/.nala/events/$NALA_SESSION_ID.jsonl"#))
         XCTAssertFalse(CodexHookBridge.nalaHookCommand.contains("echo \""))
     }

@@ -78,7 +78,7 @@ final class CodexHookBridge: @unchecked Sendable {
         "Stop",
     ]
 
-    static let nalaHookCommand = #"[ -z "$NALA_SESSION_ID" ] && exit 0; mkdir -p ~/.nala/events && { cat; echo; } >> ~/.nala/events/$NALA_SESSION_ID.jsonl"#
+    static let nalaHookCommand = #"[ -z "$NALA_SESSION_ID" ] && exit 0; umask 077; mkdir -p ~/.nala/events && { cat; echo; } >> ~/.nala/events/$NALA_SESSION_ID.jsonl"#
 
     private let hooksFileURL: URL
     private let fileManager: FileManager
@@ -308,6 +308,8 @@ final class CodexHookBridge: @unchecked Sendable {
         ]
     }
 
+    private static let processTimeout: TimeInterval = 10
+
     private static func runProcess(executablePath: String, args: [String]) async -> CommandResult {
         await withCheckedContinuation { continuation in
             let process = Process()
@@ -319,21 +321,82 @@ final class CodexHookBridge: @unchecked Sendable {
             process.standardOutput = stdoutPipe
             process.standardError = stderrPipe
 
+            // Read incrementally to prevent pipe buffer deadlock (64KB limit).
+            let stdoutBuf = LockedBuffer()
+            let stderrBuf = LockedBuffer()
+            stdoutPipe.fileHandleForReading.readabilityHandler = { handle in
+                let data = handle.availableData
+                if !data.isEmpty { stdoutBuf.append(data) }
+            }
+            stderrPipe.fileHandleForReading.readabilityHandler = { handle in
+                let data = handle.availableData
+                if !data.isEmpty { stderrBuf.append(data) }
+            }
+
+            let once = OnceFlag()
+
             process.terminationHandler = { process in
-                let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-                let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+                stdoutPipe.fileHandleForReading.readabilityHandler = nil
+                stderrPipe.fileHandleForReading.readabilityHandler = nil
+                stdoutBuf.append(stdoutPipe.fileHandleForReading.readDataToEndOfFile())
+                stderrBuf.append(stderrPipe.fileHandleForReading.readDataToEndOfFile())
+                guard once.trySet() else { return }
                 continuation.resume(returning: CommandResult(
                     exitCode: process.terminationStatus,
-                    stdout: stdout,
-                    stderr: stderr
+                    stdout: String(data: stdoutBuf.data, encoding: .utf8) ?? "",
+                    stderr: String(data: stderrBuf.data, encoding: .utf8) ?? ""
                 ))
             }
 
             do {
                 try process.run()
             } catch {
+                stdoutPipe.fileHandleForReading.readabilityHandler = nil
+                stderrPipe.fileHandleForReading.readabilityHandler = nil
+                guard once.trySet() else { return }
                 continuation.resume(returning: CommandResult(exitCode: -1, stdout: "", stderr: error.localizedDescription))
+                return
             }
+
+            DispatchQueue.global().asyncAfter(deadline: .now() + processTimeout) {
+                guard process.isRunning else { return }
+                process.terminate()
+                guard once.trySet() else { return }
+                continuation.resume(returning: CommandResult(exitCode: -1, stdout: "", stderr: "Process timed out after \(Int(processTimeout))s"))
+            }
+        }
+    }
+
+    /// Thread-safe mutable data buffer for incremental pipe reads.
+    private final class LockedBuffer: @unchecked Sendable {
+        private var _data = Data()
+        private let lock = NSLock()
+
+        func append(_ new: Data) {
+            guard !new.isEmpty else { return }
+            lock.lock()
+            _data.append(new)
+            lock.unlock()
+        }
+
+        var data: Data {
+            lock.lock()
+            defer { lock.unlock() }
+            return _data
+        }
+    }
+
+    /// Thread-safe one-shot flag to guard continuation resumption.
+    private final class OnceFlag: @unchecked Sendable {
+        private var fired = false
+        private let lock = NSLock()
+
+        func trySet() -> Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            guard !fired else { return false }
+            fired = true
+            return true
         }
     }
 }
