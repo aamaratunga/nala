@@ -309,7 +309,8 @@ final class TmuxServiceTests: XCTestCase {
             tmuxRunner: { args in
                 await recorder.record(args)
                 return CommandResult(exitCode: 0, stdout: "", stderr: "")
-            }
+            },
+            launchFlagsReader: { _ in "" }
         )
 
         let sessionName = try await service.createSession(

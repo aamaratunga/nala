@@ -188,4 +188,136 @@ final class PaletteModeTests: XCTestCase {
         let target = backspaceEmptyTarget(for: .browsePath(origin: .newAgent))
         XCTAssertEqual(target, .switchSession)
     }
+
+    // MARK: - Launch Folder Items
+
+    func testLaunchFolderItemsIncludeFolderOrderPaths() {
+        let items = buildLaunchFolderItems(
+            folderOrder: ["/proj/alpha", "/proj/beta"],
+            folderLastUsed: [:],
+            repoConfigs: []
+        )
+
+        XCTAssertEqual(items.map(\.path), ["/proj/alpha", "/proj/beta"])
+        XCTAssertEqual(items.map(\.label), ["alpha", "beta"])
+        XCTAssertEqual(items.map(\.isSavedRepo), [false, false])
+    }
+
+    func testLaunchFolderItemsIncludeRepoConfigsWithNonEmptyRepoPath() {
+        let items = buildLaunchFolderItems(
+            folderOrder: [],
+            folderLastUsed: [:],
+            repoConfigs: [
+                repoConfig(path: "/repos/nala"),
+                repoConfig(path: "/repos/other")
+            ]
+        )
+
+        XCTAssertEqual(items.map(\.path), ["/repos/nala", "/repos/other"])
+        XCTAssertEqual(items.map(\.isSavedRepo), [true, true])
+    }
+
+    func testLaunchFolderItemsExcludeRepoConfigsWithEmptyRepoPath() {
+        let items = buildLaunchFolderItems(
+            folderOrder: ["/proj/alpha"],
+            folderLastUsed: [:],
+            repoConfigs: [
+                repoConfig(path: ""),
+                repoConfig(path: "/repos/nala")
+            ]
+        )
+
+        XCTAssertEqual(items.map(\.path), ["/proj/alpha", "/repos/nala"])
+    }
+
+    func testLaunchFolderItemsDeduplicateFolderAndRepoPathAsSavedRepo() {
+        let items = buildLaunchFolderItems(
+            folderOrder: ["/proj/alpha", "/proj/nala"],
+            folderLastUsed: [:],
+            repoConfigs: [
+                repoConfig(path: "/proj/nala")
+            ]
+        )
+
+        XCTAssertEqual(items.map(\.path), ["/proj/alpha", "/proj/nala"])
+        XCTAssertEqual(items.map(\.isSavedRepo), [false, true])
+    }
+
+    func testLaunchFolderItemsSortTimestampedPathsNewestFirstAcrossSources() {
+        let old = Date(timeIntervalSince1970: 100)
+        let newer = Date(timeIntervalSince1970: 200)
+        let newest = Date(timeIntervalSince1970: 300)
+
+        let items = buildLaunchFolderItems(
+            folderOrder: ["/proj/alpha", "/proj/beta"],
+            folderLastUsed: [
+                "/proj/alpha": newer,
+                "/repos/nala": newest,
+                "/proj/beta": old
+            ],
+            repoConfigs: [
+                repoConfig(path: "/repos/nala")
+            ]
+        )
+
+        XCTAssertEqual(items.map(\.path), ["/repos/nala", "/proj/alpha", "/proj/beta"])
+        XCTAssertEqual(items.map(\.isSavedRepo), [true, false, false])
+    }
+
+    func testLaunchFolderItemsKeepUntimestampedAfterTimestampedInStableSourceOrder() {
+        let items = buildLaunchFolderItems(
+            folderOrder: ["/proj/alpha", "/proj/beta", "/proj/gamma"],
+            folderLastUsed: [
+                "/proj/beta": Date(timeIntervalSince1970: 100)
+            ],
+            repoConfigs: [
+                repoConfig(path: "/repos/nala"),
+                repoConfig(path: "/repos/tools")
+            ]
+        )
+
+        XCTAssertEqual(
+            items.map(\.path),
+            ["/proj/beta", "/proj/alpha", "/proj/gamma", "/repos/nala", "/repos/tools"]
+        )
+    }
+
+    func testLaunchFolderItemsPinActivePathFirst() {
+        let old = Date(timeIntervalSince1970: 100)
+        let newer = Date(timeIntervalSince1970: 200)
+
+        let items = buildLaunchFolderItems(
+            folderOrder: ["/proj/alpha", "/proj/beta"],
+            folderLastUsed: [
+                "/proj/alpha": old,
+                "/proj/beta": newer
+            ],
+            repoConfigs: [],
+            activePath: "/proj/alpha"
+        )
+
+        XCTAssertEqual(items.map(\.path), ["/proj/alpha", "/proj/beta"])
+    }
+
+    func testLaunchFolderItemsPinActivePathFirstEvenWhenFromRepoConfigs() {
+        let items = buildLaunchFolderItems(
+            folderOrder: ["/proj/alpha"],
+            folderLastUsed: [
+                "/proj/alpha": Date(timeIntervalSince1970: 200)
+            ],
+            repoConfigs: [
+                repoConfig(path: "/repos/nala")
+            ],
+            activePath: "/repos/nala"
+        )
+
+        XCTAssertEqual(items.map(\.path), ["/repos/nala", "/proj/alpha"])
+    }
+
+    private func repoConfig(path: String) -> RepoConfig {
+        var config = RepoConfig()
+        config.repoPath = path
+        config.worktreeFolderPath = path.isEmpty ? "" : "\(path)-worktrees"
+        return config
+    }
 }

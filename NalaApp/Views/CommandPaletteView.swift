@@ -87,9 +87,78 @@ enum PaletteMode: Equatable {
 
 // MARK: - Palette Item
 
+struct LaunchFolderItem: Identifiable, Equatable {
+    let path: String
+    let label: String
+    let isSavedRepo: Bool
+
+    var id: String { path }
+}
+
+func buildLaunchFolderItems(
+    folderOrder: [String],
+    folderLastUsed: [String: Date],
+    repoConfigs: [RepoConfig],
+    activePath: String? = nil
+) -> [LaunchFolderItem] {
+    struct SourceItem {
+        let path: String
+        var isSavedRepo: Bool
+        let sourceIndex: Int
+    }
+
+    var sourceItems: [SourceItem] = []
+    var indexByPath: [String: Int] = [:]
+
+    for path in folderOrder where !path.isEmpty {
+        guard indexByPath[path] == nil else { continue }
+        indexByPath[path] = sourceItems.count
+        sourceItems.append(SourceItem(path: path, isSavedRepo: false, sourceIndex: sourceItems.count))
+    }
+
+    for config in repoConfigs where !config.repoPath.isEmpty {
+        if let index = indexByPath[config.repoPath] {
+            sourceItems[index].isSavedRepo = true
+        } else {
+            indexByPath[config.repoPath] = sourceItems.count
+            sourceItems.append(SourceItem(path: config.repoPath, isSavedRepo: true, sourceIndex: sourceItems.count))
+        }
+    }
+
+    return sourceItems
+        .sorted { lhs, rhs in
+            // Active folder always first
+            let lhsActive = lhs.path == activePath
+            let rhsActive = rhs.path == activePath
+            if lhsActive != rhsActive { return lhsActive }
+
+            let tA = folderLastUsed[lhs.path]
+            let tB = folderLastUsed[rhs.path]
+
+            switch (tA, tB) {
+            case let (lhsDate?, rhsDate?):
+                if lhsDate != rhsDate { return lhsDate > rhsDate }
+                return lhs.sourceIndex < rhs.sourceIndex
+            case (_?, nil):
+                return true
+            case (nil, _?):
+                return false
+            case (nil, nil):
+                return lhs.sourceIndex < rhs.sourceIndex
+            }
+        }
+        .map { item in
+            LaunchFolderItem(
+                path: item.path,
+                label: URL(fileURLWithPath: item.path).lastPathComponent,
+                isSavedRepo: item.isSavedRepo
+            )
+        }
+}
+
 private enum PaletteItem: Identifiable, Equatable {
     case session(Session, isCurrent: Bool)
-    case folder(path: String, label: String)
+    case folder(LaunchFolderItem)
     case action(ActionItem)
     case repo(RepoConfig)
     case pathResult(PathResult)
@@ -97,7 +166,7 @@ private enum PaletteItem: Identifiable, Equatable {
     var id: String {
         switch self {
         case .session(let s, _): return "session:\(s.id)"
-        case .folder(let path, _): return "folder:\(path)"
+        case .folder(let folder): return "folder:\(folder.path)"
         case .action(let a): return "action:\(a.id)"
         case .repo(let r): return "repo:\(r.id)"
         case .pathResult(let p): return "path:\(p.id)"
@@ -159,6 +228,7 @@ func fuzzyMatch(query: String, target: String) -> FuzzyMatch? {
 private struct HighlightedText: View {
     let text: String
     let matchedIndices: Set<Int>
+    var font: Font = .callout
 
     var body: some View {
         let chars = Array(text)
@@ -166,10 +236,10 @@ private struct HighlightedText: View {
             var str = AttributedString(String(pair.element))
             if matchedIndices.contains(pair.offset) {
                 str.foregroundColor = Color(NalaTheme.textPrimary)
-                str.font = .callout.weight(.semibold)
+                str.font = font.weight(.semibold)
             } else {
                 str.foregroundColor = Color(NalaTheme.textSecondary)
-                str.font = .callout
+                str.font = font
             }
             return result + str
         })
@@ -426,25 +496,12 @@ struct CommandPaletteView: View {
     }
 
     private var folderModeItems: [PaletteItem] {
-        let activePath = store.focusedFolderPath
-
-        // Sort by recency (most recent first), folders with no timestamp last
-        var paths = store.folderOrder.sorted { a, b in
-            let tA = store.folderLastUsed[a] ?? .distantPast
-            let tB = store.folderLastUsed[b] ?? .distantPast
-            return tA > tB
-        }
-
-        // Active folder always first
-        if let active = activePath, let idx = paths.firstIndex(of: active) {
-            paths.remove(at: idx)
-            paths.insert(active, at: 0)
-        }
-
-        var items: [PaletteItem] = paths.map { path in
-            let label = URL(fileURLWithPath: path).lastPathComponent
-            return .folder(path: path, label: label)
-        }
+        var items = buildLaunchFolderItems(
+            folderOrder: store.folderOrder,
+            folderLastUsed: store.folderLastUsed,
+            repoConfigs: store.repoConfigs,
+            activePath: store.focusedFolderPath
+        ).map { PaletteItem.folder($0) }
 
         items.append(.action(ActionItem(id: "browse-other", label: "Browse Other...", icon: "folder.badge.plus", shortcut: "")))
         return items
@@ -495,8 +552,17 @@ struct CommandPaletteView: View {
                     scored.append((item, m.score, m.matchedIndices))
                 }
 
-            case .folder(_, let label):
-                if let m = fuzzyMatch(query: query, target: label) {
+            case .folder(let folder):
+                let targets = [folder.label, folder.path]
+                var bestMatch: FuzzyMatch?
+                for target in targets {
+                    if let m = fuzzyMatch(query: query, target: target) {
+                        if bestMatch == nil || m.score > bestMatch!.score {
+                            bestMatch = m
+                        }
+                    }
+                }
+                if let m = bestMatch {
                     scored.append((item, m.score, m.matchedIndices))
                 }
 
@@ -791,30 +857,45 @@ struct CommandPaletteView: View {
     }
 
     private func folderRow(item: PaletteItem, index: Int) -> some View {
-        guard case .folder(_, let label) = item else { return AnyView(EmptyView()) }
+        guard case .folder(let folder) = item else { return AnyView(EmptyView()) }
         let isSelected = index == selectedIndex
-        let matchIndices = matchedIndices(for: label)
+        let matchIndices = matchedIndices(for: folder.label)
+        let pathMatchIndices = matchedIndices(for: folder.path)
 
         return AnyView(
             HStack(spacing: 12) {
-                Image(systemName: "folder")
-                    .foregroundStyle(NalaTheme.textSecondary)
+                Image(systemName: folder.isSavedRepo ? "arrow.triangle.branch" : "folder")
+                    .foregroundStyle(folder.isSavedRepo ? NalaTheme.coralPrimary : NalaTheme.textSecondary)
                     .font(.callout)
 
-                if matchIndices.isEmpty {
-                    Text(label)
-                        .font(.callout)
-                        .foregroundStyle(NalaTheme.textPrimary)
-                        .lineLimit(1)
-                } else {
-                    HighlightedText(text: label, matchedIndices: Set(matchIndices))
-                        .lineLimit(1)
+                VStack(alignment: .leading, spacing: 2) {
+                    if matchIndices.isEmpty {
+                        Text(folder.label)
+                            .font(.callout)
+                            .foregroundStyle(NalaTheme.textPrimary)
+                            .lineLimit(1)
+                    } else {
+                        HighlightedText(text: folder.label, matchedIndices: Set(matchIndices))
+                            .lineLimit(1)
+                    }
+
+                    if pathMatchIndices.isEmpty {
+                        Text(folder.path)
+                            .font(.caption)
+                            .foregroundStyle(NalaTheme.textTertiary)
+                            .lineLimit(1)
+                            .truncationMode(.head)
+                    } else {
+                        HighlightedText(text: folder.path, matchedIndices: Set(pathMatchIndices), font: .caption)
+                            .lineLimit(1)
+                            .truncationMode(.head)
+                    }
                 }
 
                 Spacer()
             }
             .padding(.horizontal, 20)
-            .padding(.vertical, 12)
+            .padding(.vertical, 10)
             .background(
                 Group {
                     if isSelected {
@@ -830,6 +911,7 @@ struct CommandPaletteView: View {
             .onHover { hovering in
                 if hovering { selectedIndex = index }
             }
+            .accessibilityLabel("\(folder.label), \(folder.isSavedRepo ? "saved repository" : "folder"), \(folder.path)")
         )
     }
 
@@ -1097,10 +1179,10 @@ struct CommandPaletteView: View {
                 ContentView.focusTerminal(session: store.selectedSession)
             }
 
-        case .folder(let path, _):
+        case .folder(let folder):
             guard let agentType = mode.launchAgentType else { return }
             store.showCommandPalette = false
-            store.launchSession(agentType: agentType, in: path)
+            store.launchSession(agentType: agentType, in: folder.path)
 
         case .repo(let config):
             // Select repo, transition to branch input
