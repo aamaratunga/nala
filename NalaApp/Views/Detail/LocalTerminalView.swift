@@ -12,6 +12,12 @@ final class NalaTerminalView: LocalProcessTerminalView {
     /// The tmux session name this terminal is attached to.
     var sessionName: String = ""
 
+    /// Whether this view should auto-focus when added to a window.
+    /// Set by makeNSView based on isAutoFocusSuppressed; consumed once
+    /// by viewDidMoveToWindow and cleared to prevent re-focus on
+    /// fullscreen transitions or Space moves.
+    var shouldAutoFocus: Bool = true
+
     /// Deferred process start: stored until the view has a non-zero frame
     /// so that `forkpty` uses the real terminal dimensions instead of the
     /// 2×1 minimum that SwiftTerm enforces for a `.zero` frame.
@@ -46,6 +52,13 @@ final class NalaTerminalView: LocalProcessTerminalView {
                 category: "Terminal"
             )
         }
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard let window = self.window, shouldAutoFocus else { return }
+        shouldAutoFocus = false
+        window.makeFirstResponder(self)
     }
 
     override func setFrameSize(_ newSize: NSSize) {
@@ -294,6 +307,9 @@ final class NalaTerminalView: LocalProcessTerminalView {
 struct LocalTerminalView: NSViewRepresentable {
     let sessionName: String
     @Binding var isTerminated: Bool
+    /// When true, the terminal will not auto-focus on creation.
+    /// Set from store.sidebarFocused so keyboard nav doesn't steal focus.
+    var isAutoFocusSuppressed: Bool = false
     /// Called when the user presses Esc or Ctrl+C (cancel keys).
     var onCancel: (() -> Void)?
     /// Called when the user presses Enter (plain, no modifiers) — used for
@@ -326,13 +342,7 @@ struct LocalTerminalView: NSViewRepresentable {
             category: "Terminal"
         )
 
-        // Auto-focus: only one terminal view exists at a time, so it
-        // should always accept keyboard input. The async lets SwiftUI
-        // finish layout before we request first-responder status.
-        DispatchQueue.main.async {
-            guard let window = NSApp.keyWindow else { return }
-            window.makeFirstResponder(tv)
-        }
+        tv.shouldAutoFocus = !isAutoFocusSuppressed
 
         // Font — prefer JetBrains Mono per DESIGN.md, fall back to MesloLGS Nerd Font (icon glyphs)
         if let jbMono = NSFont(name: "JetBrains Mono", size: 16) {

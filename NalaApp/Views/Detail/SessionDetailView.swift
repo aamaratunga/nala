@@ -46,6 +46,7 @@ struct SessionDetailView: View {
                     LocalTerminalView(
                         sessionName: session.tmuxSession,
                         isTerminated: $isLocalTerminated,
+                        isAutoFocusSuppressed: store.sidebarFocused,
                         onCancel: { [sessionId = session.sessionId] in
                             store.handleAgentCancel(sessionId: sessionId)
                         },

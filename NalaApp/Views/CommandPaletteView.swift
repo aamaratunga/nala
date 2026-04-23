@@ -1170,13 +1170,17 @@ struct CommandPaletteView: View {
         switch item {
         case .session(let session, _):
             let sessionId = session.id
+            let wasAlreadySelected = store.selectedSessionId == sessionId
             store.selectedSessionId = sessionId
             store.sidebarFocused = false
             store.showCommandPalette = false
-            // Focus terminal after palette closes; verify session is still selected
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                guard store.selectedSessionId == sessionId else { return }
-                ContentView.focusTerminal(session: store.selectedSession)
+            if wasAlreadySelected {
+                // View won't be recreated so viewDidMoveToWindow won't fire.
+                // Focus directly after palette dismiss animation completes.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                    guard store.selectedSessionId == sessionId else { return }
+                    ContentView.focusTerminal(session: store.selectedSession)
+                }
             }
 
         case .folder(let folder):
