@@ -17,16 +17,7 @@ Items ordered by recommended execution sequence.
 **Effort:** S
 **Priority:** P1
 
-#### 2. Show saved repos in agent / terminal launch lists
-
-**What:** Pre-populate the "New Agent" and "New Terminal" sheets with repos the user has already added in Settings, so they can launch with one click instead of selecting "Other" and browsing.
-
-**Why:** Every new-agent launch currently requires navigating through the file browser even for repos the user works in daily. This is the highest-friction step in the core workflow.
-
-**Effort:** S
-**Priority:** P1
-
-#### 3. Bundle tmux binary for distribution
+#### 2. Bundle tmux binary for distribution
 
 **What:** Compile a statically-linked universal tmux binary and ship it inside the .app bundle so the app works for users without Homebrew.
 
@@ -41,7 +32,7 @@ Items ordered by recommended execution sequence.
 
 ### Tier 2 — Coworker beta polish
 
-#### 4. Repo-specific sidebar icons
+#### 3. Repo-specific sidebar icons
 
 **What:** Add distinct icons or color badges per repo in the session sidebar so users can visually distinguish which repo each session belongs to at a glance.
 
@@ -50,7 +41,7 @@ Items ordered by recommended execution sequence.
 **Effort:** S
 **Priority:** P2
 
-#### 5. State updates for long-running terminal commands
+#### 4. State updates for long-running terminal commands
 
 **What:** Surface progress or activity indicators for terminal sessions running long-lived commands (builds, test suites, installs, etc.) so users can tell at a glance whether a session is actively working, idle, or stuck.
 
@@ -61,7 +52,7 @@ Items ordered by recommended execution sequence.
 **Effort:** M
 **Priority:** P2
 
-#### 6. Auto-paste comments to agent terminal
+#### 5. Auto-paste comments to agent terminal
 
 **What:** Add a "Send to agent" button alongside "Copy all to prompt" in the diff viewer's CommentBarView. Injects formatted comments directly into the tmux session via `TmuxService` (`tmux send-keys`).
 
@@ -77,7 +68,7 @@ Items ordered by recommended execution sequence.
 
 ### Tier 3 — Wider distribution
 
-#### 7. Developer ID signing + notarization
+#### 6. Developer ID signing + notarization
 
 **What:** Sign the app with an Apple Developer ID certificate and notarize it so macOS Gatekeeper allows installation without right-click workarounds.
 
@@ -95,7 +86,7 @@ Items ordered by recommended execution sequence.
 **Priority:** P3
 **Depends on:** Apple Developer account enrollment
 
-#### 8. Homebrew Cask tap
+#### 7. Homebrew Cask tap
 
 **What:** Create a Homebrew Cask formula so users can `brew install --cask nala`.
 
@@ -112,7 +103,7 @@ Items ordered by recommended execution sequence.
 
 ### Tier 4 — Later power-user and platform work
 
-#### 9. Keyboard-driven comment workflow
+#### 8. Keyboard-driven comment workflow
 
 **What:** Add keyboard navigation for the diff viewer — arrow keys to navigate lines in the WKWebView, press 'c' to add a comment on the focused line, Escape to cancel.
 
@@ -124,7 +115,7 @@ Items ordered by recommended execution sequence.
 **Priority:** P3
 **Depends on:** Diff Viewer V1 (PR4: comment system)
 
-#### 10. Extract WorktreeManager from SessionStore
+#### 9. Extract WorktreeManager from SessionStore
 
 **What:** Extract worktree creation/deletion orchestration into a separate `WorktreeManager` class when SessionStore exceeds 2,500 lines.
 
@@ -135,7 +126,7 @@ Items ordered by recommended execution sequence.
 **Effort:** M
 **Priority:** P3
 
-#### 11. Multi-agent orchestration
+#### 10. Multi-agent orchestration
 
 **What:** Enable multiple agents to work together — either through automated chaining (agent A's output feeds agent B) or through agent teams that communicate with each other via shared context or message passing.
 
@@ -150,6 +141,7 @@ Items ordered by recommended execution sequence.
 
 ## Completed
 
+- ~~Show saved repos in agent / terminal launch lists~~ — New Claude, New Codex, and New Terminal palette modes now include Settings repo paths, dedupe exact paths against known folders, sort by recent use, match by name or full path, and show saved repos with branch icons plus path subtitles.
 - ~~Enable branch protection requiring CI pass~~ — Branch protection on `main` with required `Build & Test` check and squash-only merges
 - ~~Prune stale display names from UserDefaults on startup~~ — Expanded: prunes display names, event files, tmp files, and browse paths. Also fixes folderExpansion pruning gap in reconcileOrder.
 - ~~Remove Gemini agent support~~ — Removed regex, launch command, UI badge colors, default commands, test fixtures, and doc references
